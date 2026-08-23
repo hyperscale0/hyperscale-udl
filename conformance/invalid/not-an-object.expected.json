@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_shape",
+      "path": "$"
+    }
+  ],
+  "summary": "Valid JSON that is not a UDL document.",
+  "verdict": "invalid"
+}

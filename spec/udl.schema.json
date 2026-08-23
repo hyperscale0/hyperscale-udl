@@ -1,0 +1,1019 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hyperscale0/hyperscale-udl/main/spec/udl.schema.json",
+  "title": "UDL document, format version 1",
+  "description": "Generated from the Zod grammar in src/schema.ts by scripts/emit-spec.ts. Edits belong in the grammar. This schema pins document shape only; the semantic laws it cannot express are pinned by conformance/.",
+  "type": "object",
+  "properties": {
+    "nouns": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "aggregateInvariants": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "childNounId": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "childRefField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "childStatuses": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      }
+                    },
+                    "parentField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "childField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": [
+                    "childNounId",
+                    "childRefField",
+                    "childStatuses",
+                    "parentField",
+                    "childField"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "childNounId": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "childRefField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "childStatuses": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      }
+                    },
+                    "parentField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "count": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "window": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "days": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 3650
+                        }
+                      },
+                      "required": ["field", "days"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "childNounId",
+                    "childRefField",
+                    "childStatuses",
+                    "parentField",
+                    "count"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "distinctParties": {
+            "type": "boolean",
+            "const": true
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            }
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          },
+          "idPrefix": {
+            "type": "string",
+            "pattern": "^[a-z]{2,8}$"
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "initial": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+              },
+              "states": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              },
+              "transitions": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      }
+                    },
+                    "to": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    }
+                  },
+                  "required": ["from", "to"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["initial", "states", "transitions"],
+            "additionalProperties": false
+          },
+          "parties": {
+            "type": "object",
+            "properties": {
+              "beneficiary": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "payer": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "subjectHolder": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "partitions": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pieceFields": {
+                  "minItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]*$"
+                  }
+                },
+                "totalField": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                }
+              },
+              "required": ["pieceFields", "totalField"],
+              "additionalProperties": false
+            }
+          },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$"
+            }
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "kinds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              }
+            },
+            "required": ["kinds"],
+            "additionalProperties": false
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unwind": {
+            "type": "object",
+            "properties": {
+              "beforeField": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "confirm": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+              },
+              "penalty": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bps": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9999
+                    },
+                    "withinOffset": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["bps"],
+                  "additionalProperties": false
+                }
+              },
+              "quote": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+              },
+              "refundableField": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "refundDestinationField": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              }
+            },
+            "required": [
+              "confirm",
+              "penalty",
+              "quote",
+              "refundableField",
+              "refundDestinationField"
+            ],
+            "additionalProperties": false
+          },
+          "update": {
+            "type": "object",
+            "properties": {
+              "fields": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                }
+              },
+              "states": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              }
+            },
+            "required": ["fields", "states"],
+            "additionalProperties": false
+          },
+          "verbs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "deadline": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "offset": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["field"],
+                  "additionalProperties": false
+                },
+                "decision": {
+                  "type": "object",
+                  "properties": {
+                    "capability": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "deadlineMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "onTimeout": {
+                      "type": "string",
+                      "const": "decline"
+                    }
+                  },
+                  "required": ["capability", "deadlineMs", "onTimeout"],
+                  "additionalProperties": false
+                },
+                "description": {
+                  "type": "string"
+                },
+                "due": {
+                  "type": "object",
+                  "properties": {
+                    "every": {
+                      "type": "object",
+                      "properties": {
+                        "countField": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "period": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "calendar": {
+                                  "type": "string",
+                                  "enum": ["gregorian", "hijri"]
+                                },
+                                "months": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": ["calendar", "months"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "untilField": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        }
+                      },
+                      "required": ["period"],
+                      "additionalProperties": false
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "offset": {
+                      "type": "string"
+                    },
+                    "whenParentStatus": {
+                      "type": "object",
+                      "properties": {
+                        "nounId": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        },
+                        "refField": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "statuses": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          }
+                        }
+                      },
+                      "required": ["nounId", "refField", "statuses"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["field"],
+                  "additionalProperties": false
+                },
+                "earnable": {
+                  "type": "boolean"
+                },
+                "eventName": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$"
+                },
+                "examples": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/jsonValue"
+                        }
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "output": {
+                        "$ref": "#/$defs/jsonValue"
+                      }
+                    },
+                    "required": ["input", "name"],
+                    "additionalProperties": false
+                  }
+                },
+                "input": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/jsonValue"
+                  }
+                },
+                "moves": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "bind": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        },
+                        "additionalProperties": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "const"
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["from", "value"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "instance"
+                                },
+                                "path": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                                }
+                              },
+                              "required": ["from", "path"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "input"
+                                },
+                                "path": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                                }
+                              },
+                              "required": ["from", "path"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "capture": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "key": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      },
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "internal_transfer.create",
+                          "internal_transfer.reserve",
+                          "internal_transfer.post",
+                          "internal_transfer.void"
+                        ]
+                      }
+                    },
+                    "required": ["bind", "key", "operation"],
+                    "additionalProperties": false
+                  }
+                },
+                "port": {
+                  "type": "object",
+                  "properties": {
+                    "allowedParties": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["payer", "beneficiary", "subjectHolder"]
+                      }
+                    }
+                  },
+                  "required": ["allowedParties"],
+                  "additionalProperties": false
+                },
+                "requiresAggregate": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "check": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "amountField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "sum_at_least"
+                              },
+                              "targetField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              }
+                            },
+                            "required": ["amountField", "kind", "targetField"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "amountField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "sum_below"
+                              },
+                              "targetField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              }
+                            },
+                            "required": ["amountField", "kind", "targetField"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "amountField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "sum_exactly"
+                              },
+                              "targetField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              }
+                            },
+                            "required": ["amountField", "kind", "targetField"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "amountField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "anchorRef": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "sum_within_anchor_ref"
+                              }
+                            },
+                            "required": ["amountField", "anchorRef", "kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "count_at_least"
+                              },
+                              "targetField": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              }
+                            },
+                            "required": ["kind", "targetField"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "all_in"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "const": "count_equals_field"
+                              }
+                            },
+                            "required": ["field", "kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "nounId": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      },
+                      "over": {
+                        "type": "string",
+                        "enum": ["children", "siblings"]
+                      },
+                      "refField": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "statuses": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        }
+                      }
+                    },
+                    "required": ["check", "over", "refField", "statuses"],
+                    "additionalProperties": false
+                  }
+                },
+                "requiresDrainedAccount": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                    }
+                  },
+                  "required": ["path"],
+                  "additionalProperties": false
+                },
+                "requiresRefs": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "bind": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        }
+                      },
+                      "field": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "match": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        }
+                      },
+                      "optional": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "statuses": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        }
+                      },
+                      "unique": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": ["field", "statuses"],
+                    "additionalProperties": false
+                  }
+                },
+                "setsAt": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "offset": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["field", "offset"],
+                  "additionalProperties": false
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "bind": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        },
+                        "additionalProperties": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "const"
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["from", "value"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "instance"
+                                },
+                                "path": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                                }
+                              },
+                              "required": ["from", "path"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "const": "input"
+                                },
+                                "path": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                                }
+                              },
+                              "required": ["from", "path"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "capture": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "account.escrow.provision",
+                          "account.freeze",
+                          "account.unfreeze"
+                        ]
+                      }
+                    },
+                    "required": ["bind", "operation"],
+                    "additionalProperties": false
+                  }
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": ["steps", "summary"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "fields",
+          "id",
+          "idPrefix",
+          "lifecycle",
+          "required",
+          "summary",
+          "title",
+          "verbs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "product": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "declaredValue": {
+            "type": "string",
+            "enum": ["required", "optional", "none"]
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          },
+          "schema": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["declaredValue", "kind", "schema", "title", "version"],
+        "additionalProperties": false
+      }
+    },
+    "title": {
+      "type": "string"
+    },
+    "udl": {
+      "type": "number",
+      "const": 1
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": ["nouns", "product", "subjects", "title", "udl", "version"],
+  "additionalProperties": false,
+  "$defs": {
+    "jsonValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    }
+  }
+}

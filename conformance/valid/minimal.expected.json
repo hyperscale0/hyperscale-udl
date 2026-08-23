@@ -1,0 +1,5 @@
+{
+  "canonical": "minimal.udl",
+  "summary": "The smallest document the grammar and the semantic laws both accept.",
+  "verdict": "valid"
+}

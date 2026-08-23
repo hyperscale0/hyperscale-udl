@@ -1,0 +1,81 @@
+{
+  "name": "@hyperscale0/udl",
+  "version": "1.0.0-alpha.1",
+  "description": "The Universal Domain Language: format spec, parser, validator, canonical serializer, and evolution diff.",
+  "keywords": [
+    "udl",
+    "schema",
+    "validator",
+    "canonical-json",
+    "json-schema",
+    "conformance",
+    "fintech"
+  ],
+  "homepage": "https://github.com/hyperscale0/hyperscale-udl#readme",
+  "bugs": {
+    "url": "https://github.com/hyperscale0/hyperscale-udl/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyperscale0/hyperscale-udl.git"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "Hyperscale LLC",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "udl": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./spec/*": "./spec/*",
+    "./conformance/*": "./conformance/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "AUTHORS",
+    "CHANGELOG.md",
+    "LICENSE",
+    "LICENSING.md",
+    "README.md",
+    "SECURITY.md",
+    "TRADEMARKS.md",
+    "conformance",
+    "dist",
+    "spec",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "bun run spec:check && bun test && tsc -p tsconfig.json",
+    "postpack": "bun scripts/pack-exports.ts restore",
+    "prepack": "bun run build && bun scripts/pack-exports.ts apply",
+    "spec": "bun scripts/emit-spec.ts --write",
+    "spec:check": "bun scripts/emit-spec.ts --check",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "typescript": "6.0.3"
+  },
+  "contributors": [
+    "Meshael AlBakaawi",
+    "Amir Ayub",
+    "Sara AlBakaawi"
+  ]
+}

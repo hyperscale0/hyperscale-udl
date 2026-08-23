@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "resource_limit",
+      "path": "$.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested"
+    }
+  ],
+  "summary": "Admission budgets are part of the format: nesting past 24 levels is refused before validation.",
+  "verdict": "invalid"
+}

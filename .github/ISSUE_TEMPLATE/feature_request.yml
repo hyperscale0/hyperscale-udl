@@ -1,0 +1,54 @@
+name: Feature request
+description: Something the format or the tooling should be able to express.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the ten laws in [`spec/README.md`](https://github.com/hyperscale0/hyperscale-udl/blob/main/spec/README.md)
+        first. Most declined proposals are declined by law 2, the purity law:
+        the request is provider or bank machinery, and it belongs below the
+        language rather than inside it.
+
+  - type: textarea
+    id: product
+    attributes:
+      label: The product you are trying to describe
+      description: >
+        In business terms, not format terms. What does the thing do, and who
+        does it do it to?
+    validations:
+      required: true
+
+  - type: textarea
+    id: blocked
+    attributes:
+      label: Where the format stops you
+      description: >
+        Paste the closest document you can write today and say what it cannot
+        say.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: The shape you have in mind
+      description: Optional. If you have a proposed grammar, write it out.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: laws
+    attributes:
+      label: Against the laws
+      options:
+        - label: >
+            This is a product concept, not provider or bank machinery
+            (statement formats, polling, cutoffs, scheme names, reconciliation).
+          required: true
+        - label: >
+            This can be explained in one sentence to someone who has never seen
+            UDL.
+          required: true

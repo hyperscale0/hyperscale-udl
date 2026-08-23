@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_semantics",
+      "path": "$.nouns[0].verbs"
+    }
+  ],
+  "summary": "Every noun declares create: nothing else can bring an instance into being.",
+  "verdict": "invalid"
+}

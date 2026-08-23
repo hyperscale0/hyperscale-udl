@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_semantics",
+      "path": "$.nouns[0].verbs.touch"
+    }
+  ],
+  "summary": "Every verb but create moves the instance between declared states.",
+  "verdict": "invalid"
+}

@@ -1,0 +1,5 @@
+{
+  "canonical": "commerce-escrow.udl",
+  "summary": "Marketplace escrow: funds held on order, released to the seller on delivery.",
+  "verdict": "valid"
+}

@@ -1,0 +1,1136 @@
+{
+  "nouns": [
+    {
+      "aggregateInvariants": [
+        {
+          "childField": "claimAmount",
+          "childNounId": "claim",
+          "childRefField": "policyId",
+          "childStatuses": [
+            "filed",
+            "assessed",
+            "approved",
+            "paid"
+          ],
+          "parentField": "coverageLimit"
+        }
+      ],
+      "description": "A policy quotes protection over one subject, binds after a carrier decision, activates at its declared start, and expires at term. Premium remains refundable while bound but not active; activation pays the insurer and opens the policy to claims.",
+      "fields": {
+        "coverageLimit": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "insurerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "perilSchedule": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "deductibleBps": {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limitAmount": {
+                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                "pattern": "^[1-9][0-9]{0,17}$",
+                "type": "string"
+              },
+              "peril": {
+                "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                "type": "string"
+              },
+              "waitingPeriodDays": {
+                "maximum": 3650,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "peril",
+              "limitAmount",
+              "deductibleBps",
+              "waitingPeriodDays"
+            ],
+            "type": "object"
+          },
+          "maxItems": 24,
+          "minItems": 1,
+          "type": "array"
+        },
+        "policyholderAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "premiumAmount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "renewalOfPolicyId": {
+          "description": "Prior policy this quote renews; the prior term must be active or already expired",
+          "pattern": "^pol_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "startsAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "termsSummary": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "id": "policy",
+      "idPrefix": "pol",
+      "lifecycle": {
+        "initial": "quoted",
+        "states": [
+          "quoted",
+          "bound",
+          "active",
+          "cancel_quoted",
+          "canceled",
+          "expired"
+        ],
+        "transitions": {
+          "activate": {
+            "from": [
+              "bound"
+            ],
+            "to": "active"
+          },
+          "bind": {
+            "from": [
+              "quoted"
+            ],
+            "to": "bound"
+          },
+          "cancel": {
+            "from": [
+              "cancel_quoted"
+            ],
+            "to": "canceled"
+          },
+          "endorse": {
+            "from": [
+              "active"
+            ],
+            "to": "active"
+          },
+          "expire": {
+            "from": [
+              "active"
+            ],
+            "to": "expired"
+          },
+          "preview": {
+            "from": [
+              "bound"
+            ],
+            "to": "cancel_quoted"
+          },
+          "withdraw": {
+            "from": [
+              "quoted"
+            ],
+            "to": "canceled"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "insurerAccountId",
+        "payer": "policyholderAccountId"
+      },
+      "required": [
+        "policyholderAccountId",
+        "insurerAccountId",
+        "premiumAmount",
+        "coverageLimit",
+        "currency",
+        "startsAt",
+        "expiresAt",
+        "perilSchedule"
+      ],
+      "subject": {
+        "kinds": [
+          "policy_risk",
+          "flight_itinerary",
+          "lodging_stay",
+          "vehicle",
+          "pet",
+          "traveler_party",
+          "employee_census"
+        ]
+      },
+      "summary": "Carrier-backed protection over one declared-value subject.",
+      "title": "Policy",
+      "unwind": {
+        "confirm": "cancel",
+        "penalty": [
+          {
+            "bps": 0
+          }
+        ],
+        "quote": "preview",
+        "refundDestinationField": "policyholderAccountId",
+        "refundableField": "premiumAmount"
+      },
+      "update": {
+        "fields": [
+          "startsAt",
+          "expiresAt",
+          "perilSchedule",
+          "termsSummary"
+        ],
+        "states": [
+          "quoted"
+        ]
+      },
+      "verbs": {
+        "activate": {
+          "description": "Starts cover at the declared time and pays the held premium to the insurer under the machine principal.",
+          "due": {
+            "field": "startsAt"
+          },
+          "earnable": true,
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "premiumTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Activate a policy"
+        },
+        "bind": {
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the carrier to accept the risk, then moves the premium into its dedicated reserve until cover starts.",
+          "eventName": "policy.bound",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "premiumFundingTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Bind a policy"
+        },
+        "cancel": {
+          "description": "Confirms the previewed cancellation and returns the entire reserved premium to the policyholder before cover starts.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "premiumRefundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Cancel a policy"
+        },
+        "create": {
+          "description": "Creates a quote against one declared-value risk and provisions the premium reserve. No premium moves until the carrier binds.",
+          "eventName": "policy.quoted",
+          "examples": [
+            {
+              "input": {
+                "coverageLimit": "200000",
+                "currency": "SAR",
+                "expiresAt": "2027-08-01T00:00:00.000Z",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "perilSchedule": [
+                  {
+                    "deductibleBps": 500,
+                    "limitAmount": "200000",
+                    "peril": "accidental_damage",
+                    "waitingPeriodDays": 0
+                  },
+                  {
+                    "deductibleBps": 250,
+                    "limitAmount": "200000",
+                    "peril": "theft",
+                    "waitingPeriodDays": 7
+                  }
+                ],
+                "policyholderAccountId": "acct_sandbox_holder00001",
+                "premiumAmount": "12500",
+                "startsAt": "2026-08-01T00:00:00.000Z",
+                "subject": "sbj_sandbox_protection001",
+                "termsSummary": "Annual cover for accidental damage and theft."
+              },
+              "name": "quote_asset_protection"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "renewalOfPolicyId",
+              "optional": true,
+              "statuses": [
+                "active",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "workspace"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "workspace_escrow"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "premiumReserveAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Quote a policy"
+        },
+        "endorse": {
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Applies a carrier-approved mid-term change to active cover: the peril schedule, terms summary, or expiry may be rewritten. No premium moves; mid-term premium adjustment is not modeled.",
+          "examples": [
+            {
+              "input": {
+                "expiresAt": "2027-11-01T00:00:00.000Z",
+                "termsSummary": "Extended cover incl. water damage."
+              },
+              "name": "endorse_extend_active_cover"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "expiresAt": {
+                "format": "hyperscale-date-time",
+                "type": "string"
+              },
+              "perilSchedule": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "deductibleBps": {
+                      "maximum": 10000,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "limitAmount": {
+                      "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                      "pattern": "^[1-9][0-9]{0,17}$",
+                      "type": "string"
+                    },
+                    "peril": {
+                      "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                      "type": "string"
+                    },
+                    "waitingPeriodDays": {
+                      "maximum": 3650,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "peril",
+                    "limitAmount",
+                    "deductibleBps",
+                    "waitingPeriodDays"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "minItems": 1,
+                "type": "array"
+              },
+              "termsSummary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "moves": [],
+          "steps": [],
+          "summary": "Endorse a policy"
+        },
+        "expire": {
+          "description": "Ends active cover at term under the machine principal. Earned premium remains with the insurer.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Expire a policy"
+        },
+        "preview": {
+          "description": "Quotes the full premium refund while cover is bound but not active. No money moves until cancellation is confirmed.",
+          "moves": [],
+          "steps": [],
+          "summary": "Preview policy cancellation"
+        },
+        "withdraw": {
+          "description": "Closes an unbound quote. No premium moved, so no cancellation preview is required.",
+          "eventName": "policy.withdrawn",
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Withdraw a policy quote"
+        }
+      }
+    },
+    {
+      "description": "A claim is filed against an active policy, assessed, approved or denied, and paid from the insurer account through a held transfer. Approval can be reversed before payment, releasing the insurer's hold without moving settled money.",
+      "fields": {
+        "claimAmount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "claimantAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "evidenceSummary": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "insurerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "occurredAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "peril": {
+          "pattern": "^[a-z][a-z0-9_]{1,79}$",
+          "type": "string"
+        },
+        "policyId": {
+          "description": "Active policy this claim is made against",
+          "pattern": "^pol_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        }
+      },
+      "id": "claim",
+      "idPrefix": "clm",
+      "lifecycle": {
+        "initial": "filed",
+        "states": [
+          "filed",
+          "assessed",
+          "approved",
+          "paid",
+          "denied"
+        ],
+        "transitions": {
+          "approve": {
+            "from": [
+              "assessed"
+            ],
+            "to": "approved"
+          },
+          "assess": {
+            "from": [
+              "filed"
+            ],
+            "to": "assessed"
+          },
+          "attest": {
+            "from": [
+              "assessed"
+            ],
+            "to": "approved"
+          },
+          "deny": {
+            "from": [
+              "filed",
+              "assessed"
+            ],
+            "to": "denied"
+          },
+          "pay": {
+            "from": [
+              "approved"
+            ],
+            "to": "paid"
+          },
+          "reverse": {
+            "from": [
+              "approved"
+            ],
+            "to": "denied"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "claimantAccountId",
+        "payer": "insurerAccountId"
+      },
+      "required": [
+        "policyId",
+        "claimantAccountId",
+        "insurerAccountId",
+        "claimAmount",
+        "currency",
+        "peril",
+        "occurredAt"
+      ],
+      "subject": {
+        "kinds": [
+          "policy_risk",
+          "flight_itinerary",
+          "lodging_stay",
+          "vehicle",
+          "pet",
+          "traveler_party",
+          "employee_census"
+        ]
+      },
+      "summary": "Demand against active protection for one covered peril.",
+      "title": "Claim",
+      "update": {
+        "fields": [
+          "evidenceSummary"
+        ],
+        "states": [
+          "filed",
+          "assessed"
+        ]
+      },
+      "verbs": {
+        "approve": {
+          "decision": {
+            "capability": "insurance_claims_adjuster",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the claims adjuster to approve the assessed demand, then holds the immutable claim amount from the insurer for the claimant. For a carrier that exposes an adjudication API: the verdict is the provider's, taken just in time under a deadline.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "steps": [],
+          "summary": "Approve a claim"
+        },
+        "assess": {
+          "description": "Marks filed evidence ready for an approval decision. A claim validly filed during cover continues even if the policy term later expires.",
+          "moves": [],
+          "steps": [],
+          "summary": "Assess a claim"
+        },
+        "attest": {
+          "description": "Records the insurer's own approval of the assessed demand, taken outside the platform, and holds the immutable claim amount from the insurer for the claimant. The insurer must be asserted as the acting party. Use this where the carrier exposes no adjudication API; where one exists, approve calls it instead.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "port": {
+            "allowedParties": [
+              "payer"
+            ]
+          },
+          "steps": [],
+          "summary": "Attest an out-of-band claim approval"
+        },
+        "create": {
+          "description": "Records a demand against an active policy and reserves its filed amount against the policy's aggregate coverage limit.",
+          "eventName": "claim.filed",
+          "examples": [
+            {
+              "input": {
+                "claimAmount": "75000",
+                "claimantAccountId": "acct_sandbox_holder00001",
+                "currency": "SAR",
+                "evidenceSummary": "Covered equipment was damaged in an accidental fall.",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "occurredAt": "2026-10-14T11:30:00.000Z",
+                "peril": "accidental_damage",
+                "policyId": "pol_sandbox_protection001",
+                "subject": "sbj_sandbox_protection001"
+              },
+              "name": "file_accidental_damage_claim"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "policyId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "File a claim"
+        },
+        "deny": {
+          "description": "Closes a filed or assessed demand before any payout hold exists.",
+          "eventName": "claim.denied",
+          "moves": [],
+          "steps": [],
+          "summary": "Deny a claim"
+        },
+        "pay": {
+          "description": "Posts the approved hold and settles the claim amount into the claimant account.",
+          "eventName": "claim.paid",
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
+          "steps": [],
+          "summary": "Pay a claim"
+        },
+        "reverse": {
+          "description": "Voids an approved payout hold before payment and closes the claim denied. No settled money is reversed.",
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Claim approval reversed"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Reverse claim approval"
+        }
+      }
+    }
+  ],
+  "product": "protection",
+  "subjects": [
+    {
+      "declaredValue": "required",
+      "kind": "vehicle",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "make": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mileageKm": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "vin": {
+            "maxLength": 17,
+            "minLength": 11,
+            "type": "string"
+          },
+          "year": {
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vin",
+          "make",
+          "model",
+          "year",
+          "mileageKm"
+        ],
+        "type": "object"
+      },
+      "title": "Vehicle",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "policy_risk",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "pattern": "^[a-z][a-z0-9_]{1,79}$",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "jurisdiction": {
+            "maxLength": 80,
+            "minLength": 2,
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "description",
+          "jurisdiction"
+        ],
+        "type": "object"
+      },
+      "title": "Policy risk",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "flight_itinerary",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "cabin": {
+            "enum": [
+              "economy",
+              "premium_economy",
+              "business",
+              "first"
+            ],
+            "type": "string"
+          },
+          "carrierName": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "destination": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "flightNumber": {
+            "maxLength": 8,
+            "minLength": 2,
+            "type": "string"
+          },
+          "origin": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "carrierName",
+          "flightNumber",
+          "origin",
+          "destination",
+          "cabin"
+        ],
+        "type": "object"
+      },
+      "title": "Flight itinerary",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "lodging_stay",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "city": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "propertyName": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "roomType": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "propertyName",
+          "city",
+          "roomType"
+        ],
+        "type": "object"
+      },
+      "title": "Lodging stay",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "pet",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "ageYears": {
+            "maximum": 30,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "breed": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "gender": {
+            "enum": [
+              "female",
+              "male"
+            ],
+            "type": "string"
+          },
+          "lastCheckupAt": {
+            "format": "hyperscale-date",
+            "type": "string"
+          },
+          "microchipNumber": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "neutered": {
+            "type": "boolean"
+          },
+          "species": {
+            "enum": [
+              "cat",
+              "dog"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "species",
+          "breed",
+          "ageYears",
+          "gender"
+        ],
+        "type": "object"
+      },
+      "title": "Pet",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "traveler_party",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "destinationRegion": {
+            "maxLength": 80,
+            "minLength": 2,
+            "type": "string"
+          },
+          "originCountry": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "travelers": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "enum": [
+                    "self",
+                    "spouse",
+                    "child"
+                  ],
+                  "type": "string"
+                },
+                "yearOfBirth": {
+                  "maximum": 2030,
+                  "minimum": 1900,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "role",
+                "yearOfBirth"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "travelers",
+          "destinationRegion"
+        ],
+        "type": "object"
+      },
+      "title": "Traveler party",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "employee_census",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "dependentCount": {
+            "maximum": 50000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "entityReference": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "insuranceClasses": {
+            "items": {
+              "maxLength": 60,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "type": "array"
+          },
+          "primaryCount": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entityReference",
+          "primaryCount",
+          "dependentCount"
+        ],
+        "type": "object"
+      },
+      "title": "Employee census",
+      "version": 1
+    }
+  ],
+  "title": "Protection",
+  "udl": 1,
+  "version": 1
+}

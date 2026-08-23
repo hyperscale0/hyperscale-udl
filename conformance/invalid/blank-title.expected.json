@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_shape",
+      "path": "$.title"
+    }
+  ],
+  "summary": "Whitespace is not a title. JSON Schema cannot express this check, so it lives here.",
+  "verdict": "invalid"
+}

@@ -1,0 +1,45 @@
+{
+  "nouns": [
+    {
+      "fields": {
+        "reference": {
+          "type": "string"
+        }
+      },
+      "id": "note",
+      "idPrefix": "note",
+      "lifecycle": {
+        "initial": "open",
+        "states": [
+          "open",
+          "closed"
+        ],
+        "transitions": {
+          "close": {
+            "from": [
+              "open"
+            ],
+            "to": "closed"
+          }
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "summary": "A note a tenant files and later closes.",
+      "title": "Note",
+      "verbs": {
+        "close": {
+          "moves": [],
+          "steps": [],
+          "summary": "Close the note."
+        }
+      }
+    }
+  ],
+  "product": "minimal",
+  "subjects": [],
+  "title": "Minimal",
+  "udl": 1,
+  "version": 1
+}

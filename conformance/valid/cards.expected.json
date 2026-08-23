@@ -1,0 +1,5 @@
+{
+  "canonical": "cards.udl",
+  "summary": "Card issuing: authorizations, transactions, and refunds over the sealed kernel.",
+  "verdict": "valid"
+}

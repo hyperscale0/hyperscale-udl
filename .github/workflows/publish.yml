@@ -1,0 +1,40 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          # Never cache a release build.
+          package-manager-cache: false
+
+      # Trusted publishing needs npm 11.5.1 or newer, and the npm bundled with
+      # a given Node 24 patch can be older than that.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - run: bun install --frozen-lockfile
+      - run: bun run spec:check
+      - run: bun test
+
+      # No NODE_AUTH_TOKEN and no npm token secret: the OIDC token minted by
+      # id-token:write authenticates the publish, and npm attaches provenance.
+      - name: Publish to npm
+        run: npm publish --tag alpha --access public

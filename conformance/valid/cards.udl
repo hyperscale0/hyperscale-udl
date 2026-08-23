@@ -1,0 +1,1092 @@
+{
+  "nouns": [
+    {
+      "description": "A cardholder links one first-party customer to the card program, becomes active after approval, may be suspended and resumed, and closes permanently when card access ends.",
+      "fields": {
+        "customerId": {
+          "description": "Tenant-local customer ID",
+          "pattern": "^cus_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "displayName": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "email": {
+          "format": "hyperscale-email",
+          "type": "string"
+        },
+        "phoneNumber": {
+          "maxLength": 32,
+          "minLength": 6,
+          "type": "string"
+        }
+      },
+      "id": "cardholder",
+      "idPrefix": "chd",
+      "lifecycle": {
+        "initial": "pending",
+        "states": [
+          "pending",
+          "active",
+          "suspended",
+          "closed"
+        ],
+        "transitions": {
+          "activate": {
+            "from": [
+              "pending"
+            ],
+            "to": "active"
+          },
+          "close": {
+            "from": [
+              "pending",
+              "active",
+              "suspended"
+            ],
+            "to": "closed"
+          },
+          "resume": {
+            "from": [
+              "suspended"
+            ],
+            "to": "active"
+          },
+          "suspend": {
+            "from": [
+              "active"
+            ],
+            "to": "suspended"
+          }
+        }
+      },
+      "required": [
+        "customerId",
+        "displayName"
+      ],
+      "summary": "Customer approved to hold cards in a product.",
+      "title": "Cardholder",
+      "update": {
+        "fields": [
+          "displayName",
+          "email",
+          "phoneNumber"
+        ],
+        "states": [
+          "pending",
+          "active",
+          "suspended"
+        ]
+      },
+      "verbs": {
+        "activate": {
+          "description": "Approves the customer to hold and use cards.",
+          "moves": [],
+          "steps": [],
+          "summary": "Activate a cardholder"
+        },
+        "close": {
+          "description": "Permanently ends the customer's cardholder relationship. Existing cards must be canceled separately.",
+          "moves": [],
+          "steps": [],
+          "summary": "Close a cardholder"
+        },
+        "create": {
+          "description": "Creates a pending cardholder for one verified first-party customer.",
+          "examples": [
+            {
+              "input": {
+                "customerId": "cus_sandbox_customer0001",
+                "displayName": "Noura Al Saud",
+                "email": "noura@example.test",
+                "phoneNumber": "+966500000001"
+              },
+              "name": "create_customer_cardholder"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Create a cardholder"
+        },
+        "resume": {
+          "description": "Restores card access after a suspension is resolved.",
+          "moves": [],
+          "steps": [],
+          "summary": "Resume a cardholder"
+        },
+        "suspend": {
+          "description": "Pauses the customer's card access without closing the cardholder.",
+          "moves": [],
+          "steps": [],
+          "summary": "Suspend a cardholder"
+        }
+      }
+    },
+    {
+      "description": "A card is issued to one active cardholder, activates for spending, can be frozen and unfrozen without replacement, and is canceled permanently. Spend controls remain declarative data on the card.",
+      "fields": {
+        "accountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "cardholderId": {
+          "description": "Active cardholder receiving this card",
+          "pattern": "^chd_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "spendControls": {
+          "additionalProperties": false,
+          "properties": {
+            "allowedCountries": {
+              "items": {
+                "description": "ISO 3166-1 alpha-2 country code",
+                "maxLength": 2,
+                "minLength": 2,
+                "pattern": "^[A-Z]{2}$",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            "allowedMerchantCategories": {
+              "items": {
+                "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            "dailyLimit": {
+              "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+              "pattern": "^[1-9][0-9]{0,17}$",
+              "type": "string"
+            },
+            "monthlyLimit": {
+              "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+              "pattern": "^[1-9][0-9]{0,17}$",
+              "type": "string"
+            },
+            "singlePurchaseLimit": {
+              "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+              "pattern": "^[1-9][0-9]{0,17}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "singlePurchaseLimit",
+            "dailyLimit",
+            "monthlyLimit"
+          ],
+          "type": "object"
+        }
+      },
+      "id": "card",
+      "idPrefix": "card",
+      "lifecycle": {
+        "initial": "issued",
+        "states": [
+          "issued",
+          "active",
+          "frozen",
+          "canceled"
+        ],
+        "transitions": {
+          "activate": {
+            "from": [
+              "issued"
+            ],
+            "to": "active"
+          },
+          "cancel": {
+            "from": [
+              "issued",
+              "active",
+              "frozen"
+            ],
+            "to": "canceled"
+          },
+          "freeze": {
+            "from": [
+              "active"
+            ],
+            "to": "frozen"
+          },
+          "unfreeze": {
+            "from": [
+              "frozen"
+            ],
+            "to": "active"
+          }
+        }
+      },
+      "parties": {
+        "payer": "accountId"
+      },
+      "required": [
+        "cardholderId",
+        "accountId",
+        "currency",
+        "label",
+        "spendControls"
+      ],
+      "summary": "Virtual payment card bound to a cardholder account.",
+      "title": "Card",
+      "update": {
+        "fields": [
+          "label",
+          "spendControls"
+        ],
+        "states": [
+          "issued",
+          "active",
+          "frozen"
+        ]
+      },
+      "verbs": {
+        "activate": {
+          "description": "Makes the issued virtual card available for authorization.",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Activate a card"
+        },
+        "cancel": {
+          "description": "Permanently stops the virtual card. Existing posted transactions remain part of its history.",
+          "moves": [],
+          "steps": [],
+          "summary": "Cancel a card"
+        },
+        "create": {
+          "description": "Issues a virtual card to one active cardholder and binds its spend controls and funding account.",
+          "eventName": "card.issued",
+          "examples": [
+            {
+              "input": {
+                "accountId": "acct_sandbox_cardfund0001",
+                "cardholderId": "chd_sandbox_customer0001",
+                "currency": "SAR",
+                "label": "Primary virtual card",
+                "spendControls": {
+                  "allowedCountries": [
+                    "SA"
+                  ],
+                  "allowedMerchantCategories": [
+                    "retail",
+                    "travel",
+                    "lodging"
+                  ],
+                  "dailyLimit": "100000",
+                  "monthlyLimit": "500000",
+                  "singlePurchaseLimit": "50000"
+                }
+              },
+              "name": "issue_controlled_virtual_card"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Issue a card"
+        },
+        "freeze": {
+          "description": "Stops new authorizations while preserving the card and its history.",
+          "moves": [],
+          "steps": [],
+          "summary": "Freeze a card"
+        },
+        "unfreeze": {
+          "description": "Restores authorization after a temporary freeze.",
+          "eventName": "card.unfrozen",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Unfreeze a card"
+        }
+      }
+    },
+    {
+      "description": "A card authorization starts pending, asks the configured card policy for an immediate decision, reserves the approved amount, and then either captures the hold, reverses it, or expires it. Declined requests never hold money.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "cardAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "cardId": {
+          "description": "Active card presented for this authorization",
+          "pattern": "^card_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "merchantCategory": {
+          "pattern": "^[a-z][a-z0-9_]{1,79}$",
+          "type": "string"
+        },
+        "merchantCountry": {
+          "description": "ISO 3166-1 alpha-2 country code",
+          "maxLength": 2,
+          "minLength": 2,
+          "pattern": "^[A-Z]{2}$",
+          "type": "string"
+        },
+        "merchantName": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "merchantReference": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "settlementAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "card_authorization",
+      "idPrefix": "cau",
+      "lifecycle": {
+        "initial": "pending",
+        "states": [
+          "pending",
+          "approved",
+          "captured",
+          "declined",
+          "reversed",
+          "expired"
+        ],
+        "transitions": {
+          "approve": {
+            "from": [
+              "pending"
+            ],
+            "to": "approved"
+          },
+          "capture": {
+            "from": [
+              "approved"
+            ],
+            "to": "captured"
+          },
+          "decline": {
+            "from": [
+              "pending"
+            ],
+            "to": "declined"
+          },
+          "expire": {
+            "from": [
+              "approved"
+            ],
+            "to": "expired"
+          },
+          "reverse": {
+            "from": [
+              "approved"
+            ],
+            "to": "reversed"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "settlementAccountId",
+        "payer": "cardAccountId"
+      },
+      "required": [
+        "cardId",
+        "cardAccountId",
+        "settlementAccountId",
+        "amount",
+        "currency",
+        "merchantName",
+        "merchantCategory",
+        "merchantCountry",
+        "merchantReference",
+        "expiresAt"
+      ],
+      "summary": "Just-in-time decision and hold for one card purchase.",
+      "title": "Card authorization",
+      "verbs": {
+        "approve": {
+          "decision": {
+            "capability": "banking_or_card_issuing",
+            "deadlineMs": 1500,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the configured card policy for a just-in-time decision and reserves the immutable authorization amount when approved.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.settlementAccountId"
+                },
+                "expiresAt": {
+                  "from": "instance",
+                  "path": "fields.expiresAt"
+                },
+                "memo": {
+                  "from": "const",
+                  "value": "Card authorization hold"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.cardAccountId"
+                }
+              },
+              "capture": {
+                "authorizationTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "cardId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Approve a card authorization"
+        },
+        "capture": {
+          "description": "Posts the reserved transfer after the merchant completes the purchase.",
+          "earnable": true,
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
+          "steps": [],
+          "summary": "Capture a card authorization"
+        },
+        "create": {
+          "description": "Records one pending merchant request against an active virtual card. No money is held before approval.",
+          "eventName": "card_authorization.requested",
+          "examples": [
+            {
+              "input": {
+                "amount": "12500",
+                "cardAccountId": "acct_sandbox_cardfund0001",
+                "cardId": "card_sandbox_virtual00001",
+                "currency": "SAR",
+                "expiresAt": "2026-07-16T12:00:00.000Z",
+                "merchantCategory": "electronics",
+                "merchantCountry": "SA",
+                "merchantName": "Riyadh Camera Store",
+                "merchantReference": "merchant-order-1042",
+                "settlementAccountId": "acct_sandbox_merchant0001"
+              },
+              "name": "request_retail_authorization"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Request a card authorization"
+        },
+        "decline": {
+          "description": "Closes a pending request without placing a hold after a declined card-policy decision.",
+          "moves": [],
+          "steps": [],
+          "summary": "Decline a card authorization"
+        },
+        "expire": {
+          "description": "Voids an approved hold at its declared expiry under the machine principal.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Card authorization expired"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Expire a card authorization"
+        },
+        "reverse": {
+          "description": "Voids an approved hold before capture and releases the card funds.",
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Card authorization reversed"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Reverse a card authorization"
+        }
+      }
+    },
+    {
+      "description": "A card transaction records the settled result of one captured authorization. It remains posted unless the full immutable amount is returned to the card account, after which it is refunded permanently.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "cardAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "cardAuthorizationId": {
+          "description": "Captured authorization settled by this transaction",
+          "pattern": "^cau_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "cardId": {
+          "description": "Card used for this transaction",
+          "pattern": "^card_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "merchantReference": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "postedAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "settlementAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "card_transaction",
+      "idPrefix": "ctx",
+      "lifecycle": {
+        "initial": "posted",
+        "states": [
+          "posted",
+          "refunded"
+        ],
+        "transitions": {
+          "refund": {
+            "from": [
+              "posted"
+            ],
+            "to": "refunded"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "settlementAccountId",
+        "payer": "cardAccountId"
+      },
+      "required": [
+        "cardAuthorizationId",
+        "cardId",
+        "cardAccountId",
+        "settlementAccountId",
+        "amount",
+        "currency",
+        "merchantReference",
+        "postedAt"
+      ],
+      "summary": "Posted card purchase and its possible full refund.",
+      "title": "Card transaction",
+      "verbs": {
+        "create": {
+          "description": "Records the posted purchase produced by one captured authorization. The amount, currency, card, and account pair are derived from the locked captured authorization -- never caller-supplied -- and each authorization settles into at most one transaction.",
+          "eventName": "card_transaction.posted",
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "postedAt": "2026-07-10T12:05:00.000Z"
+              },
+              "name": "record_captured_card_purchase"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.amount",
+                "cardAccountId": "fields.cardAccountId",
+                "cardId": "fields.cardId",
+                "currency": "fields.currency",
+                "merchantReference": "fields.merchantReference",
+                "settlementAccountId": "fields.settlementAccountId"
+              },
+              "field": "cardAuthorizationId",
+              "statuses": [
+                "captured"
+              ],
+              "unique": true
+            }
+          ],
+          "steps": [],
+          "summary": "Record a card transaction"
+        },
+        "refund": {
+          "description": "Returns the full posted amount from the settlement account to the card account and closes the transaction as refunded.",
+          "examples": [
+            {
+              "input": {
+                "reason": "Merchant accepted the returned item"
+              },
+              "name": "refund_returned_purchase"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.cardAccountId"
+                },
+                "memo": {
+                  "from": "input",
+                  "path": "reason"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.settlementAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "refundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Refund a card transaction"
+        }
+      }
+    },
+    {
+      "description": "A card dispute is filed with evidence against one posted transaction, enters review, and ends won or lost. A win returns the immutable disputed amount to the card account; an unresolved case is lost at its response deadline.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "cardAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "cardId": {
+          "description": "Card whose transaction is challenged",
+          "pattern": "^card_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "cardTransactionId": {
+          "description": "Posted card transaction challenged by this dispute",
+          "pattern": "^ctx_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                "type": "string"
+              },
+              "reference": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              },
+              "submittedAt": {
+                "format": "hyperscale-date-time",
+                "type": "string"
+              },
+              "summary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "summary",
+              "submittedAt"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "reason": {
+          "pattern": "^[a-z][a-z0-9_]{1,79}$",
+          "type": "string"
+        },
+        "responseDueAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "settlementAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "card_dispute",
+      "idPrefix": "cdis",
+      "lifecycle": {
+        "initial": "filed",
+        "states": [
+          "filed",
+          "under_review",
+          "won",
+          "lost"
+        ],
+        "transitions": {
+          "lose": {
+            "from": [
+              "filed",
+              "under_review"
+            ],
+            "to": "lost"
+          },
+          "review": {
+            "from": [
+              "filed"
+            ],
+            "to": "under_review"
+          },
+          "win": {
+            "from": [
+              "under_review"
+            ],
+            "to": "won"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "cardAccountId",
+        "payer": "settlementAccountId"
+      },
+      "required": [
+        "cardTransactionId",
+        "cardId",
+        "cardAccountId",
+        "settlementAccountId",
+        "amount",
+        "currency",
+        "reason",
+        "evidence",
+        "responseDueAt"
+      ],
+      "summary": "Evidence-backed challenge to one posted card transaction.",
+      "title": "Card dispute",
+      "update": {
+        "fields": [
+          "evidence"
+        ],
+        "states": [
+          "filed",
+          "under_review"
+        ]
+      },
+      "verbs": {
+        "create": {
+          "description": "Files an evidence-backed challenge against one transaction that is still posted. The disputed amount, currency, card, and account pair are derived from the locked transaction -- never caller-supplied.",
+          "eventName": "card_dispute.filed",
+          "examples": [
+            {
+              "input": {
+                "cardTransactionId": "ctx_sandbox_purchase00001",
+                "evidence": [
+                  {
+                    "kind": "customer_statement",
+                    "reference": "support-case-2048",
+                    "submittedAt": "2026-07-11T10:15:00.000Z",
+                    "summary": "Customer confirms the purchase was not authorized."
+                  }
+                ],
+                "reason": "unauthorized_purchase",
+                "responseDueAt": "2026-08-10T23:59:59.000Z"
+              },
+              "name": "file_unauthorized_purchase_dispute"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.amount",
+                "cardAccountId": "fields.cardAccountId",
+                "cardId": "fields.cardId",
+                "currency": "fields.currency",
+                "settlementAccountId": "fields.settlementAccountId"
+              },
+              "field": "cardTransactionId",
+              "statuses": [
+                "posted"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "File a card dispute"
+        },
+        "lose": {
+          "description": "Closes an unresolved dispute without moving money when its response deadline passes.",
+          "due": {
+            "field": "responseDueAt"
+          },
+          "eventName": "card_dispute.lost",
+          "moves": [],
+          "steps": [],
+          "summary": "Lose a card dispute"
+        },
+        "review": {
+          "description": "Accepts the filed evidence for an outcome decision before the response deadline.",
+          "moves": [],
+          "steps": [],
+          "summary": "Review a card dispute"
+        },
+        "win": {
+          "decision": {
+            "capability": "banking_or_card_issuing",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the configured card policy for the final outcome and returns the disputed amount when the cardholder wins.",
+          "eventName": "card_dispute.won",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.cardAccountId"
+                },
+                "memo": {
+                  "from": "const",
+                  "value": "Card dispute won"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.settlementAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "disputeTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "cardTransactionId",
+              "statuses": [
+                "posted"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Win a card dispute"
+        }
+      }
+    }
+  ],
+  "product": "cards",
+  "subjects": [],
+  "title": "Cards",
+  "udl": 1,
+  "version": 1
+}

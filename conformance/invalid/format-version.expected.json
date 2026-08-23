@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_shape",
+      "path": "$.udl"
+    }
+  ],
+  "summary": "A document declares its format version literally; format 2 does not exist yet.",
+  "verdict": "invalid"
+}

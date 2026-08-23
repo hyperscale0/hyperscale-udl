@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_shape",
+      "path": "$.nouns[0].id"
+    }
+  ],
+  "summary": "Naming law: noun ids are snake_case, singular, plain business English.",
+  "verdict": "invalid"
+}

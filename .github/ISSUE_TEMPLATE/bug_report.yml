@@ -1,0 +1,48 @@
+name: Bug report
+description: Something the parser, validator, serializer, diff, or CLI got wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report a security vulnerability here. Use
+        [private reporting](https://github.com/hyperscale0/hyperscale-udl/security/advisories/new).
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The `@hyperscale0/udl` version, from `npm ls @hyperscale0/udl`.
+      placeholder: 1.0.0-alpha.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: document
+    attributes:
+      label: The document
+      description: >
+        The smallest `.udl` that reproduces it. Trim it until removing one more
+        key makes the bug disappear, then paste that.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: >
+        Name the law or the schema rule you expected to apply. If a document
+        should have been refused, say with which issue code and path.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The exact output, including any issue codes and paths.
+      render: shell
+    validations:
+      required: true

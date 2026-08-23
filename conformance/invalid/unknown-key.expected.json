@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_shape",
+      "path": "$"
+    }
+  ],
+  "summary": "The grammar is closed: an unrecognized top-level key is refused, never ignored.",
+  "verdict": "invalid"
+}

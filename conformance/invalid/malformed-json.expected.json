@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_json",
+      "path": "$"
+    }
+  ],
+  "summary": "Bytes that are not JSON at all report a parse failure, not a grammar failure.",
+  "verdict": "invalid"
+}

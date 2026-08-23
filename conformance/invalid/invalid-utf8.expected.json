@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "invalid_utf8",
+      "path": "$"
+    }
+  ],
+  "summary": "A UDL file is strict UTF-8; a lone continuation byte is refused before JSON parsing.",
+  "verdict": "invalid"
+}

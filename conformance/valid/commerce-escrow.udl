@@ -1,0 +1,1011 @@
+{
+  "nouns": [
+    {
+      "description": "A listing starts as a private draft, becomes buyable when published, stays unavailable while funded escrow reserves it, and ends sold, withdrawn, or expired without ever moving money itself.",
+      "fields": {
+        "askingPrice": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "escrowOrderId": {
+          "description": "Escrow order whose held funds reserve this listing",
+          "pattern": "^eord_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "headline": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        "imageUrl": {
+          "format": "hyperscale-uri",
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "sellerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "listing",
+      "idPrefix": "lst",
+      "lifecycle": {
+        "initial": "draft",
+        "states": [
+          "draft",
+          "active",
+          "reserved",
+          "sold",
+          "withdrawn"
+        ],
+        "transitions": {
+          "expire": {
+            "from": [
+              "active"
+            ],
+            "to": "withdrawn"
+          },
+          "publish": {
+            "from": [
+              "draft"
+            ],
+            "to": "active"
+          },
+          "reopen": {
+            "from": [
+              "reserved"
+            ],
+            "to": "active"
+          },
+          "reserve": {
+            "from": [
+              "active"
+            ],
+            "to": "reserved"
+          },
+          "sell": {
+            "from": [
+              "reserved"
+            ],
+            "to": "sold"
+          },
+          "withdraw": {
+            "from": [
+              "draft",
+              "active"
+            ],
+            "to": "withdrawn"
+          }
+        }
+      },
+      "parties": {
+        "subjectHolder": "sellerAccountId"
+      },
+      "required": [
+        "sellerAccountId",
+        "headline",
+        "askingPrice",
+        "currency"
+      ],
+      "subject": {
+        "kinds": [
+          "vehicle",
+          "merchandise"
+        ]
+      },
+      "summary": "Subject-backed offer published by a seller.",
+      "title": "Listing",
+      "update": {
+        "fields": [
+          "headline",
+          "description",
+          "askingPrice",
+          "imageUrl",
+          "escrowOrderId",
+          "expiresAt"
+        ],
+        "states": [
+          "draft",
+          "active"
+        ]
+      },
+      "verbs": {
+        "create": {
+          "description": "Creates a private offer against one subject. Publishing is a separate, explicit decision.",
+          "examples": [
+            {
+              "input": {
+                "askingPrice": "240000",
+                "currency": "SAR",
+                "description": "Single owner, full service history, sold under escrow protection.",
+                "expiresAt": "2026-08-31T21:00:00.000Z",
+                "headline": "2021 Toyota Land Cruiser GXR",
+                "imageUrl": "https://cdn.sandbox.example/listings/landcruiser-2021.jpg",
+                "sellerAccountId": "acct_sandbox_seller0001",
+                "subject": "sbj_sandbox_landcruiser1"
+              },
+              "name": "draft_vehicle_offer"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Draft a listing"
+        },
+        "expire": {
+          "description": "Withdraws an active offer at its declared expiry under the machine principal.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "moves": [],
+          "steps": [],
+          "summary": "Expire a listing"
+        },
+        "publish": {
+          "description": "Makes the draft visible and buyable.",
+          "moves": [],
+          "steps": [],
+          "summary": "Publish a listing"
+        },
+        "reopen": {
+          "description": "Returns the offer to the market after escrow closes without releasing money to the seller.",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "nounInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "refunded",
+                "penalty_collected",
+                "canceled",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Reopen a listing"
+        },
+        "reserve": {
+          "description": "Takes the offer off the market only while its referenced escrow order holds the buyer's funds for this exact listing at its exact economics.",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "fields.askingPrice": "fields.amount",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId",
+                "nounInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Reserve a listing"
+        },
+        "sell": {
+          "description": "Marks the subject sold only after the escrow opened against this exact listing has released the full asking price to this seller.",
+          "eventName": "listing.sold",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "fields.askingPrice": "fields.amount",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId",
+                "nounInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "released"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Sell a listing"
+        },
+        "withdraw": {
+          "description": "Closes a draft or active offer before any escrow reservation exists.",
+          "eventName": "listing.withdrawn",
+          "moves": [],
+          "steps": [],
+          "summary": "Withdraw a listing"
+        }
+      }
+    },
+    {
+      "description": "An order records the buyer and seller agreement for one listing. Confirmation requires the listing to remain active and its escrow to hold the purchase money; fulfillment requires that escrow to release, while cancellation is allowed only before funding or after escrow safely retreats.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "buyerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "confirmBy": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "escrowOrderId": {
+          "description": "Escrow order holding this order's purchase money",
+          "pattern": "^eord_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "listingId": {
+          "description": "Listing whose subject the buyer agreed to purchase",
+          "pattern": "^lst_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "memo": {
+          "maxLength": 180,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sellerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "order",
+      "idPrefix": "ord",
+      "lifecycle": {
+        "initial": "created",
+        "states": [
+          "created",
+          "confirmed",
+          "fulfilled",
+          "canceled",
+          "expired"
+        ],
+        "transitions": {
+          "cancel": {
+            "from": [
+              "created",
+              "confirmed"
+            ],
+            "to": "canceled"
+          },
+          "confirm": {
+            "from": [
+              "created"
+            ],
+            "to": "confirmed"
+          },
+          "expire": {
+            "from": [
+              "created"
+            ],
+            "to": "expired"
+          },
+          "fulfill": {
+            "from": [
+              "confirmed"
+            ],
+            "to": "fulfilled"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "sellerAccountId",
+        "payer": "buyerAccountId"
+      },
+      "required": [
+        "buyerAccountId",
+        "sellerAccountId",
+        "listingId",
+        "escrowOrderId",
+        "amount",
+        "currency"
+      ],
+      "subject": {
+        "kinds": [
+          "vehicle",
+          "merchandise"
+        ]
+      },
+      "summary": "Agreement to buy one listed subject at an accepted amount.",
+      "title": "Order",
+      "update": {
+        "fields": [
+          "confirmBy",
+          "memo"
+        ],
+        "states": [
+          "created"
+        ]
+      },
+      "verbs": {
+        "cancel": {
+          "description": "Closes the agreement only while escrow is still empty or after every held unit has safely returned to the buyer.",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "statuses": [
+                "created",
+                "refunded",
+                "penalty_collected",
+                "canceled",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Cancel an order"
+        },
+        "confirm": {
+          "description": "Makes the agreement final only while the listing is active at the agreed price and escrow holds the full purchase amount for that same listing.",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "listingId",
+              "match": {
+                "fields.amount": "fields.askingPrice",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId"
+              },
+              "statuses": [
+                "active"
+              ]
+            },
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "fields.amount": "fields.amount",
+                "fields.buyerAccountId": "fields.buyerAccountId",
+                "fields.currency": "fields.currency",
+                "fields.listingId": "fields.listingId",
+                "fields.sellerAccountId": "fields.sellerAccountId"
+              },
+              "statuses": [
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Confirm an order"
+        },
+        "create": {
+          "description": "Records the proposed buyer and seller agreement against one listing and one escrow order. The escrow must still hold or await the money, must protect the same listing, and supplies the parties and the amount. No money moves.",
+          "examples": [
+            {
+              "input": {
+                "confirmBy": "2026-08-01T20:00:00.000Z",
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "listingId": "lst_sandbox_landcruiser1",
+                "memo": "Purchase subject to funded escrow.",
+                "subject": "sbj_sandbox_landcruiser1"
+              },
+              "name": "create_vehicle_purchase_order"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.amount",
+                "buyerAccountId": "fields.buyerAccountId",
+                "currency": "fields.currency",
+                "sellerAccountId": "fields.sellerAccountId"
+              },
+              "field": "escrowOrderId",
+              "match": {
+                "fields.listingId": "fields.listingId"
+              },
+              "statuses": [
+                "created",
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Create an order"
+        },
+        "expire": {
+          "description": "Closes an unconfirmed agreement at its declared deadline under the machine principal.",
+          "due": {
+            "field": "confirmBy"
+          },
+          "moves": [],
+          "steps": [],
+          "summary": "Expire an order"
+        },
+        "fulfill": {
+          "description": "Closes the agreement after escrow has released the full purchase amount to the seller.",
+          "eventName": "order.fulfilled",
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "statuses": [
+                "released"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Fulfill an order"
+        }
+      }
+    },
+    {
+      "description": "An escrow order holds the full purchase amount and releases it to the seller exactly once. Before release, a dispute freezes the full balance until work resumes or a quoted refund is confirmed.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "buyerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "fundBy": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "listingId": {
+          "description": "Listing whose subject and availability this escrow protects",
+          "pattern": "^lst_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "memo": {
+          "maxLength": 180,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sellerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "escrow_order",
+      "idPrefix": "eord",
+      "lifecycle": {
+        "initial": "created",
+        "states": [
+          "created",
+          "funded",
+          "disputed",
+          "refund_quoted",
+          "released",
+          "refunded",
+          "penalty_collected",
+          "canceled",
+          "expired"
+        ],
+        "transitions": {
+          "cancel": {
+            "from": [
+              "created"
+            ],
+            "to": "canceled"
+          },
+          "collect_penalty": {
+            "from": [
+              "refunded"
+            ],
+            "to": "penalty_collected"
+          },
+          "dispute": {
+            "from": [
+              "funded"
+            ],
+            "to": "disputed"
+          },
+          "expire": {
+            "from": [
+              "created"
+            ],
+            "to": "expired"
+          },
+          "fund": {
+            "from": [
+              "created"
+            ],
+            "to": "funded"
+          },
+          "quote": {
+            "from": [
+              "disputed"
+            ],
+            "to": "refund_quoted"
+          },
+          "refund": {
+            "from": [
+              "refund_quoted"
+            ],
+            "to": "refunded"
+          },
+          "release": {
+            "from": [
+              "funded"
+            ],
+            "to": "released"
+          },
+          "resume": {
+            "from": [
+              "disputed"
+            ],
+            "to": "funded"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "sellerAccountId",
+        "payer": "buyerAccountId"
+      },
+      "required": [
+        "buyerAccountId",
+        "sellerAccountId",
+        "listingId",
+        "amount",
+        "currency"
+      ],
+      "subject": {
+        "kinds": [
+          "vehicle",
+          "merchandise"
+        ]
+      },
+      "summary": "Purchase money held between buyer and seller.",
+      "title": "Escrow order",
+      "unwind": {
+        "confirm": "refund",
+        "penalty": [
+          {
+            "bps": 0
+          }
+        ],
+        "quote": "quote",
+        "refundDestinationField": "buyerAccountId",
+        "refundableField": "amount"
+      },
+      "update": {
+        "fields": [
+          "fundBy",
+          "memo"
+        ],
+        "states": [
+          "created"
+        ]
+      },
+      "verbs": {
+        "cancel": {
+          "description": "Closes an unfunded escrow. Because no money moved, no unwind quote is required.",
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.escrowAccountId"
+          },
+          "steps": [],
+          "summary": "Cancel an escrow order"
+        },
+        "collect_penalty": {
+          "description": "Pays the computed retained penalty to the seller after a penalized refund. Invoke only when refund returns a positive refs.unwindPenalty.",
+          "eventName": "escrow_order.penalty_collected",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindPenalty"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.sellerAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "penaltyTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Collect an escrow refund penalty"
+        },
+        "create": {
+          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The amount, currency, and seller are derived from the locked listing -- never caller-supplied -- so escrow economics are the listing's by construction.",
+          "examples": [
+            {
+              "input": {
+                "buyerAccountId": "acct_sandbox_buyer000001",
+                "fundBy": "2026-08-01T21:00:00.000Z",
+                "listingId": "lst_sandbox_landcruiser1",
+                "memo": "Release after the vehicle is handed over.",
+                "subject": "sbj_sandbox_landcruiser1"
+              },
+              "name": "open_vehicle_escrow"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.askingPrice",
+                "currency": "fields.currency",
+                "sellerAccountId": "fields.sellerAccountId"
+              },
+              "field": "listingId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "workspace"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "workspace_escrow"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "escrowAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Create an escrow order"
+        },
+        "dispute": {
+          "description": "Freezes the fully funded escrow before either milestone releases, preserving the entire balance while the parties decide what happens next.",
+          "moves": [],
+          "steps": [],
+          "summary": "Dispute an escrow order"
+        },
+        "expire": {
+          "description": "Closes an unfunded escrow at its funding deadline under the machine principal.",
+          "due": {
+            "field": "fundBy"
+          },
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.escrowAccountId"
+          },
+          "steps": [],
+          "summary": "Expire an escrow order"
+        },
+        "fund": {
+          "description": "Moves the full purchase amount from the buyer account into the dedicated escrow account while the listing remains active.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "fundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "listingId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Fund an escrow order"
+        },
+        "quote": {
+          "description": "Calculates the full buyer refund while disputed and parks the escrow for explicit confirmation. No money moves at quote time.",
+          "moves": [],
+          "steps": [],
+          "summary": "Quote an escrow refund"
+        },
+        "refund": {
+          "description": "Confirms the quoted retreat and returns the full held amount from escrow to the buyer.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "refundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Refund an escrow order"
+        },
+        "release": {
+          "description": "Pays the seller the full escrow amount once and closes escrow with no balance remaining. Only the escrow that reserved the listing can release: the listing must name this escrow back.",
+          "earnable": true,
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.sellerAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "workspaceId": {
+                  "from": "instance",
+                  "path": "workspaceId"
+                }
+              },
+              "capture": {
+                "releaseTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "listingId",
+              "match": {
+                "nounInstanceId": "fields.escrowOrderId"
+              },
+              "statuses": [
+                "reserved"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Release an escrow order"
+        },
+        "resume": {
+          "description": "Ends the dispute hold without moving money and returns the fully funded escrow to its first milestone.",
+          "moves": [],
+          "steps": [],
+          "summary": "Resume an escrow order"
+        }
+      }
+    }
+  ],
+  "product": "commerce_escrow",
+  "subjects": [
+    {
+      "declaredValue": "required",
+      "kind": "vehicle",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "make": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mileageKm": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "vin": {
+            "maxLength": 17,
+            "minLength": 11,
+            "type": "string"
+          },
+          "year": {
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vin",
+          "make",
+          "model",
+          "year",
+          "mileageKm"
+        ],
+        "type": "object"
+      },
+      "title": "Vehicle",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "merchandise",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "brand": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "category": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "condition": {
+            "enum": [
+              "new",
+              "excellent",
+              "good",
+              "fair",
+              "poor"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "serialNumber": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "yearOfManufacture": {
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "condition"
+        ],
+        "type": "object"
+      },
+      "title": "Merchandise",
+      "version": 1
+    }
+  ],
+  "title": "Commerce and escrow",
+  "udl": 1,
+  "version": 1
+}

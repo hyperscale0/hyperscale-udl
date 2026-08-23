@@ -1,0 +1,5 @@
+{
+  "canonical": "minimal.udl",
+  "summary": "Compact, reverse-ordered bytes canonicalize to minimal.udl.",
+  "verdict": "valid"
+}

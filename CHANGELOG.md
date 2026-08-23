@@ -10,6 +10,16 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0-alpha.2] - 2026-08-23
+
+### Fixed
+
+- `bin` points at the built JavaScript; alpha.1's registry metadata pointed at
+  TypeScript source. npm builds the packument from package.json as it sits on
+  disk after `postpack`, so the pack-time rewrite never reached `bin`, and
+  every install linked `.bin/udl` to `src/cli.ts`, which Node refuses to
+  execute.
+
 ### Changed
 
 - Licensed AGPL-3.0-only with a commercial license from Hyperscale LLC;
@@ -32,5 +42,6 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.1...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.2...HEAD
+[1.0.0-alpha.2]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.1...v1.0.0-alpha.2
 [1.0.0-alpha.1]: https://github.com/hyperscale0/hyperscale-udl/releases/tag/v1.0.0-alpha.1

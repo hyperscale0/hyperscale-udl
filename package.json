@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "description": "The Universal Domain Language: format spec, parser, validator, canonical serializer, and evolution diff.",
   "keywords": [
     "udl",
@@ -27,7 +27,7 @@
   "module": "./src/index.ts",
   "types": "./src/index.ts",
   "bin": {
-    "udl": "./src/cli.ts"
+    "udl": "./dist/cli.js"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -52,12 +52,11 @@
     "node": ">=22.0.0"
   },
   "publishConfig": {
-    "access": "public",
-    "tag": "alpha"
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "bun run spec:check && bun test && tsc -p tsconfig.json",
+    "check": "bun run spec:check && bun test && tsc -p tsconfig.json && bun run build && bun scripts/check-bin.ts",
     "postpack": "bun scripts/pack-exports.ts restore",
     "prepack": "bun run build && bun scripts/pack-exports.ts apply",
     "spec": "bun scripts/emit-spec.ts --write",

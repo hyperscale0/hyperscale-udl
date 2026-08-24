@@ -9,7 +9,7 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import {
   canonicalizeUdl,
-  diffUdlEvolution,
+  diffValidatedUdlEvolution,
   parseUdl,
   UdlError,
   type UdlDocument,
@@ -101,7 +101,9 @@ async function diffCommand(args: readonly string[]): Promise<number> {
   const next = parseDocument(nextPath, nextBytes);
   if (live === null || next === null) return 1;
 
-  const violations = diffUdlEvolution(live, next);
+  // `parseDocument` already validated both, so take the door that does not
+  // validate a second time.
+  const violations = diffValidatedUdlEvolution(live, next);
   if (violations.length === 0) {
     console.log(`${nextPath}: additive`);
     return 0;

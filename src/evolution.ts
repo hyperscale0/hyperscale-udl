@@ -1,4 +1,6 @@
+import { UDL_LIMITS } from "./limits.js";
 import type { UdlAggregate, UdlDocument, UdlNoun, UdlVerb } from "./schema.js";
+import { assertValidUdl, UdlError } from "./validation.js";
 
 export interface EvolutionFieldSnapshot {
   readonly required: boolean;
@@ -103,8 +105,32 @@ export function snapshotUdlNoun(noun: UdlNoun): NounEvolutionSnapshot {
   };
 }
 
-/** Compare two product definitions under the append-only evolution law. */
+/**
+ * Compare two product definitions under the append-only evolution law.
+ *
+ * Both arguments are validated first. The typed signature this used to carry
+ * invited a caller to hand over an object it had never parsed, and the diff
+ * walks straight into `stableStringify`: a document with a cycle in it threw
+ * a RangeError out of here while `validateUdl` returned a clean
+ * `resource_limit` issue for the same object.
+ */
 export function diffUdlEvolution(
+  previous: unknown,
+  next: unknown,
+): readonly string[] {
+  return diffValidatedUdlEvolution(
+    assertValidUdl(previous),
+    assertValidUdl(next),
+  );
+}
+
+/**
+ * The same comparison for a caller holding two documents `validateUdl` has
+ * already admitted. Validation costs roughly twice what the diff costs, so a
+ * caller that has paid once should not pay again: `udl diff` parses both
+ * files and then takes this door.
+ */
+export function diffValidatedUdlEvolution(
   previous: UdlDocument,
   next: UdlDocument,
 ): readonly string[] {
@@ -571,17 +597,37 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
     : {};
 }
 
-function stableStringify(value: unknown): string {
+/**
+ * The comparison key every diff above is written against. It recurses, so it
+ * carries the same depth budget the validator applies to a document: a
+ * snapshot is never deeper than the document it came from, and the deepest
+ * conformance document reaches 12 of the 24 levels. A cycle is infinite depth
+ * and lands here rather than exhausting the call stack.
+ */
+function stableStringify(value: unknown, depth = 1): string {
+  if (depth > UDL_LIMITS.maxDepth) {
+    throw new UdlError([
+      {
+        code: "resource_limit",
+        message: `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
+        path: "$",
+      },
+    ]);
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
   }
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
+    // An arrow, not a bare reference: `map` would pass the index as the depth.
+    return `[${value.map((item) => stableStringify(item, depth + 1)).join(",")}]`;
   }
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, entry]) => entry !== undefined)
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
   return `{${entries
-    .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+    .map(
+      ([key, entry]) =>
+        `${JSON.stringify(key)}:${stableStringify(entry, depth + 1)}`,
+    )
     .join(",")}}`;
 }

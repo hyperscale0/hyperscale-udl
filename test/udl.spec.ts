@@ -14,6 +14,7 @@ import { UDL_LIMITS } from "../src/limits.js";
 import {
   diffNounEvolution,
   diffUdlEvolution,
+  diffValidatedUdlEvolution,
   snapshotUdlNoun,
   type NounEvolutionSnapshot,
 } from "../src/index.js";
@@ -2026,6 +2027,60 @@ describe("evolution", () => {
     return { ...snapshot, ...patch };
   }
 
+  // The evolution exports take objects a consumer may never have parsed, and
+  // the diff walks them through stableStringify. Before this, a cycle threw a
+  // RangeError out of diffUdlEvolution while validateUdl returned a clean
+  // resource_limit issue for the same object.
+  describe("evolution admission", () => {
+    /** The protection fixture with one noun's field map pointing at itself. */
+    async function cyclic(): Promise<UdlDocument> {
+      const document = await fixture();
+      const noun = document.nouns[0];
+      if (!noun) throw new Error("protection fixture has no nouns");
+      (noun.fields as Record<string, unknown>).loop = noun.fields;
+      return document;
+    }
+
+    test("refuses a cyclic document at the validator, not the call stack", async () => {
+      const [live, broken] = [await fixture(), await cyclic()];
+      const error = capturedError(() => diffUdlEvolution(live, broken));
+      expect(error.issues[0]?.code).toBe("resource_limit");
+      expect(error.issues[0]?.message).toContain("object cycles");
+    });
+
+    test("refuses a document that was never validated", () => {
+      const error = capturedError(() => diffUdlEvolution({}, {}));
+      expect(error.issues.length).toBeGreaterThan(0);
+    });
+
+    test("bounds stableStringify even when validation is skipped", async () => {
+      const [live, broken] = [await fixture(), await cyclic()];
+      const error = capturedError(() =>
+        diffValidatedUdlEvolution(live, broken),
+      );
+      expect(error.issues[0]?.code).toBe("resource_limit");
+      expect(error.issues[0]?.message).toContain("nesting exceeds");
+    });
+
+    test("bounds a snapshot handed straight to diffNounEvolution", async () => {
+      const noun = (await cyclic()).nouns[0];
+      if (!noun) throw new Error("protection fixture has no nouns");
+      const error = capturedError(() =>
+        diffNounEvolution(snapshotUdlNoun(noun), snapshotUdlNoun(noun)),
+      );
+      expect(error.issues[0]?.code).toBe("resource_limit");
+    });
+
+    test("both doors return the same verdict on valid documents", async () => {
+      const { next, previous } = await evolved((document) => {
+        document.nouns[1]!.fields.note = { type: "string" };
+      }, 1);
+      expect(diffUdlEvolution(previous, next)).toEqual(
+        diffValidatedUdlEvolution(previous, next),
+      );
+    });
+  });
+
   describe("append-only UDL product evolution", () => {
     test("accepts unchanged and versioned additive product changes", async () => {
       const previous = await fixture();
@@ -2070,7 +2125,10 @@ describe("evolution", () => {
         policyRisk.version += 1;
         document.nouns = document.nouns.filter((noun) => noun.id !== "claim");
       });
-      expect(diffUdlEvolution(previous, next)).toEqual(
+      // Through the validated door: dropping a noun other nouns still
+      // reference leaves a document `validateUdl` refuses outright, and what
+      // is under test here is the evolution law, not admission.
+      expect(diffValidatedUdlEvolution(previous, next)).toEqual(
         expect.arrayContaining([
           "product id changed from protection to renamed_product",
           "subject kind policy_risk changed after becoming live",
@@ -2091,7 +2149,10 @@ describe("evolution", () => {
         2,
         "cards",
       );
-      expect(diffUdlEvolution(previous, next)).toContain(
+      // Validated door: a move still binds the deleted input field, so
+      // `validateUdl` refuses this document before the evolution law gets a
+      // word in.
+      expect(diffValidatedUdlEvolution(previous, next)).toContain(
         "card_transaction: verb refund input field reason was removed or renamed",
       );
     });

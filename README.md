@@ -88,6 +88,16 @@ const violations = diffUdlEvolution(live, document);
 `serializeUdl` validates before it writes, so an invalid document has no
 canonical form.
 
+`diffUdlEvolution` takes `unknown` and validates both arguments, so a document
+`validateUdl` refuses throws a `UdlError` carrying that document's issues
+instead of returning evolution violations. Read that as a refusal to judge,
+not as a verdict of no violations: a `catch` that treats it as "a schema
+problem, not an evolution problem" and carries on has skipped the append-only
+check entirely, and a candidate that drops a live noun will sail through. Fix
+the document, or hand two documents you have already validated to
+`diffValidatedUdlEvolution`, which keeps the `UdlDocument` parameter types and
+so is also the door to use if you want the compiler checking your call.
+
 ## The command
 
 ```bash
@@ -131,8 +141,7 @@ Two numbers move independently.
 **Format version** is the literal `"udl": 1` inside a document. Format 1 is the
 only format that exists.
 
-**Package version** is this package's semver, currently `1.0.0-alpha.1`,
-published only under the `alpha` dist-tag.
+**Package version** is this package's semver, in `package.json`.
 
 Format 1 is unstable until the package reaches 1.0.0. Until then an alpha
 release may change what format 1 accepts, and every such change is listed in

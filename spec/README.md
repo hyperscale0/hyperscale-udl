@@ -52,7 +52,8 @@ refuses.
 7. **Append-only evolution law.** Once a definition has live instances, adding
    states, transitions, optional fields, and verbs is legal; removing,
    renaming, tightening, or changing a money step is not. `diffUdlEvolution`
-   decides, and it is the same function `udl diff` runs.
+   decides. `udl diff` runs the same comparison through
+   `diffValidatedUdlEvolution`, which skips the validation it already paid for.
 8. **Naming law.** Nouns are `snake_case`, singular, plain business English.
    Verbs are single words in imperative present. Operations are `noun.verb`.
    Fields are `camelCase`. The patterns live in the schema.

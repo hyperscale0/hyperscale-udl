@@ -9,6 +9,7 @@ export {
 export {
   diffNounEvolution,
   diffUdlEvolution,
+  diffValidatedUdlEvolution,
   snapshotUdlNoun,
 } from "./evolution.js";
 export type {

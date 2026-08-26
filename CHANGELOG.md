@@ -10,6 +10,8 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0-alpha.4] - 2026-08-26
+
 ### Removed
 
 - `diffUdlEvolution`. It validated both arguments and then handed off to
@@ -102,7 +104,8 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.3...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...HEAD
+[1.0.0-alpha.4]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.3...v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.2...v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.1...v1.0.0-alpha.2
 [1.0.0-alpha.1]: https://github.com/hyperscale0/hyperscale-udl/releases/tag/v1.0.0-alpha.1

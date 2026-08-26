@@ -64,7 +64,7 @@ change to the surface ships as a minor bump, not a major.
 ```ts
 import { readFile, writeFile } from "node:fs/promises";
 import {
-  diffUdlEvolution,
+  diffValidatedUdlEvolution,
   parseUdl,
   serializeUdl,
   validateUdl,
@@ -81,22 +81,19 @@ if (!result.ok) console.error(result.issues);
 
 // Is this change legal against the version that already has live instances?
 const live = parseUdl(await readFile("note.live.udl"));
-const violations = diffUdlEvolution(live, document);
+const violations = diffValidatedUdlEvolution(live, document);
 ```
 
 `parseUdl` takes a string or a `Uint8Array`; bytes are decoded as strict UTF-8.
 `serializeUdl` validates before it writes, so an invalid document has no
 canonical form.
 
-`diffUdlEvolution` takes `unknown` and validates both arguments, so a document
-`validateUdl` refuses throws a `UdlError` carrying that document's issues
-instead of returning evolution violations. Read that as a refusal to judge,
-not as a verdict of no violations: a `catch` that treats it as "a schema
-problem, not an evolution problem" and carries on has skipped the append-only
-check entirely, and a candidate that drops a live noun will sail through. Fix
-the document, or hand two documents you have already validated to
-`diffValidatedUdlEvolution`, which keeps the `UdlDocument` parameter types and
-so is also the door to use if you want the compiler checking your call.
+`diffValidatedUdlEvolution` takes two `UdlDocument`s and assumes both have
+already been admitted. Validate first: an evolution verdict on a document
+`validateUdl` refuses is not a verdict at all, and a candidate that drops a
+live noun sails through a diff that never checked whether the noun was
+referenced. The `UdlDocument` parameter types are what keeps the compiler on
+your side of that rule.
 
 ## The command
 

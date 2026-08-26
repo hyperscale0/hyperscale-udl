@@ -1,6 +1,6 @@
 import { UDL_LIMITS } from "./limits.js";
 import type { UdlAggregate, UdlDocument, UdlNoun, UdlVerb } from "./schema.js";
-import { assertValidUdl, UdlError } from "./validation.js";
+import { UdlError } from "./validation.js";
 
 export interface EvolutionFieldSnapshot {
   readonly required: boolean;
@@ -108,27 +108,10 @@ export function snapshotUdlNoun(noun: UdlNoun): NounEvolutionSnapshot {
 /**
  * Compare two product definitions under the append-only evolution law.
  *
- * Both arguments are validated first. The typed signature this used to carry
- * invited a caller to hand over an object it had never parsed, and the diff
- * walks straight into `stableStringify`: a document with a cycle in it threw
- * a RangeError out of here while `validateUdl` returned a clean
- * `resource_limit` issue for the same object.
- */
-export function diffUdlEvolution(
-  previous: unknown,
-  next: unknown,
-): readonly string[] {
-  return diffValidatedUdlEvolution(
-    assertValidUdl(previous),
-    assertValidUdl(next),
-  );
-}
-
-/**
- * The same comparison for a caller holding two documents `validateUdl` has
- * already admitted. Validation costs roughly twice what the diff costs, so a
- * caller that has paid once should not pay again: `udl diff` parses both
- * files and then takes this door.
+ * Both documents must already have passed `validateUdl`. The diff walks
+ * straight into `stableStringify`, so an unvalidated document with a cycle in
+ * it throws a RangeError out of here where the validator would have returned a
+ * clean `resource_limit` issue: parse first, then diff.
  */
 export function diffValidatedUdlEvolution(
   previous: UdlDocument,

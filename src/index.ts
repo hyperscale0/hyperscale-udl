@@ -8,7 +8,6 @@ export {
 } from "./finance.js";
 export {
   diffNounEvolution,
-  diffUdlEvolution,
   diffValidatedUdlEvolution,
   snapshotUdlNoun,
 } from "./evolution.js";

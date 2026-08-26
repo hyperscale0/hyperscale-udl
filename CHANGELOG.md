@@ -10,6 +10,16 @@ here under the release that made it.
 
 ## [Unreleased]
 
+### Removed
+
+- `diffUdlEvolution`. It validated both arguments and then handed off to
+  `diffValidatedUdlEvolution`, and nothing called it: `udl diff` and the
+  engine's composer both take the validated door. Two doors onto one comparison
+  meant every caller first had to work out which one it was standing in.
+  Validate with `validateUdl` or `assertValidUdl`, then call
+  `diffValidatedUdlEvolution`, whose `UdlDocument` parameters keep the compiler
+  on the right side of that rule.
+
 ## [1.0.0-alpha.3] - 2026-08-25
 
 ### Changed

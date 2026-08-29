@@ -18,12 +18,22 @@ const udlFieldNameSchema = z
   .string()
   .regex(camelCasePattern, "must be a camelCase field name");
 
+export const udlPublicIntentSchema = z
+  .string()
+  .regex(camelCasePattern, "must be a camelCase public intent name");
+
 const nonEmptyTextSchema = z
   .string()
   .refine((value) => value.trim().length > 0, "must not be blank");
 const fieldPathSchema = z
   .string()
   .regex(fieldPathPattern, "must be a dot-separated camelCase field path");
+const instanceValuePathSchema = z
+  .string()
+  .regex(
+    /^(?:fields|refs)\.[a-z][A-Za-z0-9]*$/,
+    "must name one declared fields.* or refs.* value",
+  );
 const jsonObjectSchema = z.record(z.string(), z.json());
 const stringMapSchema = z.record(nonEmptyTextSchema, nonEmptyTextSchema);
 
@@ -139,6 +149,7 @@ const udlDeadlineSchema = z.strictObject({
 
 const udlSetsAtSchema = z.strictObject({
   field: udlFieldNameSchema,
+  marker: z.literal(true).optional(),
   offset: nonEmptyTextSchema,
 });
 
@@ -215,6 +226,15 @@ const udlAggregateConditionSchema = z.strictObject({
   statuses: z.array(udlSnakeCaseSchema).min(1),
 });
 
+const udlExposureRequirementSchema = z.strictObject({
+  amountField: udlFieldNameSchema,
+  anchorField: udlFieldNameSchema,
+  capField: udlFieldNameSchema,
+  capOnAnchor: z.literal(true).optional(),
+  childNounId: udlSnakeCaseSchema,
+  statuses: z.array(udlSnakeCaseSchema).min(1),
+});
+
 // The tenant-backend decision port: the verb's caller asserts the acting
 // party, checked at admission against the noun's party bindings for the
 // allowed roles.
@@ -222,6 +242,49 @@ const udlPortSchema = z.strictObject({
   allowedParties: z
     .array(z.enum(["payer", "beneficiary", "subjectHolder"]))
     .min(1),
+});
+
+const udlPayoutSchema = z.strictObject({
+  amount: instanceValuePathSchema,
+  beneficiaryField: udlFieldNameSchema,
+  beneficiaryPartyField: udlFieldNameSchema,
+  capture: udlFieldNameSchema,
+  currencyField: udlFieldNameSchema,
+  sourceAccountField: udlFieldNameSchema,
+  speed: z.literal("standard"),
+});
+
+const udlRequiresSettlementSchema = z.strictObject({
+  capture: udlFieldNameSchema,
+  payoutRef: udlFieldNameSchema,
+});
+
+const udlSignedSumSourceSchema = z.strictObject({
+  amountField: udlFieldNameSchema,
+  nounId: udlSnakeCaseSchema,
+  refField: udlFieldNameSchema,
+  sign: z.enum(["add", "subtract"]),
+  statuses: z.array(udlSnakeCaseSchema).min(1),
+  subtotalRef: udlFieldNameSchema,
+});
+
+const udlSignedSumSchema = z.strictObject({
+  amountRef: udlFieldNameSchema,
+  onNegative: z.literal("refuse"),
+  onZero: z.enum(["refuse", "skip_steps"]),
+  sources: z.array(udlSignedSumSourceSchema).min(1),
+});
+
+const udlDistributeSchema = z.strictObject({
+  amountRef: udlFieldNameSchema,
+  onZero: z.enum(["refuse", "skip_steps"]),
+  pool: z.strictObject({
+    from: z.literal("parent"),
+    path: fieldPathSchema,
+  }),
+  refField: udlFieldNameSchema,
+  statuses: z.array(udlSnakeCaseSchema).min(1),
+  weightField: udlFieldNameSchema,
 });
 
 // A same-instance conservation law: the piece fields (money, minor units)
@@ -232,9 +295,21 @@ const udlPartitionSchema = z.strictObject({
   totalField: udlFieldNameSchema,
 });
 
+const udlDerivedAmountSchema = z.strictObject({
+  field: udlFieldNameSchema,
+  rounding: z.literal("floor"),
+  rule: z.strictObject({
+    bps: z.number().int().min(1).max(9_999),
+    kind: z.literal("percentage_of"),
+  }),
+  sourceField: udlFieldNameSchema,
+});
+
 const udlVerbSchema = z.strictObject({
+  captureInput: z.record(udlFieldNameSchema, udlFieldNameSchema).optional(),
   deadline: udlDeadlineSchema.optional(),
   decision: udlDecisionSchema.optional(),
+  distribute: udlDistributeSchema.optional(),
   description: nonEmptyTextSchema.optional(),
   due: udlDueSchema.optional(),
   earnable: z.boolean().optional(),
@@ -242,11 +317,20 @@ const udlVerbSchema = z.strictObject({
   examples: z.array(udlExampleSchema).min(1).optional(),
   input: jsonObjectSchema.optional(),
   moves: z.array(udlMoveSchema).default([]),
+  payout: udlPayoutSchema.optional(),
   port: udlPortSchema.optional(),
+  publicIntent: udlPublicIntentSchema
+    .optional()
+    .describe(
+      "Author-approved public intent name; the containing verb key remains the lifecycle and execution identity",
+    ),
   requiresAggregate: z.array(udlAggregateConditionSchema).min(1).optional(),
   requiresDrainedAccount: z.strictObject({ path: fieldPathSchema }).optional(),
+  requiresExposure: z.array(udlExposureRequirementSchema).min(1).optional(),
   requiresRefs: z.array(udlGateSchema).min(1).optional(),
+  requiresSettlement: udlRequiresSettlementSchema.optional(),
   setsAt: udlSetsAtSchema.optional(),
+  signedSum: udlSignedSumSchema.optional(),
   steps: z.array(udlStepSchema),
   summary: nonEmptyTextSchema,
 });
@@ -280,8 +364,10 @@ const udlAggregateSchema = z.union([
 
 const udlNounSchema = z.strictObject({
   aggregateInvariants: z.array(udlAggregateSchema).min(1).optional(),
+  computedMoneyRefs: z.array(udlFieldNameSchema).min(1).optional(),
   description: nonEmptyTextSchema.optional(),
   distinctParties: z.literal(true).optional(),
+  derivedAmounts: z.array(udlDerivedAmountSchema).min(1).max(4).optional(),
   fields: z.record(udlFieldNameSchema, jsonObjectSchema),
   id: udlSnakeCaseSchema,
   idPrefix: z
@@ -305,7 +391,7 @@ const udlNounSchema = z.strictObject({
   verbs: z.record(udlVerbNameSchema, udlVerbSchema),
 });
 
-export const udlDocumentSchema = z.strictObject({
+const udlDocumentShapeSchema = z.strictObject({
   nouns: z.array(udlNounSchema).min(1),
   product: udlSnakeCaseSchema,
   subjects: z.array(udlSubjectSchema),
@@ -313,6 +399,155 @@ export const udlDocumentSchema = z.strictObject({
   udl: z.literal(UDL_FORMAT_VERSION),
   version: z.number().int().positive(),
 });
+
+type ParsedNoun = z.infer<typeof udlNounSchema>;
+
+const moneyPatterns = new Set(["^[1-9][0-9]{0,17}$", "^(0|[1-9][0-9]{0,17})$"]);
+
+function isMoneyField(
+  schema: Readonly<Record<string, unknown>> | undefined,
+): boolean {
+  return (
+    typeof schema?.pattern === "string" && moneyPatterns.has(schema.pattern)
+  );
+}
+
+function referenceTargets(
+  schema: Readonly<Record<string, unknown>>,
+  nouns: readonly ParsedNoun[],
+): readonly ParsedNoun[] {
+  if (schema.type !== "string" || typeof schema.pattern !== "string") return [];
+  // Parse the scoped-ID pattern. Executing an author regex here would bypass
+  // the semantic validator's branch and quantifier budgets.
+  const match = /^\^([a-z]{2,8})_\(sandbox\|live\)_\[a-z0-9\]\{8,64\}\$$/.exec(
+    schema.pattern,
+  );
+  if (!match) return [];
+  const prefix = match[1] as string;
+  const probe = `${prefix}_sandbox_0123456789abcdef`;
+  if (typeof schema.const === "string" && schema.const !== probe) return [];
+  if (Array.isArray(schema.enum) && !schema.enum.includes(probe)) return [];
+  if (typeof schema.minLength === "number" && probe.length < schema.minLength) {
+    return [];
+  }
+  if (typeof schema.maxLength === "number" && probe.length > schema.maxLength) {
+    return [];
+  }
+  return nouns.filter((noun) => noun.idPrefix === prefix);
+}
+
+function declaredMoneyRefKeys(noun: ParsedNoun): ReadonlySet<string> {
+  return new Set([
+    ...(noun.computedMoneyRefs ?? []),
+    ...Object.values(noun.verbs).flatMap((verb) => [
+      ...(verb.signedSum
+        ? [
+            verb.signedSum.amountRef,
+            ...verb.signedSum.sources.map((source) => source.subtotalRef),
+          ]
+        : []),
+      ...(verb.distribute ? [verb.distribute.amountRef] : []),
+    ]),
+    ...(noun.unwind ? ["unwindRefund", "unwindPenalty"] : []),
+  ]);
+}
+
+export const udlDocumentSchema = udlDocumentShapeSchema.superRefine(
+  (document, context) => {
+    document.nouns.forEach((noun, nounIndex) => {
+      noun.derivedAmounts?.forEach((amount, amountIndex) => {
+        const base = [
+          "nouns",
+          nounIndex,
+          "derivedAmounts",
+          amountIndex,
+        ] as const;
+        if (!isMoneyField(noun.fields[amount.field])) {
+          context.addIssue({
+            code: "custom",
+            message: `derived amount target ${amount.field} must be a declared money field`,
+            path: [...base, "field"],
+          });
+        }
+        if (!isMoneyField(noun.fields[amount.sourceField])) {
+          context.addIssue({
+            code: "custom",
+            message: `derived amount source ${amount.sourceField} must be a declared money field`,
+            path: [...base, "sourceField"],
+          });
+        }
+        if (amount.field === amount.sourceField) {
+          context.addIssue({
+            code: "custom",
+            message: "a derived amount cannot derive from itself",
+            path: [...base, "sourceField"],
+          });
+        }
+      });
+
+      Object.entries(noun.verbs).forEach(([verbName, verb]) => {
+        const distribute = verb.distribute;
+        if (!distribute) return;
+        const base = [
+          "nouns",
+          nounIndex,
+          "verbs",
+          verbName,
+          "distribute",
+        ] as const;
+        const refSchema = noun.fields[distribute.refField];
+        const parents = refSchema
+          ? referenceTargets(refSchema, document.nouns)
+          : [];
+        if (parents.length !== 1) {
+          context.addIssue({
+            code: "custom",
+            message: `distribute refField ${distribute.refField} must identify exactly one parent noun`,
+            path: [...base, "refField"],
+          });
+        }
+
+        if (!isMoneyField(noun.fields[distribute.weightField])) {
+          context.addIssue({
+            code: "custom",
+            message: `distribute weightField ${distribute.weightField} must be a declared money field`,
+            path: [...base, "weightField"],
+          });
+        }
+
+        distribute.statuses.forEach((status, statusIndex) => {
+          if (noun.lifecycle.states.includes(status)) return;
+          context.addIssue({
+            code: "custom",
+            message: `distribute status ${status} is not declared by ${noun.id}`,
+            path: [...base, "statuses", statusIndex],
+          });
+        });
+
+        const parent = parents[0];
+        if (!parent) return;
+        const poolMatch = /^(fields|refs)\.([a-z][A-Za-z0-9]*)$/.exec(
+          distribute.pool.path,
+        );
+        const root = poolMatch?.[1];
+        const key = poolMatch?.[2];
+        const poolDeclared =
+          root === "fields"
+            ? isMoneyField(parent.fields[key ?? ""])
+            : root === "refs"
+              ? declaredMoneyRefKeys(parent).has(key ?? "")
+              : false;
+        if (!poolDeclared) {
+          context.addIssue({
+            code: "custom",
+            message: `distribute pool ${distribute.pool.path} must be a declared money field or ref of ${parent.id}`,
+            path: [...base, "pool", "path"],
+          });
+        }
+      });
+    });
+  },
+);
 
 export type UdlAggregate = z.infer<typeof udlAggregateSchema>;
 export type UdlAggregateCondition = z.infer<typeof udlAggregateConditionSchema>;
@@ -333,6 +568,8 @@ export type UdlLifecycleTransition = z.infer<
 export type UdlNoun = z.infer<typeof udlNounSchema>;
 export type UdlNounSubject = z.infer<typeof udlNounSubjectSchema>;
 export type UdlMove = z.infer<typeof udlMoveSchema>;
+export type UdlPayout = z.infer<typeof udlPayoutSchema>;
+export type UdlRequiresSettlement = z.infer<typeof udlRequiresSettlementSchema>;
 export type UdlStep = z.infer<typeof udlStepSchema>;
 export type UdlSubject = z.infer<typeof udlSubjectSchema>;
 export type UdlUnwind = z.infer<typeof udlUnwindSchema>;

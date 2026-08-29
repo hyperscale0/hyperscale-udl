@@ -18,8 +18,12 @@ export interface EvolutionMoveSnapshot extends EvolutionStepSnapshot {
 }
 
 export interface EvolutionVerbSnapshot {
+  /** Missing on snapshots written before receipt-input capture existed. */
+  readonly captureInput?: unknown;
   readonly deadline: unknown;
   readonly decision: unknown;
+  /** Missing on snapshots written before weighted distribution existed. */
+  readonly distribute?: unknown;
   readonly due: unknown;
   readonly earnable: boolean;
   readonly eventName: string | null;
@@ -30,11 +34,21 @@ export interface EvolutionVerbSnapshot {
    * friends change what callers may send, so they are frozen once live.
    */
   readonly inputConstraints: unknown;
+  /** Missing on snapshots written before payout intents existed. */
+  readonly payout?: unknown;
   readonly port: unknown;
+  /** Missing on snapshots written before public intent metadata existed. */
+  readonly publicIntent?: string | null;
   readonly requiresAggregate: unknown;
   readonly requiresDrainedAccount: unknown;
+  /** Missing on snapshots written before exposure gates entered open UDL. */
+  readonly requiresExposure?: unknown;
   readonly requiresRefs: unknown;
+  /** Missing on snapshots written before settlement evidence gates existed. */
+  readonly requiresSettlement?: unknown;
   readonly setsAt: unknown;
+  /** Missing on snapshots written before signed child sums existed. */
+  readonly signedSum?: unknown;
   readonly moves: readonly EvolutionMoveSnapshot[];
   readonly steps: readonly EvolutionStepSnapshot[];
 }
@@ -47,6 +61,9 @@ export interface EvolutionTransitionSnapshot {
 /** The complete serializable algebra protected by append-only evolution. */
 export interface NounEvolutionSnapshot {
   readonly aggregateInvariants: readonly string[];
+  /** Missing on snapshots written before typed computed refs entered UDL. */
+  readonly computedMoneyRefs?: readonly string[];
+  readonly derivedAmounts: readonly string[];
   readonly distinctParties?: true;
   readonly fields: Readonly<Record<string, EvolutionFieldSnapshot>>;
   readonly id: string;
@@ -69,6 +86,11 @@ export function snapshotUdlNoun(noun: UdlNoun): NounEvolutionSnapshot {
   return {
     aggregateInvariants: (noun.aggregateInvariants ?? []).map(
       aggregateInvariantKey,
+    ),
+    computedMoneyRefs: [...(noun.computedMoneyRefs ?? [])].sort(),
+    derivedAmounts: (noun.derivedAmounts ?? []).map(
+      (amount) =>
+        `${amount.field}=floor(${amount.sourceField}*${amount.rule.bps}/10000)`,
     ),
     ...(noun.distinctParties ? { distinctParties: true as const } : {}),
     fields: Object.fromEntries(
@@ -235,6 +257,22 @@ export function diffNounEvolution(
   violations.push(...diffVerbs(previous.verbs, next.verbs));
   violations.push(...diffParties(previous.parties, next.parties));
   violations.push(...diffAggregates(previous, next));
+  if (
+    stableStringify(previous.computedMoneyRefs ?? []) !==
+    stableStringify(next.computedMoneyRefs ?? [])
+  ) {
+    violations.push(
+      "computed money refs changed; runtime-derived money surfaces are frozen once live",
+    );
+  }
+  if (
+    stableStringify(previous.derivedAmounts ?? []) !==
+    stableStringify(next.derivedAmounts ?? [])
+  ) {
+    violations.push(
+      "derived amount rules changed; derived money arithmetic is frozen once live",
+    );
+  }
   violations.push(
     ...removedSetEntries(
       previous.partitions,
@@ -271,8 +309,10 @@ export function diffNounEvolution(
 
 function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
   return {
+    captureInput: definition.captureInput ?? null,
     deadline: definition.deadline ?? null,
     decision: definition.decision ?? null,
+    distribute: definition.distribute ?? null,
     due: definition.due ?? null,
     earnable: definition.earnable ?? false,
     eventName: definition.eventName ?? null,
@@ -280,8 +320,11 @@ function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
     inputConstraints: definition.input
       ? snapshotJsonSchemaConstraints(definition.input)
       : null,
+    payout: definition.payout ?? null,
     port: definition.port ?? null,
+    publicIntent: definition.publicIntent ?? null,
     setsAt: definition.setsAt ?? null,
+    signedSum: definition.signedSum ?? null,
     moves: definition.moves.map((move) => ({
       bind: move.bind,
       capture: move.capture ?? {},
@@ -290,7 +333,9 @@ function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
     })),
     requiresAggregate: definition.requiresAggregate ?? [],
     requiresDrainedAccount: definition.requiresDrainedAccount ?? null,
+    requiresExposure: definition.requiresExposure ?? [],
     requiresRefs: definition.requiresRefs ?? [],
+    requiresSettlement: definition.requiresSettlement ?? null,
     steps: definition.steps.map((step) => ({
       bind: step.bind,
       capture: step.capture ?? {},
@@ -431,6 +476,26 @@ function diffVerbs(
     ) {
       violations.push(`verb ${verb} changed its drained-account gate`);
     }
+    if (
+      descriptor.requiresExposure !== undefined &&
+      stableStringify(descriptor.requiresExposure) !==
+        stableStringify(current.requiresExposure)
+    ) {
+      violations.push(`verb ${verb} changed its exposure admission gates`);
+    }
+    if (
+      descriptor.requiresSettlement !== undefined &&
+      stableStringify(descriptor.requiresSettlement) !==
+        stableStringify(current.requiresSettlement)
+    ) {
+      violations.push(`verb ${verb} changed its settlement evidence gate`);
+    }
+    if (
+      stableStringify(descriptor.payout ?? null) !==
+      stableStringify(current.payout ?? null)
+    ) {
+      violations.push(`verb ${verb} changed its payout intent`);
+    }
     if (descriptor.earnable !== current.earnable) {
       violations.push(`verb ${verb} changed its earnable flag`);
     }
@@ -450,14 +515,48 @@ function diffVerbs(
     ) {
       violations.push(`verb ${verb} changed its provider decision`);
     }
+    if (
+      stableStringify(descriptor.distribute) !==
+      stableStringify(current.distribute)
+    ) {
+      violations.push(
+        `verb ${verb} changed its distribution rule; money distribution is frozen once live`,
+      );
+    }
+    if (
+      descriptor.captureInput !== undefined &&
+      stableStringify(descriptor.captureInput) !==
+        stableStringify(current.captureInput)
+    ) {
+      violations.push(`verb ${verb} changed its captured receipt input`);
+    }
     if (stableStringify(descriptor.port) !== stableStringify(current.port)) {
       violations.push(`verb ${verb} changed its decision port`);
+    }
+    if (
+      descriptor.publicIntent != null &&
+      descriptor.publicIntent !== current.publicIntent
+    ) {
+      violations.push(`verb ${verb} changed its public intent`);
     }
     if (
       stableStringify(descriptor.setsAt) !== stableStringify(current.setsAt)
     ) {
       violations.push(`verb ${verb} changed its computed timestamp`);
     }
+    if (
+      descriptor.signedSum !== undefined &&
+      stableStringify(descriptor.signedSum) !==
+        stableStringify(current.signedSum)
+    ) {
+      violations.push(`verb ${verb} changed its signed child sum`);
+    }
+  }
+  for (const [verb, descriptor] of Object.entries(next)) {
+    if (previous[verb] || descriptor.payout == null) continue;
+    violations.push(
+      `verb ${verb} added a payout intent; external money movement is frozen once live`,
+    );
   }
   return violations;
 }

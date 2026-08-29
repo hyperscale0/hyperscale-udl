@@ -10,6 +10,54 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0-alpha.5] - 2026-08-29
+
+### Added
+
+- Verbs may declare a camelCase `publicIntent` as their author-approved public
+  name while the verb key remains the lifecycle and execution identity. System
+  due verbs must omit it. `udlPublicIntentSchema` is exported for consumers
+  that admit the same name outside a complete document.
+- `captureInput` maps declared verb input fields into durable receipt refs.
+  Declare only input properties from that verb and allocate each captured key
+  in the noun's shared ref namespace.
+- `signedSum` computes stored add and subtract subtotals over typed child money,
+  then captures one net amount for exactly one payout or noun transfer. Authors
+  must declare the child reference, money field, currency, admitted statuses,
+  and explicit negative and zero policies.
+- `requiresExposure` gates a child amount against a stored cap, with an optional
+  anchor-specific cap, and `setsAt.marker` records occurrence timestamps that
+  cannot drive a due condition or deadline. Use these clauses for bounded
+  installment writes and per-anchor occurrence markers.
+- `distribute` allocates one parent money field or computed money ref across
+  typed children selected by status and stored weight. Declare runtime-owned
+  money refs in `computedMoneyRefs`; the validator resolves the parent,
+  weight, statuses, and pool before admitting the document.
+- Nouns may declare up to four `derivedAmounts`. Each rule computes a declared
+  money field as 1 through 9,999 basis points of another declared money field
+  with floor rounding. Callers supply neither the result nor a fixed or tiered
+  rule, and a rule may not derive a field from itself.
+- Verbs may declare one `payout` intent that reads stored money, currency,
+  source-account, and beneficiary values and captures the payout reference.
+  This does not add an operation to the seven-instruction kernel.
+- A system-only `requiresSettlement` transition may read a captured payout
+  reference and capture the durable evidence record that matched it. The
+  validator rejects caller input, decision ports, public intents, due and
+  deadline triggers, kernel steps, and money moves on that transition.
+- `validateUdlJsonSchema` validates one schema against UDL's sealed JSON Schema
+  subset without applying it to a value. `UdlPayout` and
+  `UdlRequiresSettlement` expose the new clause types to TypeScript consumers.
+
+### Changed
+
+- Evolution snapshots freeze public intents, captured receipt input,
+  distribution rules, exposure gates, signed sums, computed money refs, and
+  derived-amount arithmetic once a noun has live instances. Older snapshots
+  remain readable when those keys are absent.
+- Evolution snapshots freeze both payout intents and settlement evidence gates.
+- Receipt refs written by the new clauses share the noun ref namespace with
+  kernel captures, input captures, signed sums, subject refs, and unwind refs.
+
 ## [1.0.0-alpha.4] - 2026-08-26
 
 ### Removed
@@ -104,7 +152,8 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.5...HEAD
+[1.0.0-alpha.5]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.3...v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.2...v1.0.0-alpha.3
 [1.0.0-alpha.2]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.1...v1.0.0-alpha.2

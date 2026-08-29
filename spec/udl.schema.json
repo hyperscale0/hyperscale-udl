@@ -109,12 +109,60 @@
               ]
             }
           },
+          "computedMoneyRefs": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$"
+            }
+          },
           "description": {
             "type": "string"
           },
           "distinctParties": {
             "type": "boolean",
             "const": true
+          },
+          "derivedAmounts": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "rounding": {
+                  "type": "string",
+                  "const": "floor"
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "bps": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9999
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "percentage_of"
+                    }
+                  },
+                  "required": ["bps", "kind"],
+                  "additionalProperties": false
+                },
+                "sourceField": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                }
+              },
+              "required": ["field", "rounding", "rule", "sourceField"],
+              "additionalProperties": false
+            }
           },
           "fields": {
             "type": "object",
@@ -338,6 +386,17 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "captureInput": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]*$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]*$"
+                  }
+                },
                 "deadline": {
                   "type": "object",
                   "properties": {
@@ -370,6 +429,59 @@
                     }
                   },
                   "required": ["capability", "deadlineMs", "onTimeout"],
+                  "additionalProperties": false
+                },
+                "distribute": {
+                  "type": "object",
+                  "properties": {
+                    "amountRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "onZero": {
+                      "type": "string",
+                      "enum": ["refuse", "skip_steps"]
+                    },
+                    "pool": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "const": "parent"
+                        },
+                        "path": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                        }
+                      },
+                      "required": ["from", "path"],
+                      "additionalProperties": false
+                    },
+                    "refField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "statuses": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      }
+                    },
+                    "weightField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": [
+                    "amountRef",
+                    "onZero",
+                    "pool",
+                    "refField",
+                    "statuses",
+                    "weightField"
+                  ],
                   "additionalProperties": false
                 },
                 "description": {
@@ -580,6 +692,49 @@
                     "additionalProperties": false
                   }
                 },
+                "payout": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^(?:fields|refs)\\.[a-z][A-Za-z0-9]*$"
+                    },
+                    "beneficiaryField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "beneficiaryPartyField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "capture": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "currencyField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "sourceAccountField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "speed": {
+                      "type": "string",
+                      "const": "standard"
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "beneficiaryField",
+                    "beneficiaryPartyField",
+                    "capture",
+                    "currencyField",
+                    "sourceAccountField",
+                    "speed"
+                  ],
+                  "additionalProperties": false
+                },
                 "port": {
                   "type": "object",
                   "properties": {
@@ -594,6 +749,11 @@
                   },
                   "required": ["allowedParties"],
                   "additionalProperties": false
+                },
+                "publicIntent": {
+                  "description": "Author-approved public intent name; the containing verb key remains the lifecycle and execution identity",
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
                 },
                 "requiresAggregate": {
                   "minItems": 1,
@@ -758,6 +918,51 @@
                   "required": ["path"],
                   "additionalProperties": false
                 },
+                "requiresExposure": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "amountField": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "anchorField": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "capField": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "capOnAnchor": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "childNounId": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      },
+                      "statuses": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "amountField",
+                      "anchorField",
+                      "capField",
+                      "childNounId",
+                      "statuses"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
                 "requiresRefs": {
                   "minItems": 1,
                   "type": "array",
@@ -811,6 +1016,21 @@
                     "additionalProperties": false
                   }
                 },
+                "requiresSettlement": {
+                  "type": "object",
+                  "properties": {
+                    "capture": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "payoutRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": ["capture", "payoutRef"],
+                  "additionalProperties": false
+                },
                 "setsAt": {
                   "type": "object",
                   "properties": {
@@ -818,11 +1038,80 @@
                       "type": "string",
                       "pattern": "^[a-z][A-Za-z0-9]*$"
                     },
+                    "marker": {
+                      "type": "boolean",
+                      "const": true
+                    },
                     "offset": {
                       "type": "string"
                     }
                   },
                   "required": ["field", "offset"],
+                  "additionalProperties": false
+                },
+                "signedSum": {
+                  "type": "object",
+                  "properties": {
+                    "amountRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "onNegative": {
+                      "type": "string",
+                      "const": "refuse"
+                    },
+                    "onZero": {
+                      "type": "string",
+                      "enum": ["refuse", "skip_steps"]
+                    },
+                    "sources": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "amountField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "nounId": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "refField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "sign": {
+                            "type": "string",
+                            "enum": ["add", "subtract"]
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                            }
+                          },
+                          "subtotalRef": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "amountField",
+                          "nounId",
+                          "refField",
+                          "sign",
+                          "statuses",
+                          "subtotalRef"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["amountRef", "onNegative", "onZero", "sources"],
                   "additionalProperties": false
                 },
                 "steps": {

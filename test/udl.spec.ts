@@ -15,6 +15,7 @@ import {
   diffNounEvolution,
   diffValidatedUdlEvolution,
   snapshotUdlNoun,
+  type EvolutionVerbSnapshot,
   type NounEvolutionSnapshot,
 } from "../src/index.js";
 
@@ -642,7 +643,7 @@ describe("UDL grammar validation", () => {
 
     const overBudget = {
       code: "resource_limit" as const,
-      message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer nouns or fewer reference gates`,
+      message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer nouns, reference gates, or payout intents`,
       path: "$.nouns",
     };
 
@@ -785,6 +786,30 @@ describe("UDL grammar validation", () => {
     });
   });
 
+  test("keeps public intent distinct from verb identity and private on due verbs", async () => {
+    const document = structuredClone(await parsedFixture("cards.udl"));
+    const authorization = document.nouns.find(
+      (noun) => noun.id === "card_authorization",
+    );
+    if (!authorization?.verbs.approve || !authorization.verbs.expire?.due) {
+      throw new Error("card authorization public-intent fixture missing");
+    }
+    authorization.verbs.approve.publicIntent = "approveCardPayment";
+    expect(validateUdl(document).ok).toBe(true);
+    expect(authorization.lifecycle.transitions.approve).toBeDefined();
+
+    authorization.verbs.expire.publicIntent = "expireCardPayment";
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    const nounIndex = document.nouns.indexOf(authorization);
+    expect(result.issues).toContainEqual({
+      code: "invalid_semantics",
+      message: "a system due verb cannot declare a public intent",
+      path: `$.nouns[${nounIndex}].verbs.expire.publicIntent`,
+    });
+  });
+
   test("requires computed time anchors to be immutable, positive, and dominant", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
     const policy = document.nouns.find((noun) => noun.id === "policy");
@@ -858,12 +883,14 @@ describe("UDL grammar validation", () => {
         },
         {
           code: "invalid_semantics",
-          message: "verb activate can read activationAt before writer bind",
+          message:
+            "verb activate can read activationAt before writers bind or create or preview",
           path: `$.nouns[${nounIndex}].verbs.activate`,
         },
         {
           code: "invalid_semantics",
-          message: "activationAt is already written by verb bind",
+          message:
+            "activationAt has multiple writers without one shared one-way destination",
           path: `$.nouns[${nounIndex}].verbs.preview.setsAt.field`,
         },
         {
@@ -1979,6 +2006,533 @@ function capturedError(run: () => unknown): UdlError {
   throw new Error("expected UdlError");
 }
 
+function payoutSettlementDocument(): UdlDocument {
+  return {
+    nouns: [
+      {
+        fields: {
+          amount: {
+            pattern: "^[1-9][0-9]{0,17}$",
+            type: "string",
+          },
+          currency: {
+            maxLength: 3,
+            minLength: 3,
+            pattern: "^[A-Z]{3}$",
+            type: "string",
+          },
+          destinationPartyAccountId: {
+            pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+            type: "string",
+          },
+          payoutBeneficiaryId: {
+            pattern: "^ben_(sandbox|live)_[a-z0-9]{8,64}$",
+            type: "string",
+          },
+          sourceAccountId: {
+            pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+            type: "string",
+          },
+        },
+        id: "payout_batch",
+        idPrefix: "pbat",
+        lifecycle: {
+          initial: "approved",
+          states: ["approved", "instructed", "acknowledged", "reconciled"],
+          transitions: {
+            acknowledge: { from: ["instructed"], to: "acknowledged" },
+            instruct: { from: ["approved"], to: "instructed" },
+            reconcile: {
+              from: ["instructed", "acknowledged"],
+              to: "reconciled",
+            },
+          },
+        },
+        parties: { beneficiary: "destinationPartyAccountId" },
+        required: [
+          "amount",
+          "currency",
+          "destinationPartyAccountId",
+          "payoutBeneficiaryId",
+          "sourceAccountId",
+        ],
+        summary: "One payout batch with evidence-backed settlement.",
+        title: "Payout batch",
+        verbs: {
+          acknowledge: {
+            moves: [],
+            steps: [],
+            summary: "Record a separate tenant acknowledgement.",
+          },
+          create: { moves: [], steps: [], summary: "Create the batch." },
+          instruct: {
+            moves: [],
+            payout: {
+              amount: "fields.amount",
+              beneficiaryField: "payoutBeneficiaryId",
+              beneficiaryPartyField: "destinationPartyAccountId",
+              capture: "payoutId",
+              currencyField: "currency",
+              sourceAccountField: "sourceAccountId",
+              speed: "standard",
+            },
+            steps: [],
+            summary: "Create the payout instruction.",
+          },
+          reconcile: {
+            moves: [],
+            requiresSettlement: {
+              capture: "settlementEvidenceId",
+              payoutRef: "payoutId",
+            },
+            steps: [],
+            summary: "Record matched settlement evidence.",
+          },
+        },
+      },
+    ],
+    product: "payout_evidence",
+    subjects: [],
+    title: "Payout evidence",
+    udl: 1,
+    version: 1,
+  };
+}
+
+describe("payout settlement evidence", () => {
+  test("admits a payout intent followed by a system-only settlement gate", () => {
+    const result = validateUdl(payoutSettlementDocument());
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  test("checks payout value shapes and the shared ref namespace", () => {
+    const document = payoutSettlementDocument();
+    const noun = document.nouns[0]!;
+    const instruct = noun.verbs.instruct!;
+    if (!instruct.payout) throw new Error("fixture payout missing");
+    instruct.payout.amount = "refs.unknownAmount";
+    instruct.payout.beneficiaryField = "amount";
+    instruct.payout.currencyField = "amount";
+    instruct.payout.sourceAccountField = "amount";
+    instruct.payout.capture = "settlementEvidenceId";
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues.map((issue) => issue.message)).toEqual(
+      expect.arrayContaining([
+        "payout amount refs.unknownAmount must name a declared money field or money ref",
+        "payout beneficiaryField amount must name a beneficiary-id field",
+        "payout currencyField amount must name a currency field",
+        "payout sourceAccountField amount must name an account-id field",
+        "settlement capture settlementEvidenceId collides with an existing noun ref key",
+      ]),
+    );
+  });
+
+  test("binds a payout beneficiary to the declared destination party", () => {
+    const withoutParty = payoutSettlementDocument();
+    delete withoutParty.nouns[0]!.parties;
+
+    const missingResult = validateUdl(withoutParty);
+    expect(missingResult.ok).toBe(false);
+    if (missingResult.ok) throw new Error("expected invalid UDL");
+    expect(missingResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout requires parties.beneficiary to bind its destination party",
+        path: "$.nouns[0].verbs.instruct.payout.beneficiaryPartyField",
+      }),
+    );
+
+    const mismatchedParty = payoutSettlementDocument();
+    const noun = mismatchedParty.nouns[0]!;
+    const payout = noun.verbs.instruct!.payout;
+    if (!payout) throw new Error("fixture payout missing");
+    noun.fields.otherPartyAccountId = {
+      pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+      type: "string",
+    };
+    payout.beneficiaryPartyField = "otherPartyAccountId";
+
+    const mismatchResult = validateUdl(mismatchedParty);
+    expect(mismatchResult.ok).toBe(false);
+    if (mismatchResult.ok) throw new Error("expected invalid UDL");
+    expect(mismatchResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout beneficiaryPartyField otherPartyAccountId must equal parties.beneficiary destinationPartyAccountId",
+        path: "$.nouns[0].verbs.instruct.payout.beneficiaryPartyField",
+      }),
+    );
+  });
+
+  test("rejects a payout intent on create to match core admission", () => {
+    const document = payoutSettlementDocument();
+    const noun = document.nouns[0]!;
+    const payout = noun.verbs.instruct!.payout;
+    if (!payout) throw new Error("fixture payout missing");
+    noun.verbs.create!.payout = payout;
+    delete noun.verbs.instruct!.payout;
+
+    const result = validateUdl(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message: "create cannot declare a payout intent",
+        path: "$.nouns[0].verbs.create.payout",
+      }),
+    );
+  });
+
+  test("rejects a payout intent combined with kernel steps or moves", () => {
+    const document = payoutSettlementDocument();
+    const instruct = document.nouns[0]!.verbs.instruct!;
+    instruct.steps.push({
+      bind: {
+        accountId: {
+          from: "instance",
+          path: "fields.sourceAccountId",
+        },
+      },
+      operation: "account.freeze",
+    });
+
+    const result = validateUdl(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "verb instruct payout intent cannot combine with kernel steps or moves",
+        path: "$.nouns[0].verbs.instruct.payout",
+      }),
+    );
+  });
+
+  test("rejects a ref-backed payout before its signed-sum writer", () => {
+    const document = payoutSettlementDocument();
+    const noun = document.nouns[0]!;
+    const instruct = noun.verbs.instruct!;
+    const acknowledge = noun.verbs.acknowledge!;
+    if (!instruct.payout) throw new Error("fixture payout missing");
+    instruct.payout.amount = "refs.payoutAmount";
+    acknowledge.signedSum = {
+      amountRef: "payoutAmount",
+      onNegative: "refuse",
+      onZero: "refuse",
+      sources: [
+        {
+          amountField: "amount",
+          nounId: "payout_item",
+          refField: "payoutBatchId",
+          sign: "add",
+          statuses: ["ready"],
+          subtotalRef: "readyAmount",
+        },
+      ],
+    };
+    document.nouns.push({
+      fields: {
+        amount: {
+          pattern: "^[1-9][0-9]{0,17}$",
+          type: "string",
+        },
+        currency: {
+          maxLength: 3,
+          minLength: 3,
+          pattern: "^[A-Z]{3}$",
+          type: "string",
+        },
+        payoutBatchId: {
+          pattern: "^pbat_(sandbox|live)_[a-z0-9]{8,64}$",
+          type: "string",
+        },
+      },
+      id: "payout_item",
+      idPrefix: "pitm",
+      lifecycle: {
+        initial: "ready",
+        states: ["ready"],
+        transitions: {},
+      },
+      required: ["amount", "currency", "payoutBatchId"],
+      summary: "One amount contributing to a payout batch.",
+      title: "Payout item",
+      verbs: {
+        create: { moves: [], steps: [], summary: "Create the item." },
+      },
+    });
+
+    const result = validateUdl(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout amount refs.payoutAmount can be read before money writers acknowledge",
+        path: "$.nouns[0].verbs.instruct.payout.amount",
+      }),
+    );
+  });
+
+  test("requires exactly one settlement gate for a payout-owning noun", () => {
+    const withoutGate = payoutSettlementDocument();
+    delete withoutGate.nouns[0]!.verbs.reconcile!.requiresSettlement;
+
+    const missingResult = validateUdl(withoutGate);
+    expect(missingResult.ok).toBe(false);
+    if (missingResult.ok) throw new Error("expected invalid UDL");
+    expect(missingResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout-owning noun must declare exactly one settlement gate; found 0",
+        path: "$.nouns[0].verbs",
+      }),
+    );
+
+    const withTwoGates = payoutSettlementDocument();
+    withTwoGates.nouns[0]!.verbs.acknowledge!.requiresSettlement = {
+      capture: "acknowledgementEvidenceId",
+      payoutRef: "payoutId",
+    };
+
+    const duplicateResult = validateUdl(withTwoGates);
+    expect(duplicateResult.ok).toBe(false);
+    if (duplicateResult.ok) throw new Error("expected invalid UDL");
+    expect(duplicateResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout-owning noun must declare exactly one settlement gate; found 2",
+        path: "$.nouns[0].verbs",
+      }),
+    );
+
+    const uncoveredPayout = payoutSettlementDocument();
+    const secondPayout = structuredClone(
+      uncoveredPayout.nouns[0]!.verbs.instruct!.payout,
+    );
+    if (!secondPayout) throw new Error("fixture payout missing");
+    secondPayout.capture = "secondPayoutId";
+    uncoveredPayout.nouns[0]!.verbs.acknowledge!.payout = secondPayout;
+
+    const uncoveredResult = validateUdl(uncoveredPayout);
+    expect(uncoveredResult.ok).toBe(false);
+    if (uncoveredResult.ok) throw new Error("expected invalid UDL");
+    expect(uncoveredResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "verb acknowledge payout capture secondPayoutId is not covered by settlement payoutRef payoutId",
+        path: "$.nouns[0].verbs.acknowledge.payout.capture",
+      }),
+    );
+  });
+
+  test("refuses a settlement gate without a dominating payout capture", () => {
+    const document = payoutSettlementDocument();
+    const noun = document.nouns[0]!;
+    const reconcile = noun.verbs.reconcile!;
+    if (!reconcile.requiresSettlement) {
+      throw new Error("fixture settlement gate missing");
+    }
+    reconcile.requiresSettlement.payoutRef = "missingPayout";
+    noun.lifecycle.transitions.reconcile!.from = ["approved"];
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues.map((issue) => issue.message)).toContain(
+      "requiresSettlement payoutRef missingPayout is not captured by a payout intent",
+    );
+
+    reconcile.requiresSettlement.payoutRef = "payoutId";
+    const early = validateUdl(document);
+    expect(early.ok).toBe(false);
+    if (early.ok) throw new Error("expected invalid UDL");
+    expect(early.issues.map((issue) => issue.message)).toContain(
+      "requiresSettlement can read payoutId before payout writers instruct",
+    );
+  });
+
+  test("keeps settlement-gated transitions private and effect-free", () => {
+    const document = payoutSettlementDocument();
+    const reconcile = document.nouns[0]!.verbs.reconcile!;
+    reconcile.input = { properties: {}, type: "object" };
+    reconcile.captureInput = { callerClaim: "claim" };
+    reconcile.publicIntent = "reconcilePayout";
+    reconcile.port = { allowedParties: ["payer"] };
+    reconcile.due = { field: "currency" };
+    reconcile.deadline = { field: "currency" };
+    reconcile.steps.push({
+      bind: { accountId: { from: "instance", path: "fields.sourceAccountId" } },
+      operation: "account.freeze",
+    });
+    reconcile.moves.push({
+      bind: {
+        amount: { from: "instance", path: "fields.amount" },
+        destinationAccountId: {
+          from: "instance",
+          path: "fields.sourceAccountId",
+        },
+        sourceAccountId: {
+          from: "instance",
+          path: "fields.sourceAccountId",
+        },
+      },
+      key: "claim",
+      operation: "internal_transfer.create",
+    });
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    for (const facet of [
+      "input",
+      "captureInput",
+      "publicIntent",
+      "port",
+      "due",
+      "deadline",
+    ]) {
+      expect(result.issues.map((issue) => issue.message)).toContain(
+        `requiresSettlement is system-only and cannot declare ${facet}`,
+      );
+    }
+    expect(result.issues.map((issue) => issue.message)).toEqual(
+      expect.arrayContaining([
+        "requiresSettlement cannot add kernel steps",
+        "requiresSettlement cannot move money",
+      ]),
+    );
+  });
+
+  test("freezes payout and settlement clauses in evolution snapshots", () => {
+    const previous = snapshotUdlNoun(payoutSettlementDocument().nouns[0]!);
+    const next = structuredClone(previous);
+    const instruct = next.verbs.instruct!;
+    const reconcile = next.verbs.reconcile!;
+    (instruct as { payout?: unknown }).payout = {
+      ...(instruct.payout as Record<string, unknown>),
+      speed: "changed",
+    };
+    (reconcile as { requiresSettlement?: unknown }).requiresSettlement = {
+      ...(reconcile.requiresSettlement as Record<string, unknown>),
+      payoutRef: "changedPayout",
+    };
+
+    expect(diffNounEvolution(previous, next)).toEqual(
+      expect.arrayContaining([
+        "payout_batch: verb instruct changed its payout intent",
+        "payout_batch: verb reconcile changed its settlement evidence gate",
+      ]),
+    );
+  });
+
+  test("classifies a payout on a newly added verb as breaking", () => {
+    const previous = snapshotUdlNoun(payoutSettlementDocument().nouns[0]!);
+    const next = structuredClone(previous);
+    (next.verbs as Record<string, EvolutionVerbSnapshot>).disburse = {
+      ...structuredClone(next.verbs.instruct!),
+      eventName: "payout_batch.disbursed",
+    };
+
+    expect(diffNounEvolution(previous, next)).toContain(
+      "payout_batch: verb disburse added a payout intent; external money movement is frozen once live",
+    );
+
+    const legacyPrevious = structuredClone(previous);
+    delete (legacyPrevious.verbs.instruct as { payout?: unknown }).payout;
+    expect(diffNounEvolution(legacyPrevious, next)).toContain(
+      "payout_batch: verb instruct changed its payout intent",
+    );
+  });
+});
+
+describe("signed sum validation", () => {
+  test("rejects an amount ref that collides with captured input", async () => {
+    const document = await signedSumDocument();
+    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+    const release = escrow?.verbs.release;
+    if (!release) throw new Error("escrow_order release missing");
+    release.input = {
+      properties: { claimedAmount: { type: "string" } },
+      required: ["claimedAmount"],
+      type: "object",
+    };
+    release.captureInput = { releaseAmount: "claimedAmount" };
+
+    const result = validateUdl(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "signed sum ref releaseAmount collides with an existing noun ref key",
+        path: "$.nouns[2].verbs.release.signedSum.amountRef",
+      }),
+    );
+  });
+
+  test("rejects overlapping status sets for the same signed source", async () => {
+    const document = await signedSumDocument();
+    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+    const release = escrow?.verbs.release;
+    if (!release?.signedSum) throw new Error("release signed sum missing");
+    release.signedSum.sources.push({
+      amountField: "askingPrice",
+      nounId: "listing",
+      refField: "escrowOrderId",
+      sign: "add",
+      statuses: ["active", "reserved"],
+      subtotalRef: "activeAndReservedSubtotal",
+    });
+
+    const result = validateUdl(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message: "signed sum source overlaps source 0 on statuses reserved",
+        path: "$.nouns[2].verbs.release.signedSum.sources[1].statuses",
+      }),
+    );
+  });
+});
+
+async function signedSumDocument(): Promise<UdlDocument> {
+  const document = structuredClone(await parsedFixture("commerce-escrow.udl"));
+  const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+  const release = escrow?.verbs.release;
+  const payout = release?.moves[0];
+  if (!release || !payout) throw new Error("escrow_order release missing");
+  release.signedSum = {
+    amountRef: "releaseAmount",
+    onNegative: "refuse",
+    onZero: "refuse",
+    sources: [
+      {
+        amountField: "askingPrice",
+        nounId: "listing",
+        refField: "escrowOrderId",
+        sign: "add",
+        statuses: ["reserved"],
+        subtotalRef: "reservedSubtotal",
+      },
+    ],
+  };
+  payout.bind.amount = {
+    from: "instance",
+    path: "refs.releaseAmount",
+  };
+  return document;
+}
+
 // --------------------------------------------------------------------------
 // Merged from open/udl/test/evolution.spec.ts
 // --------------------------------------------------------------------------
@@ -2389,6 +2943,67 @@ describe("evolution", () => {
           "policy: update policy no longer permits state quoted",
         ]),
       );
+    });
+
+    test("freezes a derived amount percentage after the noun becomes live", async () => {
+      const snapshot = await policySnapshot();
+      const previous = changed(snapshot, {
+        derivedAmounts: ["serviceAmount=floor(premiumAmount*250/10000)"],
+      });
+      const next = changed(previous, {
+        derivedAmounts: ["serviceAmount=floor(premiumAmount*9900/10000)"],
+      });
+
+      expect(diffNounEvolution(previous, next)).toContain(
+        "policy: derived amount rules changed; derived money arithmetic is frozen once live",
+      );
+    });
+
+    test("freezes every weighted distribution selector after the verb becomes live", async () => {
+      const previous = await policySnapshot();
+      const bind = previous.verbs.bind!;
+      const baseline = changed(previous, {
+        verbs: {
+          ...previous.verbs,
+          bind: {
+            ...bind,
+            distribute: {
+              amountRef: "distributionAmount",
+              onZero: "refuse",
+              pool: { from: "parent", path: "refs.distributionPool" },
+              refField: "policyId",
+              statuses: ["eligible"],
+              weightField: "weight",
+            },
+          },
+        },
+      });
+      const violation =
+        "policy: verb bind changed its distribution rule; money distribution is frozen once live";
+      const changedDistributions = [
+        {
+          ...record(baseline.verbs.bind!.distribute),
+          pool: { from: "parent", path: "refs.replacementPool" },
+        },
+        {
+          ...record(baseline.verbs.bind!.distribute),
+          weightField: "replacementWeight",
+        },
+        {
+          ...record(baseline.verbs.bind!.distribute),
+          statuses: ["approved"],
+        },
+      ];
+
+      for (const distribute of changedDistributions) {
+        const next = changed(baseline, {
+          verbs: {
+            ...baseline.verbs,
+            bind: { ...baseline.verbs.bind!, distribute },
+          },
+        });
+        expect(diffNounEvolution(baseline, next)).toContain(violation);
+      }
     });
 
     test("rejects an aggregate added to an already-live noun", async () => {

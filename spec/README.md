@@ -35,11 +35,12 @@ refuses.
 3. **Event law.** Every state change emits an event. Names derive from the noun
    and the verb's past tense (`escrow_order.released`); the optional
    `eventName` overrides only where the honest past tense is irregular.
-4. **One-spine law.** Money moves through four instructions and no others:
+4. **One-spine law.** Internal ledger money moves through four instructions and no others:
    `internal_transfer.create`, `.reserve`, `.post`, `.void`. Three account
    instructions (`account.escrow.provision`, `account.freeze`,
-   `account.unfreeze`) complete the sealed set. No noun and no verb adds a
-   fifth money path.
+   `account.unfreeze`) complete the sealed kernel set. A `payout` intent hands
+   a stored amount and beneficiary reference to the execution core. It is not
+   a kernel instruction and cannot disguise an internal ledger move.
 5. **Uniform object law.** Every instance carries an opaque prefixed id (from
    the noun's `idPrefix`), a `status` drawn from its declared lifecycle, a
    creation timestamp, and a caller-owned metadata bag. Amounts are
@@ -47,8 +48,10 @@ refuses.
    numbers.
 6. **Requirements-as-data law.** Anything a caller must satisfy before a verb
    unlocks is declared data: `due`, `deadline`, `requiresRefs`,
-   `requiresAggregate`, `requiresDrainedAccount`. It is queryable and dated,
-   never a support process.
+   `requiresAggregate`, `requiresDrainedAccount`, `requiresSettlement`. A
+   settlement gate reads a payout reference captured by an earlier payout
+   intent and records the durable matched evidence reference. No caller may
+   assert that match.
 7. **Append-only evolution law.** Once a definition has live instances, adding
    states, transitions, optional fields, and verbs is legal; removing,
    renaming, tightening, or changing a money step is not.

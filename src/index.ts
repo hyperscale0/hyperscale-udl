@@ -23,6 +23,7 @@ export {
   UDL_FORMAT_VERSION,
   udlDocumentSchema,
   udlKernelOperationSchema,
+  udlPublicIntentSchema,
 } from "./schema.js";
 export type {
   UdlAggregate,
@@ -39,6 +40,8 @@ export type {
   UdlLifecycleTransition,
   UdlNoun,
   UdlNounSubject,
+  UdlPayout,
+  UdlRequiresSettlement,
   UdlStep,
   UdlSubject,
   UdlUnwind,
@@ -49,6 +52,7 @@ export {
   openReferenceShapeBudget,
   UdlError,
   validateUdl,
+  validateUdlJsonSchema,
   validateUdlSchemaValue,
 } from "./validation.js";
 export type {

@@ -75,7 +75,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
       issues: [
         {
           code: "resource_limit",
-          message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer nouns or fewer reference gates`,
+          message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer nouns, reference gates, or payout intents`,
           path: "$.nouns",
         },
       ],
@@ -130,6 +130,31 @@ export function validateUdlSchemaValue(
   return { errors, valid: errors.length === 0 };
 }
 
+/**
+ * Validates one schema document against the sealed UDL JSON Schema subset
+ * without applying it to a value. Frozen tenant contracts use this at their
+ * persistence boundary so an unreadable schema cannot become immutable state.
+ */
+export function validateUdlJsonSchema(schema: unknown): readonly UdlIssue[] {
+  const admissionIssue = structuralBudgetIssue(schema);
+  if (admissionIssue) return [admissionIssue];
+  if (!isRecord(schema)) {
+    return [
+      {
+        code: "invalid_shape",
+        message: "JSON Schema must be an object",
+        path: "$",
+      },
+    ];
+  }
+
+  const issues: UdlIssue[] = [];
+  validateJsonSchema(schema, [], (path, message) => {
+    issues.push({ code: "invalid_semantics", message, path: jsonPath(path) });
+  });
+  return issues;
+}
+
 function admissionValidationResult(
   issue: UdlIssue,
   invalidKeyword: string,
@@ -152,6 +177,7 @@ type AddIssue = (path: readonly PropertyKey[], message: string) => void;
 
 const positiveMoneyPattern = "^[1-9][0-9]{0,17}$";
 const nonNegativeMoneyPattern = "^(0|[1-9][0-9]{0,17})$";
+const currencyPattern = "^[A-Z]{3}$";
 const sealedDateTimeFormat = "hyperscale-date-time";
 const jsonSchemaFormats = new Set([
   "hyperscale-date",
@@ -902,26 +928,37 @@ function validateSetsAt(
   base: readonly PropertyKey[],
   add: AddIssue,
 ): void {
-  const writers = new Map<string, string>();
+  const writers = new Map<string, string[]>();
+  const markerFields = new Set<string>();
   for (const [verbName, verb] of Object.entries(noun.verbs)) {
     if (!verb.setsAt) continue;
     const path = [...base, "verbs", verbName, "setsAt"] as const;
-    const { field, offset } = verb.setsAt;
+    const { field, marker, offset } = verb.setsAt;
+    if (marker) markerFields.add(field);
     if (verbName === "create") {
       add(
         path,
         "setsAt requires a lifecycle transition and cannot run on create",
       );
     }
-    const earlierWriter = writers.get(field);
-    if (earlierWriter) {
-      add(
-        [...path, "field"],
-        `${field} is already written by verb ${earlierWriter}`,
+    const fieldWriters = writers.get(field) ?? [];
+    if (fieldWriters.length > 0) {
+      const alternatives = [...fieldWriters, verbName];
+      const targets = new Set(
+        alternatives.map((writer) => noun.lifecycle.transitions[writer]?.to),
       );
-    } else {
-      writers.set(field, verbName);
+      const reentrant = alternatives.some((writer) => {
+        const transition = noun.lifecycle.transitions[writer];
+        return transition?.from.includes(transition.to) === true;
+      });
+      if (targets.size !== 1 || targets.has(undefined) || reentrant) {
+        add(
+          [...path, "field"],
+          `${field} has multiple writers without one shared one-way destination`,
+        );
+      }
     }
+    writers.set(field, [...fieldWriters, verbName]);
 
     const schema = noun.fields[field];
     if (!schema) {
@@ -947,6 +984,15 @@ function validateSetsAt(
       ([, candidate]) =>
         candidate.due?.field === field || candidate.deadline?.field === field,
     );
+    if (marker) {
+      if (readers.length > 0) {
+        add(
+          path,
+          `setsAt marker field ${field} cannot drive a due condition or deadline`,
+        );
+      }
+      continue;
+    }
     if (readers.length === 0) {
       add(
         path,
@@ -954,28 +1000,33 @@ function validateSetsAt(
       );
       continue;
     }
+  }
+  for (const [field, fieldWriters] of writers) {
+    if (markerFields.has(field)) continue;
+    const readers = Object.entries(noun.verbs).filter(
+      ([, candidate]) =>
+        candidate.due?.field === field || candidate.deadline?.field === field,
+    );
     for (const [readerName] of readers) {
-      if (
-        readerName === verbName ||
-        !verbDominatesReader(noun, verbName, readerName)
-      ) {
+      if (!verbGroupDominatesReader(noun, fieldWriters, readerName)) {
         add(
           [...base, "verbs", readerName],
-          `verb ${readerName} can read ${field} before writer ${verbName}`,
+          `verb ${readerName} can read ${field} before writers ${fieldWriters.join(" or ")}`,
         );
       }
     }
   }
 }
 
-function verbDominatesReader(
+function verbGroupDominatesReader(
   noun: UdlNoun,
-  writer: string,
+  writers: readonly string[],
   reader: string,
 ): boolean {
-  if (!noun.lifecycle.transitions[writer]) return false;
+  if (writers.length === 0) return false;
   const readerTransition = noun.lifecycle.transitions[reader];
   if (!readerTransition) return false;
+  const removed = new Set(writers);
   const reachable = new Set([noun.lifecycle.initial]);
   const pending = [noun.lifecycle.initial];
   while (pending.length > 0) {
@@ -984,7 +1035,7 @@ function verbDominatesReader(
       noun.lifecycle.transitions,
     )) {
       if (
-        verb === writer ||
+        removed.has(verb) ||
         !transition.from.includes(state) ||
         reachable.has(transition.to)
       ) {
@@ -1112,6 +1163,7 @@ function validateVerbs(
   references: ReferenceShapeBudget,
   add: AddIssue,
 ): void {
+  validatePayoutsAndSettlement(noun, base, references, add);
   for (const [verb, definition] of Object.entries(noun.verbs)) {
     const verbBase = [...base, "verbs", verb] as const;
     if (verb === "create" && definition.input) {
@@ -1125,6 +1177,17 @@ function validateVerbs(
         [...verbBase, "input", "type"],
         "verb input must declare an object-shaped JSON Schema",
       );
+    }
+    const inputFields = recordValue(definition.input?.properties);
+    for (const [refKey, inputKey] of Object.entries(
+      definition.captureInput ?? {},
+    )) {
+      if (!Object.hasOwn(inputFields, inputKey)) {
+        add(
+          [...verbBase, "captureInput", refKey],
+          `captured receipt input references undeclared verb input field ${inputKey}`,
+        );
+      }
     }
 
     addDuplicateIssues(
@@ -1229,7 +1292,178 @@ function validateVerbs(
       }
     }
 
+    if (definition.signedSum) {
+      const sumBase = [...verbBase, "signedSum"] as const;
+      if (verb === "create") {
+        add(
+          sumBase,
+          "signedSum cannot run on create: no parent row exists yet",
+        );
+      }
+      const generatedRefs = [
+        {
+          key: definition.signedSum.amountRef,
+          path: [...sumBase, "amountRef"] as const,
+        },
+        ...definition.signedSum.sources.map((source, sourceIndex) => ({
+          key: source.subtotalRef,
+          path: [...sumBase, "sources", sourceIndex, "subtotalRef"] as const,
+        })),
+      ];
+      addDuplicateIssues(
+        generatedRefs.map((ref) => ref.key),
+        sumBase,
+        "signed sum ref",
+        add,
+      );
+      const existingRefs = new Set([
+        ...Object.entries(noun.verbs).flatMap(([candidateVerb, candidate]) => [
+          ...Object.keys(candidate.captureInput ?? {}),
+          ...[...candidate.steps, ...candidate.moves].flatMap((step) =>
+            Object.keys(step.capture ?? {}),
+          ),
+          ...(candidateVerb !== verb && candidate.signedSum
+            ? [
+                candidate.signedSum.amountRef,
+                ...candidate.signedSum.sources.map(
+                  (source) => source.subtotalRef,
+                ),
+              ]
+            : []),
+        ]),
+        ...(noun.unwind ? ["unwindRefund", "unwindPenalty"] : []),
+        ...(noun.subject ? ["subject"] : []),
+      ]);
+      for (const ref of generatedRefs) {
+        if (existingRefs.has(ref.key)) {
+          add(
+            ref.path,
+            `signed sum ref ${ref.key} collides with an existing noun ref key`,
+          );
+        }
+      }
+      if (
+        !definition.signedSum.sources.some((source) => source.sign === "add")
+      ) {
+        add([...sumBase, "sources"], "signedSum needs at least one add source");
+      }
+      const parentCurrencies = Object.entries(noun.fields).filter(
+        ([, schema]) => isCurrencySchema(schema),
+      );
+      if (parentCurrencies.length !== 1) {
+        add(
+          sumBase,
+          `signedSum parent ${noun.id} needs exactly one currency field`,
+        );
+      }
+      const sourceKeys = definition.signedSum.sources.map(
+        (source) =>
+          `${source.nounId}:${source.refField}:${source.amountField}:${source.sign}:${[...source.statuses].sort().join(",")}`,
+      );
+      addDuplicateIssues(
+        sourceKeys,
+        [...sumBase, "sources"],
+        "signed sum source",
+        add,
+      );
+      definition.signedSum.sources.forEach((source, sourceIndex) => {
+        for (let priorIndex = 0; priorIndex < sourceIndex; priorIndex += 1) {
+          const prior = definition.signedSum?.sources[priorIndex];
+          if (
+            !prior ||
+            prior.nounId !== source.nounId ||
+            prior.refField !== source.refField ||
+            prior.amountField !== source.amountField ||
+            prior.sign !== source.sign
+          ) {
+            continue;
+          }
+          const priorStatuses = new Set(prior.statuses);
+          const overlap = source.statuses.filter((status) =>
+            priorStatuses.has(status),
+          );
+          if (overlap.length === 0) continue;
+          add(
+            [...sumBase, "sources", sourceIndex, "statuses"],
+            `signed sum source overlaps source ${priorIndex} on statuses ${overlap.join(", ")}`,
+          );
+        }
+      });
+      definition.signedSum.sources.forEach((source, sourceIndex) => {
+        const sourceBase = [...sumBase, "sources", sourceIndex] as const;
+        const child = nouns.get(source.nounId);
+        if (!child) {
+          add(
+            [...sourceBase, "nounId"],
+            `signedSum references unknown noun ${source.nounId}`,
+          );
+          return;
+        }
+        const refSchema = child.fields[source.refField];
+        if (!refSchema || !references.accepts(refSchema, noun.idPrefix)) {
+          add(
+            [...sourceBase, "refField"],
+            `${source.nounId}.${source.refField} must reference ${noun.id}`,
+          );
+        }
+        const amountSchema = child.fields[source.amountField];
+        if (!amountSchema || !isMoneySchema(amountSchema)) {
+          add(
+            [...sourceBase, "amountField"],
+            `${source.nounId}.${source.amountField} must be a money field`,
+          );
+        }
+        const childCurrencies = Object.entries(child.fields).filter(
+          ([, schema]) => isCurrencySchema(schema),
+        );
+        if (childCurrencies.length !== 1) {
+          add(
+            [...sourceBase, "nounId"],
+            `signedSum source ${source.nounId} needs exactly one currency field`,
+          );
+        }
+        addDuplicateIssues(
+          source.statuses,
+          [...sourceBase, "statuses"],
+          "signed sum status",
+          add,
+        );
+        source.statuses.forEach((status, statusIndex) => {
+          if (!child.lifecycle.states.includes(status)) {
+            add(
+              [...sourceBase, "statuses", statusIndex],
+              `signedSum status ${status} is not declared by ${source.nounId}`,
+            );
+          }
+        });
+      });
+      const amountPath = `refs.${definition.signedSum.amountRef}`;
+      const payoutMoves = Object.values(noun.verbs).flatMap((candidate) =>
+        candidate.moves.filter(
+          (move) =>
+            move.operation === "internal_transfer.create" &&
+            move.bind.amount?.from === "instance" &&
+            move.bind.amount.path === amountPath,
+        ),
+      );
+      const payouts = Object.values(noun.verbs).filter(
+        (candidate) => candidate.payout?.amount === amountPath,
+      );
+      if (payoutMoves.length + payouts.length !== 1) {
+        add(
+          sumBase,
+          `signedSum requires exactly one payout or noun transfer whose amount is ${amountPath}`,
+        );
+      }
+    }
+
     if (definition.due) {
+      if (definition.publicIntent) {
+        add(
+          [...verbBase, "publicIntent"],
+          "a system due verb cannot declare a public intent",
+        );
+      }
       const transition = noun.lifecycle.transitions[verb];
       if (definition.due.every) {
         // A recurring due verb is stationary: each occurrence fires in place
@@ -1319,6 +1553,236 @@ function validateVerbs(
       });
     }
   }
+}
+
+function validatePayoutsAndSettlement(
+  noun: UdlNoun,
+  base: readonly PropertyKey[],
+  references: ReferenceShapeBudget,
+  add: AddIssue,
+): void {
+  const payoutEntries = Object.entries(noun.verbs).filter(
+    ([, definition]) => definition.payout !== undefined,
+  );
+  const settlementEntries = Object.entries(noun.verbs).filter(
+    ([, definition]) => definition.requiresSettlement !== undefined,
+  );
+  if (payoutEntries.length > 0 && settlementEntries.length !== 1) {
+    add(
+      [...base, "verbs"],
+      `payout-owning noun must declare exactly one settlement gate; found ${settlementEntries.length}`,
+    );
+  }
+  const settlementRequirement =
+    settlementEntries.length === 1
+      ? settlementEntries[0]?.[1].requiresSettlement
+      : undefined;
+  if (settlementRequirement) {
+    for (const [verb, definition] of payoutEntries) {
+      if (definition.payout?.capture === settlementRequirement.payoutRef) {
+        continue;
+      }
+      add(
+        [...base, "verbs", verb, "payout", "capture"],
+        `verb ${verb} payout capture ${definition.payout?.capture} is not covered by settlement payoutRef ${settlementRequirement.payoutRef}`,
+      );
+    }
+  }
+
+  const reservedRefs = new Set([
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      Object.keys(verb.captureInput ?? {}),
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      [...verb.steps, ...verb.moves].flatMap((step) =>
+        Object.keys(step.capture ?? {}),
+      ),
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      verb.signedSum
+        ? [
+            verb.signedSum.amountRef,
+            ...verb.signedSum.sources.map((source) => source.subtotalRef),
+          ]
+        : [],
+    ),
+    ...(noun.unwind ? ["unwindRefund", "unwindPenalty"] : []),
+    ...(noun.subject ? ["subject"] : []),
+  ]);
+  const moneyWriters = moneyRefWriters(noun);
+  const payoutWriters = new Map<string, string[]>();
+  for (const [verb, definition] of Object.entries(noun.verbs)) {
+    if (!definition.payout) continue;
+    const payout = definition.payout;
+    const payoutBase = [...base, "verbs", verb, "payout"] as const;
+    if (verb === "create") {
+      add(payoutBase, "create cannot declare a payout intent");
+    }
+    if (definition.steps.length > 0 || definition.moves.length > 0) {
+      add(
+        payoutBase,
+        `verb ${verb} payout intent cannot combine with kernel steps or moves`,
+      );
+    }
+    const prior = payoutWriters.get(payout.capture) ?? [];
+    if (reservedRefs.has(payout.capture) || prior.length > 0) {
+      add(
+        [...payoutBase, "capture"],
+        `payout capture ${payout.capture} collides with an existing noun ref key`,
+      );
+    }
+    payoutWriters.set(payout.capture, [...prior, verb]);
+
+    const amount = payout.amount;
+    const [scope, key] = amount.split(".") as [string, string];
+    const amountWriters = moneyWriters.get(key) ?? [];
+    const amountDeclared =
+      scope === "fields"
+        ? isMoneySchema(noun.fields[key] ?? {})
+        : scope === "refs" && amountWriters.length > 0;
+    if (!amountDeclared) {
+      add(
+        [...payoutBase, "amount"],
+        `payout amount ${amount} must name a declared money field or money ref`,
+      );
+    } else if (
+      scope === "refs" &&
+      !amountWriters.includes(verb) &&
+      !amountWriters.includes("create") &&
+      !verbGroupDominatesReader(noun, amountWriters, verb)
+    ) {
+      add(
+        [...payoutBase, "amount"],
+        `payout amount ${amount} can be read before money writers ${amountWriters.join(" or ")}`,
+      );
+    }
+
+    const currency = noun.fields[payout.currencyField];
+    if (!currency || !isCurrencySchema(currency)) {
+      add(
+        [...payoutBase, "currencyField"],
+        `payout currencyField ${payout.currencyField} must name a currency field`,
+      );
+    }
+    const source = noun.fields[payout.sourceAccountField];
+    if (!source || !references.accepts(source, "acct")) {
+      add(
+        [...payoutBase, "sourceAccountField"],
+        `payout sourceAccountField ${payout.sourceAccountField} must name an account-id field`,
+      );
+    }
+    const beneficiary = noun.fields[payout.beneficiaryField];
+    if (!beneficiary || !references.accepts(beneficiary, "ben")) {
+      add(
+        [...payoutBase, "beneficiaryField"],
+        `payout beneficiaryField ${payout.beneficiaryField} must name a beneficiary-id field`,
+      );
+    }
+    const beneficiaryPartyField = noun.parties?.beneficiary;
+    if (!beneficiaryPartyField) {
+      add(
+        [...payoutBase, "beneficiaryPartyField"],
+        "payout requires parties.beneficiary to bind its destination party",
+      );
+    } else if (payout.beneficiaryPartyField !== beneficiaryPartyField) {
+      add(
+        [...payoutBase, "beneficiaryPartyField"],
+        `payout beneficiaryPartyField ${payout.beneficiaryPartyField} must equal parties.beneficiary ${beneficiaryPartyField}`,
+      );
+    }
+  }
+
+  const settlementCaptures = new Set<string>();
+  for (const [verb, definition] of Object.entries(noun.verbs)) {
+    if (!definition.requiresSettlement) continue;
+    const requirement = definition.requiresSettlement;
+    const requirementBase = [
+      ...base,
+      "verbs",
+      verb,
+      "requiresSettlement",
+    ] as const;
+    if (
+      reservedRefs.has(requirement.capture) ||
+      payoutWriters.has(requirement.capture) ||
+      settlementCaptures.has(requirement.capture)
+    ) {
+      add(
+        [...requirementBase, "capture"],
+        `settlement capture ${requirement.capture} collides with an existing noun ref key`,
+      );
+    }
+    settlementCaptures.add(requirement.capture);
+
+    const writers = payoutWriters.get(requirement.payoutRef) ?? [];
+    if (writers.length === 0) {
+      add(
+        [...requirementBase, "payoutRef"],
+        `requiresSettlement payoutRef ${requirement.payoutRef} is not captured by a payout intent`,
+      );
+    } else if (!verbGroupDominatesReader(noun, writers, verb)) {
+      add(
+        requirementBase,
+        `requiresSettlement can read ${requirement.payoutRef} before payout writers ${writers.join(" or ")}`,
+      );
+    }
+
+    if (!noun.lifecycle.transitions[verb]) {
+      add(
+        requirementBase,
+        "requiresSettlement needs a lifecycle transition and cannot run on create",
+      );
+    }
+    const callerFacets = [
+      definition.port ? "port" : undefined,
+      definition.publicIntent ? "publicIntent" : undefined,
+      definition.input ? "input" : undefined,
+      definition.captureInput ? "captureInput" : undefined,
+      definition.due ? "due" : undefined,
+      definition.deadline ? "deadline" : undefined,
+    ].filter((facet): facet is string => facet !== undefined);
+    for (const facet of callerFacets) {
+      add(
+        [...base, "verbs", verb, facet],
+        `requiresSettlement is system-only and cannot declare ${facet}`,
+      );
+    }
+    if (definition.steps.length > 0) {
+      add(
+        [...base, "verbs", verb, "steps"],
+        "requiresSettlement cannot add kernel steps",
+      );
+    }
+    if (definition.moves.length > 0) {
+      add(
+        [...base, "verbs", verb, "moves"],
+        "requiresSettlement cannot move money",
+      );
+    }
+  }
+}
+
+function moneyRefWriters(noun: UdlNoun): ReadonlyMap<string, string[]> {
+  const writers = new Map<string, string[]>();
+  for (const [verbName, verb] of Object.entries(noun.verbs)) {
+    const refs = [
+      ...(verb.signedSum
+        ? [
+            verb.signedSum.amountRef,
+            ...verb.signedSum.sources.map((source) => source.subtotalRef),
+          ]
+        : []),
+      ...[...verb.steps, ...verb.moves].flatMap((step) =>
+        Object.entries(step.capture ?? {}).flatMap(([ref, output]) =>
+          output === "postedAmount" ? [ref] : [],
+        ),
+      ),
+    ];
+    for (const ref of refs) {
+      writers.set(ref, [...(writers.get(ref) ?? []), verbName]);
+    }
+  }
+  return writers;
 }
 
 /**
@@ -1416,9 +1880,26 @@ function validateGateShape(
 function declaredRefKeys(noun: UdlNoun): ReadonlySet<string> {
   return new Set([
     ...Object.values(noun.verbs).flatMap((verb) =>
+      verb.payout ? [verb.payout.capture] : [],
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      verb.requiresSettlement ? [verb.requiresSettlement.capture] : [],
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      Object.keys(verb.captureInput ?? {}),
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
       [...verb.steps, ...verb.moves].flatMap((step) =>
         Object.keys(step.capture ?? {}),
       ),
+    ),
+    ...Object.values(noun.verbs).flatMap((verb) =>
+      verb.signedSum
+        ? [
+            verb.signedSum.amountRef,
+            ...verb.signedSum.sources.map((source) => source.subtotalRef),
+          ]
+        : [],
     ),
     ...(noun.unwind ? ["unwindRefund", "unwindPenalty"] : []),
     ...(noun.subject ? ["subject"] : []),
@@ -1835,6 +2316,10 @@ function isMoneySchema(schema: Readonly<Record<string, unknown>>): boolean {
     schema.pattern === positiveMoneyPattern ||
     schema.pattern === nonNegativeMoneyPattern
   );
+}
+
+function isCurrencySchema(schema: Readonly<Record<string, unknown>>): boolean {
+  return schema.pattern === currencyPattern;
 }
 
 /**

@@ -116,10 +116,13 @@ states, transitions, optional fields, and verbs. You may not remove, rename,
 tighten, or change a money step. `udl diff` is not advice; it is the same
 function the compiler runs before it will accept a new version.
 
-**Money moves through four instructions and no others.**
+**Internal ledger money moves through four instructions and no others.**
 `internal_transfer.create`, `.reserve`, `.post`, `.void`. Three account
 instructions complete the sealed set. A noun cannot invent a fifth money path,
 which is why a document can be checked for stranded value before anything runs.
+The separate `payout` intent carries a stored amount to the execution core and
+captures its durable reference. A later `requiresSettlement` transition stays
+system-only and runs only after that payout matches durable settlement evidence.
 
 ## The spec
 

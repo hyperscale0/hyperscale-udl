@@ -130,8 +130,8 @@ document be diffed, signed, and stored as its own identity.
 document that declares any other value is refused. Format 1 is the only format
 that exists.
 
-**Package version** is the semver of `@hyperscale0/udl`, currently
-`1.0.0-alpha.1`.
+**Package version** is the semver of `@hyperscale0/udl`, declared in
+`package.json`.
 
 They move independently, under one rule: **format 1 is unstable until the
 package reaches 1.0.0.** Until then an alpha release may change what format 1

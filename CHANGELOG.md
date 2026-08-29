@@ -10,6 +10,11 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2026-08-29
+
+- This is the first beta and has no package behavior changes from
+  1.0.0-alpha.5.
+
 ## [1.0.0-alpha.5] - 2026-08-29
 
 ### Added
@@ -152,7 +157,8 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.5...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-beta.1...HEAD
+[1.0.0-beta.1]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.5...v1.0.0-beta.1
 [1.0.0-alpha.5]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.3...v1.0.0-alpha.4
 [1.0.0-alpha.3]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.2...v1.0.0-alpha.3

@@ -1,11 +1,10 @@
 # UDL
 
-UDL is the Universal Domain Language: a JSON document format for describing
-a financial product in business terms. One `.udl` file declares the product's
-subjects, its nouns, each noun's lifecycle, the verbs that move instances
-through that lifecycle, and how money moves while they do. Everything else,
-SDKs, docs, tool surfaces, the running engine, is generated from it or checked
-against it.
+UDL is the Universal Domain Language: the canonical JSON contract for a
+financial product. One `.udl` file declares the subjects, nouns, lifecycles,
+verbs, and money steps that define the product in business terms. Hyperscale's
+composer admits that document into a frozen Product build. The compiler then
+projects API, SDK, documentation, and agent surfaces from the same contract.
 
 The language deliberately cannot say certain things. There is no statement
 format, no file drop, no polling loop, no cutoff time, no scheme name, no
@@ -14,8 +13,9 @@ they are not the product, so they are absorbed below the language and never
 surface in a document. What is left is small enough to hold in your head.
 
 This package is the reference implementation: parser, semantic validator,
-canonical serializer, evolution diff, and the `udl` command. The format itself
-is specified in [`spec/`](./spec/README.md) and pinned by
+canonical serializer, append-only evolution diff, and the `udl` command. It
+does not compose a company or execute operations. The format itself is
+specified in [`spec/`](./spec/README.md) and pinned by
 [`conformance/`](./conformance/README.md).
 
 ## Install
@@ -79,9 +79,9 @@ await writeFile("note.udl", serializeUdl(document));
 const result = validateUdl(document);
 if (!result.ok) console.error(result.issues);
 
-// Is this change legal against the version that already has live instances?
-const live = parseUdl(await readFile("note.live.udl"));
-const violations = diffValidatedUdlEvolution(live, document);
+// Is this change legal against the frozen version with existing instances?
+const previous = parseUdl(await readFile("note.previous.udl"));
+const violations = diffValidatedUdlEvolution(previous, document);
 ```
 
 `parseUdl` takes a string or a `Uint8Array`; bytes are decoded as strict UTF-8.
@@ -91,9 +91,8 @@ canonical form.
 `diffValidatedUdlEvolution` takes two `UdlDocument`s and assumes both have
 already been admitted. Validate first: an evolution verdict on a document
 `validateUdl` refuses is not a verdict at all, and a candidate that drops a
-live noun sails through a diff that never checked whether the noun was
-referenced. The `UdlDocument` parameter types are what keeps the compiler on
-your side of that rule.
+referenced noun sails through a diff that never checked the reference graph.
+The `UdlDocument` parameter types keep the compiler on your side of that rule.
 
 ## The command
 
@@ -101,7 +100,7 @@ your side of that rule.
 udl validate product.udl        # parse and report every issue found
 udl fmt product.udl             # print the canonical form
 udl fmt product.udl --write     # rewrite the file in place
-udl diff live.udl product.udl   # is the change additive, or does it break?
+udl diff frozen.udl product.udl # is the change additive, or does it break?
 ```
 
 Exit codes: `0` the document is admissible or the change is additive, `1` the
@@ -111,10 +110,10 @@ document and a broken invocation are different failures.
 
 ## The two things worth knowing
 
-**Evolution is append-only.** Once a definition has live instances, you may add
-states, transitions, optional fields, and verbs. You may not remove, rename,
-tighten, or change a money step. `udl diff` is not advice; it is the same
-function the compiler runs before it will accept a new version.
+**Evolution is append-only.** Once a frozen definition has instances, you may
+add states, transitions, optional fields, and verbs. You may not remove,
+rename, tighten, or change a money step. `udl diff` is not advice; it is the
+same function the compiler runs before it will accept a new version.
 
 **Internal ledger money moves through four instructions and no others.**
 `internal_transfer.create`, `.reserve`, `.post`, `.void`. Three account

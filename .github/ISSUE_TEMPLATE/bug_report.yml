@@ -13,7 +13,7 @@ body:
     attributes:
       label: Version
       description: The `@hyperscale0/udl` version, from `npm ls @hyperscale0/udl`.
-      placeholder: 1.0.0-alpha.1
+      placeholder: 1.0.0-beta.1
     validations:
       required: true
 

@@ -10,6 +10,10 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-04
+
+This release is byte-identical to 1.0.0-rc.1. Later changes bump under the contract-diff tiers.
+
 ## [1.0.0-rc.1] - 2026-09-02
 
 ### Added
@@ -204,7 +208,8 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-rc.1...v1.0.0
 [1.0.0-rc.1]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-beta.1...v1.0.0-rc.1
 [1.0.0-beta.1]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.5...v1.0.0-beta.1
 [1.0.0-alpha.5]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...v1.0.0-alpha.5

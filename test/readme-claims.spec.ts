@@ -92,5 +92,5 @@ test("README pins package and format versions separately", async () => {
     'The literal `"udl": 1` is the format version. The version in `package.json` is the package version.',
   );
   expect(UDL_FORMAT_VERSION).toBe(1);
-  expect(packageJson.version).toBe("1.0.0-rc.1");
+  expect(packageJson.version).toBe("1.0.0");
 });

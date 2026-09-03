@@ -12,7 +12,7 @@ This package contains the parser, semantic validator, canonical serializer, appe
 npm install @hyperscale0/udl
 ```
 
-`1.0.0-rc.1` freezes the candidate format for one full wave of use. Pin the release candidate while testing another implementation. Format 1 freezes when the package reaches `1.0.0`.
+`1.0.0` freezes format 1. Pin version 1.0.0 while testing another implementation.
 
 ## Thirty seconds
 

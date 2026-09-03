@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5002",
+      "path": "$.instruments[0].actions.settle.requiresChecks[0].maxAge"
+    }
+  ],
+  "summary": "Refuses check maxAge must be a fixed ISO-8601 duration.",
+  "verdict": "invalid"
+}

@@ -1,8 +1,8 @@
 {
   "issues": [
     {
-      "code": "invalid_semantics",
-      "path": "$.nouns[0].lifecycle.states[2]"
+      "code": "UDL3001",
+      "path": "$.instruments[0].lifecycle.states[2]"
     }
   ],
   "summary": "Lifecycle closure: a state no transition can reach is a typo, not a state.",

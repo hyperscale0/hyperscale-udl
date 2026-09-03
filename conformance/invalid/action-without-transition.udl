@@ -1,5 +1,5 @@
 {
-  "nouns": [
+  "instruments": [
     {
       "fields": {
         "reference": {
@@ -28,7 +28,12 @@
       ],
       "summary": "A note a tenant files and later closes.",
       "title": "Note",
-      "verbs": {
+      "actionOrder": [
+        "close",
+        "create",
+        "touch"
+      ],
+      "actions": {
         "close": {
           "moves": [],
           "steps": [],

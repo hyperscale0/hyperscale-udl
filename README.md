@@ -1,22 +1,10 @@
 # UDL
 
-UDL is the Universal Domain Language: the canonical JSON contract for a
-financial product. One `.udl` file declares the subjects, nouns, lifecycles,
-verbs, and money steps that define the product in business terms. Hyperscale's
-composer admits that document into a frozen Product build. The compiler then
-projects API, SDK, documentation, and agent surfaces from the same contract.
+UDL is the Universal Domain Language, the canonical JSON contract for a financial product. One `.udl` file declares subjects, instruments, lifecycles, actions, and money movement. An engine can admit that document without reading the source language that produced it.
 
-The language deliberately cannot say certain things. There is no statement
-format, no file drop, no polling loop, no cutoff time, no scheme name, no
-reconciliation vocabulary. Those are real and they are somebody's problem, but
-they are not the product, so they are absorbed below the language and never
-surface in a document. What is left is small enough to hold in your head.
+UDL keeps provider machinery below the format. It has no file drops, polling loops, cutoff jobs, scheme messages, or provider statement schemas. The `reconcile` clause names settlement evidence against a declared provider-side row. It does not model the provider file or transport.
 
-This package is the reference implementation: parser, semantic validator,
-canonical serializer, append-only evolution diff, and the `udl` command. It
-does not compose a company or execute operations. The format itself is
-specified in [`spec/`](./spec/README.md) and pinned by
-[`conformance/`](./conformance/README.md).
+This package contains the parser, semantic validator, canonical serializer, append-only evolution diff, JSON Schema, and conformance corpus.
 
 ## Install
 
@@ -24,18 +12,17 @@ specified in [`spec/`](./spec/README.md) and pinned by
 npm install @hyperscale0/udl
 ```
 
-Every release before 1.0.0 is an alpha, and `latest` follows the newest one, so
-a bare install gets it. Pin an exact version if you need one: until 1.0.0 a
-change to the surface ships as a minor bump, not a major.
+`1.0.0-rc.1` freezes the candidate format for one full wave of use. Pin the release candidate while testing another implementation. Format 1 freezes when the package reaches `1.0.0`.
 
 ## Thirty seconds
 
-`note.udl`, the smallest document the format accepts:
+`note.udl` is the smallest admitted document.
 
 ```json
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": ["close", "create"],
       "fields": { "reference": { "type": "string" } },
       "id": "note",
       "idPrefix": "note",
@@ -47,7 +34,7 @@ change to the surface ships as a minor bump, not a major.
       "required": ["reference"],
       "summary": "A note a tenant files and later closes.",
       "title": "Note",
-      "verbs": {
+      "actions": {
         "close": { "moves": [], "steps": [], "summary": "Close the note." },
         "create": { "moves": [], "steps": [], "summary": "File the note." }
       }
@@ -64,6 +51,7 @@ change to the surface ships as a minor bump, not a major.
 ```ts
 import { readFile, writeFile } from "node:fs/promises";
 import {
+  canonicalDigest,
   diffValidatedUdlEvolution,
   parseUdl,
   serializeUdl,
@@ -71,102 +59,52 @@ import {
 } from "@hyperscale0/udl";
 
 const document = parseUdl(await readFile("note.udl"));
-
-// One document, one byte sequence. Sorted keys, two-space indent, final LF.
 await writeFile("note.udl", serializeUdl(document));
+console.log(await canonicalDigest(document));
 
-// Issues carry a stable code and a JSON path, never just a sentence.
 const result = validateUdl(document);
 if (!result.ok) console.error(result.issues);
 
-// Is this change legal against the frozen version with existing instances?
 const previous = parseUdl(await readFile("note.previous.udl"));
 const violations = diffValidatedUdlEvolution(previous, document);
 ```
 
-`parseUdl` takes a string or a `Uint8Array`; bytes are decoded as strict UTF-8.
-`serializeUdl` validates before it writes, so an invalid document has no
-canonical form.
+Every issue has a stable `UDL####` code, a category, a JSON path, a message, and a fix. Messages may become clearer. Codes do not change once published.
 
-`diffValidatedUdlEvolution` takes two `UdlDocument`s and assumes both have
-already been admitted. Validate first: an evolution verdict on a document
-`validateUdl` refuses is not a verdict at all, and a candidate that drops a
-referenced noun sails through a diff that never checked the reference graph.
-The `UdlDocument` parameter types keep the compiler on your side of that rule.
+`parseUdl` accepts a string or `Uint8Array` and rejects malformed UTF-8. `serializeUdl` validates before writing. It sorts object keys by UTF-16 code unit, keeps array order, uses two-space indentation, and writes one final line feed. `canonicalDigest` hashes those UTF-8 bytes with SHA-256 and returns a promise for the lowercase hexadecimal digest.
 
-## The command
+The seven kernel operations are `internal_transfer.create`, `internal_transfer.reserve`, `internal_transfer.post`, `internal_transfer.void`, `account.escrow.provision`, `account.freeze`, and `account.unfreeze`. A `payout` is an execution intent, not another kernel operation.
+
+The compiler derives action `effects` from clauses. The validator rejects a supplied effects object unless every row and its order match. Derived effects do not consume the authored node budget.
+
+## Command line
 
 ```bash
-udl validate product.udl        # parse and report every issue found
-udl fmt product.udl             # print the canonical form
-udl fmt product.udl --write     # rewrite the file in place
-udl diff frozen.udl product.udl # is the change additive, or does it break?
+udl validate product.udl
+udl fmt product.udl --write
+udl canon product.udl
+udl canon product.udl --digest
+udl diff frozen.udl product.udl
+udl explain UDL5001
 ```
 
-Exit codes: `0` the document is admissible or the change is additive, `1` the
-document was refused or the change breaks the append-only law, `2` the command
-line was wrong or a file could not be read. That split matters in CI: a broken
-document and a broken invocation are different failures.
+Exit code `0` means success. Exit code `1` means the validator or evolution law refused the document. Exit code `2` means the invocation or file read failed.
 
-## The two things worth knowing
+## Documentation
 
-**Evolution is append-only.** Once a frozen definition has instances, you may
-add states, transitions, optional fields, and verbs. You may not remove,
-rename, tighten, or change a money step. `udl diff` is not advice; it is the
-same function the compiler runs before it will accept a new version.
-
-**Internal ledger money moves through four instructions and no others.**
-`internal_transfer.create`, `.reserve`, `.post`, `.void`. Three account
-instructions complete the sealed set. A noun cannot invent a fifth money path,
-which is why a document can be checked for stranded value before anything runs.
-The separate `payout` intent carries a stored amount to the execution core and
-captures its durable reference. A later `requiresSettlement` transition stays
-system-only and runs only after that payout matches durable settlement evidence.
-
-## The spec
-
-- [`spec/README.md`](./spec/README.md) is the specification: the ten laws, the
-  canonical form, the issue codes, and what the schema deliberately cannot say.
-- [`spec/udl.schema.json`](./spec/udl.schema.json) is JSON Schema 2020-12,
-  generated from the grammar. Where prose and schema disagree, the schema wins.
-- [`conformance/`](./conformance/README.md) is the semantic spec: `.udl` inputs
-  with expected verdicts, canonical bytes, and issue codes, runnable from any
-  language.
+- [Guide and reading order](docs/README.md)
+- [Format specification](spec/README.md)
+- [Canonical bytes law](docs/reference/canonical.md)
+- [Stable diagnostics](docs/reference/diagnostics.md)
+- [Conformance runner contract](conformance/README.md)
+- [Agent skill](skills/udl/SKILL.md)
 
 ## Versioning
 
-Two numbers move independently.
+The literal `"udl": 1` is the format version. The version in `package.json` is the package version. They move independently. After package version `1.0.0`, an incompatible format change uses a new format literal and keeps an explicit reader for stored format 1 documents during its stated support window.
 
-**Format version** is the literal `"udl": 1` inside a document. Format 1 is the
-only format that exists.
+## Contributing and license
 
-**Package version** is this package's semver, in `package.json`.
+Hyperscale accepts format proposals as issues with a use case and the conformance case they would add. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and proof commands.
 
-Format 1 is unstable until the package reaches 1.0.0. Until then an alpha
-release may change what format 1 accepts, and every such change is listed in
-[`CHANGELOG.md`](./CHANGELOG.md). After 1.0.0, format 1 is frozen and an
-incompatible change bumps the literal to `2`.
-
-## Status
-
-Alpha. The format is in use, the API surface is settled enough to build on, and
-the version number is honest about the rest. Breaking changes go in the
-changelog, not in a footnote.
-
-## Contributing
-
-Issues only. Hyperscale makes the changes to the format and the package; you
-propose them in an issue carrying the use case and the conformance case it
-would add. [`CONTRIBUTING.md`](./CONTRIBUTING.md) has that model in full, plus
-the dev setup, the test commands, and how to regenerate the spec. Conduct:
-[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md). Vulnerabilities:
-[`SECURITY.md`](./SECURITY.md).
-
-## License
-
-AGPL-3.0-only, with a commercial license available from Hyperscale LLC for
-organisations that cannot accept the AGPL. See [`LICENSE`](./LICENSE) for the
-text and [`LICENSING.md`](./LICENSING.md) for which one you want and how to ask
-for the commercial one. The marks are not covered by either; see
-[`TRADEMARKS.md`](./TRADEMARKS.md), which also carries the rule for claiming
-UDL compatibility.
+UDL is AGPL-3.0-only. Hyperscale LLC also offers a commercial license. See [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).

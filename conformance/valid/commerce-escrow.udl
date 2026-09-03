@@ -1,7 +1,250 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "create",
+        "publish",
+        "reserve",
+        "reopen",
+        "sell",
+        "withdraw",
+        "expire"
+      ],
+      "actions": {
+        "create": {
+          "agentDescription": "Draft a private offer against one vehicle or merchandise subject at an asking price. The offer is not buyable yet. Publishing is a separate call. Headline, asking price, currency, and the seller's customer balance account are required.",
+          "description": "Creates a private offer against one subject. Publishing is a separate, explicit decision.",
+          "examples": [
+            {
+              "input": {
+                "askingPrice": "240000",
+                "currency": "SAR",
+                "description": "Single owner, full service history, sold under escrow protection.",
+                "expiresAt": "2026-08-31T21:00:00.000Z",
+                "headline": "2021 Toyota Land Cruiser GXR",
+                "imageUrl": "https://cdn.sandbox.example/listings/landcruiser-2021.jpg",
+                "productId": "prd_sandbox_marketplace01",
+                "sellerAccountId": "acct_sandbox_seller0001",
+                "subject": "sbj_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "draft_vehicle_offer"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Draft a listing"
+        },
+        "expire": {
+          "description": "Withdraws an active offer at its declared expiry under the machine principal.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "expire_stale_offer"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Expire a listing"
+        },
+        "publish": {
+          "agentDescription": "Make a draft offer visible and buyable. Only a draft publishes and no money moves. Set expiresAt through listing.update first if the offer should withdraw itself at a deadline, since expiry only fires when that field is set.",
+          "description": "Makes the draft visible and buyable.",
+          "examples": [
+            {
+              "input": {
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "publish_vehicle_offer"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Publish a listing"
+        },
+        "reopen": {
+          "agentDescription": "Put a reserved offer back on the market after its escrow closed without paying the seller. The escrow order must be refunded, penalty_collected, canceled, or expired. Use sell instead when the escrow released the money to the seller.",
+          "description": "Returns the offer to the market after escrow closes without releasing money to the seller.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "reopen_refunded_offer"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "instrumentInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "refunded",
+                "penalty_collected",
+                "canceled",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Reopen a listing"
+        },
+        "reserve": {
+          "agentDescription": "Take an active offer off the market for one buyer. The named escrow order must be funded, opened against this same listing, and match its asking price, currency, and seller exactly. No money moves here because the escrow already holds it.",
+          "description": "Takes the offer off the market only while its referenced escrow order holds the buyer's funds for this exact listing at its exact economics.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "reserve_funded_offer"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "escrowOrderId": {
+                "description": "Escrow order whose held funds reserve this listing",
+                "pattern": "^eord_(sandbox|live)_[a-z0-9]{8,64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "escrowOrderId"
+            ],
+            "type": "object"
+          },
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "fields.askingPrice": "fields.amount",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId",
+                "instrumentInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Reserve a listing",
+          "updates": [
+            "escrowOrderId"
+          ]
+        },
+        "sell": {
+          "agentDescription": "Close the offer as sold. The listing must be reserved, and the escrow order opened against this exact listing must already have released the full asking price to this seller. Call it after the money landed, never before. No money moves here.",
+          "description": "Marks the subject sold only after the escrow opened against this exact listing has released the full asking price to this seller.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "listing.sold",
+          "examples": [
+            {
+              "input": {
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "sell_released_offer"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowOrderId",
+              "match": {
+                "fields.askingPrice": "fields.amount",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId",
+                "instrumentInstanceId": "fields.listingId"
+              },
+              "statuses": [
+                "released"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Sell a listing"
+        },
+        "withdraw": {
+          "agentDescription": "Pull a draft or active offer off the market for good. It only works before any escrow reserves the listing, so a reserved offer has to reopen first. No money moves and the listing does not come back.",
+          "description": "Closes a draft or active offer before any escrow reservation exists.",
+          "eventName": "listing.withdrawn",
+          "examples": [
+            {
+              "input": {
+                "listingId": "lst_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "withdraw_unreserved_offer"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Withdraw a listing"
+        }
+      },
+      "agentDescription": "Reach for listing when the caller offers one vehicle or merchandise subject for sale, or moves that offer between draft, active, reserved, and closed. A listing never moves money itself. The buyer's cash sits in an escrow_order and the buy-side agreement is an order.",
+      "callerParkedStates": {
+        "active": "expire fires only when expiresAt is set; an open-ended listing waits on buyer or seller action",
+        "draft": "publishing is the seller's authoring decision",
+        "reserved": "a reservation resolves by sale or reopening, both party actions"
+      },
       "description": "A listing starts as a private draft, becomes buyable when published, stays unavailable while funded escrow reserves it, and ends sold, withdrawn, or expired without ever moving money itself.",
+      "dials": [
+        {
+          "field": "expiresAt",
+          "key": "listing_window",
+          "kind": "window",
+          "maxOffset": "P90D",
+          "summary": "Grace beyond the expiry timestamp before an active listing withdraws.",
+          "title": "Listing window"
+        }
+      ],
       "fields": {
         "askingPrice": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -102,6 +345,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Listings"
+      ],
       "parties": {
         "subjectHolder": "sellerAccountId"
       },
@@ -118,8 +365,20 @@
         ]
       },
       "summary": "Subject-backed offer published by a seller.",
+      "templateId": "marketplace",
       "title": "Listing",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "askingPrice": "240000",
+              "escrowOrderId": "eord_sandbox_buyerorder01",
+              "listingId": "lst_sandbox_landcruiser1",
+              "tenantId": "ten_sandbox_riyadhresale01"
+            },
+            "name": "attach_funded_escrow"
+          }
+        ],
         "fields": [
           "headline",
           "description",
@@ -132,54 +391,43 @@
           "draft",
           "active"
         ]
-      },
-      "verbs": {
-        "create": {
-          "description": "Creates a private offer against one subject. Publishing is a separate, explicit decision.",
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "confirm",
+        "fulfill",
+        "cancel",
+        "expire"
+      ],
+      "actions": {
+        "cancel": {
+          "agentDescription": "Abandon the agreement. It is allowed only while the escrow order is still created, or after it fully retreated into refunded, penalty_collected, canceled, or expired. A funded escrow blocks the cancellation until it unwinds first. No money moves here.",
+          "description": "Closes the agreement only while escrow is still empty or after every held unit has safely returned to the buyer.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
           "examples": [
             {
               "input": {
-                "askingPrice": "240000",
-                "currency": "SAR",
-                "description": "Single owner, full service history, sold under escrow protection.",
-                "expiresAt": "2026-08-31T21:00:00.000Z",
-                "headline": "2021 Toyota Land Cruiser GXR",
-                "imageUrl": "https://cdn.sandbox.example/listings/landcruiser-2021.jpg",
-                "sellerAccountId": "acct_sandbox_seller0001",
-                "subject": "sbj_sandbox_landcruiser1"
+                "orderId": "ord_sandbox_landcruiser01",
+                "tenantId": "ten_sandbox_riyadhresale01"
               },
-              "name": "draft_vehicle_offer"
+              "name": "cancel_safely_retired_purchase"
             }
           ],
-          "moves": [],
-          "steps": [],
-          "summary": "Draft a listing"
-        },
-        "expire": {
-          "description": "Withdraws an active offer at its declared expiry under the machine principal.",
-          "due": {
-            "field": "expiresAt"
-          },
-          "moves": [],
-          "steps": [],
-          "summary": "Expire a listing"
-        },
-        "publish": {
-          "description": "Makes the draft visible and buyable.",
-          "moves": [],
-          "steps": [],
-          "summary": "Publish a listing"
-        },
-        "reopen": {
-          "description": "Returns the offer to the market after escrow closes without releasing money to the seller.",
           "moves": [],
           "requiresRefs": [
             {
               "field": "escrowOrderId",
-              "match": {
-                "nounInstanceId": "fields.listingId"
-              },
               "statuses": [
+                "created",
                 "refunded",
                 "penalty_collected",
                 "canceled",
@@ -188,19 +436,49 @@
             }
           ],
           "steps": [],
-          "summary": "Reopen a listing"
+          "summary": "Cancel an order"
         },
-        "reserve": {
-          "description": "Takes the offer off the market only while its referenced escrow order holds the buyer's funds for this exact listing at its exact economics.",
+        "confirm": {
+          "agentDescription": "Lock the agreement's terms. The listing must still be active at the agreed price with the same seller, and the escrow order must be funded for the full amount with matching buyer, seller, currency, and listing. No money moves. The escrow already holds it.",
+          "description": "Makes the agreement final only while the listing is active at the agreed price and escrow holds the full purchase amount for that same listing.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "orderId": "ord_sandbox_landcruiser01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "confirm_funded_purchase"
+            }
+          ],
           "moves": [],
           "requiresRefs": [
             {
+              "field": "listingId",
+              "match": {
+                "fields.amount": "fields.askingPrice",
+                "fields.currency": "fields.currency",
+                "fields.sellerAccountId": "fields.sellerAccountId"
+              },
+              "statuses": [
+                "active"
+              ]
+            },
+            {
               "field": "escrowOrderId",
               "match": {
-                "fields.askingPrice": "fields.amount",
+                "fields.amount": "fields.amount",
+                "fields.buyerAccountId": "fields.buyerAccountId",
                 "fields.currency": "fields.currency",
-                "fields.sellerAccountId": "fields.sellerAccountId",
-                "nounInstanceId": "fields.listingId"
+                "fields.listingId": "fields.listingId",
+                "fields.sellerAccountId": "fields.sellerAccountId"
               },
               "statuses": [
                 "funded"
@@ -208,40 +486,131 @@
             }
           ],
           "steps": [],
-          "summary": "Reserve a listing"
+          "summary": "Confirm an order"
         },
-        "sell": {
-          "description": "Marks the subject sold only after the escrow opened against this exact listing has released the full asking price to this seller.",
-          "eventName": "listing.sold",
+        "create": {
+          "agentDescription": "Record the proposed agreement between one buyer and seller against a listing and its escrow order. The escrow must be created or funded, must protect the same listing, and supplies the parties, amount, and currency. No money moves. Set confirmBy if an unconfirmed order should expire on its own.",
+          "description": "Records the proposed buyer and seller agreement against one listing and one escrow order. The escrow must still hold or await the money, must protect the same listing, and supplies the parties and the amount. No money moves.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "confirmBy": "2026-08-01T20:00:00.000Z",
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "listingId": "lst_sandbox_landcruiser1",
+                "memo": "Purchase subject to funded escrow.",
+                "productId": "prd_sandbox_marketplace01",
+                "subject": "sbj_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "create_vehicle_purchase_order"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.amount",
+                "buyerAccountId": "fields.buyerAccountId",
+                "currency": "fields.currency",
+                "sellerAccountId": "fields.sellerAccountId"
+              },
+              "field": "escrowOrderId",
+              "match": {
+                "fields.listingId": "fields.listingId"
+              },
+              "statuses": [
+                "created",
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Create an order"
+        },
+        "expire": {
+          "description": "Closes an unconfirmed agreement at its declared deadline under the machine principal.",
+          "due": {
+            "field": "confirmBy"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "orderId": "ord_sandbox_landcruiser01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "expire_unconfirmed_purchase"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Expire an order"
+        },
+        "fulfill": {
+          "agentDescription": "Close the agreement as delivered. The order must be confirmed and its escrow order must already be released to the seller, so call this after the money landed. No money moves here.",
+          "description": "Closes the agreement after escrow has released the full purchase amount to the seller.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "order.fulfilled",
+          "examples": [
+            {
+              "input": {
+                "orderId": "ord_sandbox_landcruiser01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "fulfill_released_purchase"
+            }
+          ],
           "moves": [],
           "requiresRefs": [
             {
               "field": "escrowOrderId",
-              "match": {
-                "fields.askingPrice": "fields.amount",
-                "fields.currency": "fields.currency",
-                "fields.sellerAccountId": "fields.sellerAccountId",
-                "nounInstanceId": "fields.listingId"
-              },
               "statuses": [
                 "released"
               ]
             }
           ],
           "steps": [],
-          "summary": "Sell a listing"
-        },
-        "withdraw": {
-          "description": "Closes a draft or active offer before any escrow reservation exists.",
-          "eventName": "listing.withdrawn",
-          "moves": [],
-          "steps": [],
-          "summary": "Withdraw a listing"
+          "summary": "Fulfill an order"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for order when the caller records and drives the buy-side agreement for one listing, naming the buyer, the amount, and the escrow order behind it. An order never moves money. The listing carries the offer and the escrow order holds and releases the purchase money.",
+      "callerParkedStates": {
+        "confirmed": "fulfillment or cancellation is the merchant's operational act",
+        "created": "expire fires only when confirmBy is set; without a confirmation deadline the order waits on the merchant"
+      },
       "description": "An order records the buyer and seller agreement for one listing. Confirmation requires the listing to remain active and its escrow to hold the purchase money; fulfillment requires that escrow to release, while cancellation is allowed only before funding or after escrow safely retreats.",
+      "dials": [
+        {
+          "field": "confirmBy",
+          "key": "confirmation_window",
+          "kind": "window",
+          "maxOffset": "P30D",
+          "summary": "Grace beyond the confirmBy timestamp before an unconfirmed order expires.",
+          "title": "Confirmation window"
+        }
+      ],
       "fields": {
         "amount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -336,6 +705,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Orders"
+      ],
       "parties": {
         "beneficiary": "sellerAccountId",
         "payer": "buyerAccountId"
@@ -355,8 +728,20 @@
         ]
       },
       "summary": "Agreement to buy one listed subject at an accepted amount.",
+      "templateId": "marketplace",
       "title": "Order",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "confirmBy": "2026-08-01T20:00:00.000Z",
+              "memo": "Buyer confirms after inspection.",
+              "orderId": "ord_sandbox_landcruiser01",
+              "tenantId": "ten_sandbox_riyadhresale01"
+            },
+            "name": "annotate_unconfirmed_order"
+          }
+        ],
         "fields": [
           "confirmBy",
           "memo"
@@ -364,122 +749,499 @@
         "states": [
           "created"
         ]
-      },
-      "verbs": {
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "fund",
+        "dispute",
+        "resume",
+        "release",
+        "quote",
+        "refund",
+        "collect_penalty",
+        "cancel",
+        "expire"
+      ],
+      "actions": {
         "cancel": {
-          "description": "Closes the agreement only while escrow is still empty or after every held unit has safely returned to the buyer.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "escrowOrderId",
-              "statuses": [
-                "created",
-                "refunded",
-                "penalty_collected",
-                "canceled",
-                "expired"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Cancel an order"
-        },
-        "confirm": {
-          "description": "Makes the agreement final only while the listing is active at the agreed price and escrow holds the full purchase amount for that same listing.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "listingId",
-              "match": {
-                "fields.amount": "fields.askingPrice",
-                "fields.currency": "fields.currency",
-                "fields.sellerAccountId": "fields.sellerAccountId"
-              },
-              "statuses": [
-                "active"
-              ]
-            },
-            {
-              "field": "escrowOrderId",
-              "match": {
-                "fields.amount": "fields.amount",
-                "fields.buyerAccountId": "fields.buyerAccountId",
-                "fields.currency": "fields.currency",
-                "fields.listingId": "fields.listingId",
-                "fields.sellerAccountId": "fields.sellerAccountId"
-              },
-              "statuses": [
-                "funded"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Confirm an order"
-        },
-        "create": {
-          "description": "Records the proposed buyer and seller agreement against one listing and one escrow order. The escrow must still hold or await the money, must protect the same listing, and supplies the parties and the amount. No money moves.",
+          "agentDescription": "Close an escrow nobody funded. No money has moved and the escrow account must be empty, so this is a lifecycle transition only. A funded escrow refuses. Quote and refund the buyer instead.",
+          "description": "Closes an unfunded escrow. Because no money moved, no unwind quote is required.",
           "examples": [
             {
               "input": {
-                "confirmBy": "2026-08-01T20:00:00.000Z",
                 "escrowOrderId": "eord_sandbox_buyerorder01",
-                "listingId": "lst_sandbox_landcruiser1",
-                "memo": "Purchase subject to funded escrow.",
-                "subject": "sbj_sandbox_landcruiser1"
+                "tenantId": "ten_sandbox_riyadhresale01"
               },
-              "name": "create_vehicle_purchase_order"
+              "name": "cancel_unfunded_escrow"
+            }
+          ],
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.escrowAccountId"
+          },
+          "steps": [],
+          "summary": "Cancel an escrow order"
+        },
+        "collect_penalty": {
+          "agentDescription": "Pay the penalty the refund retained out of escrow to the seller. This moves money. Run it only after refund, and only when refund reported a positive unwind penalty. Under the default zero-penalty schedule there is nothing to collect.",
+          "description": "Pays the computed retained penalty to the seller after a penalized refund. Invoke only when refund returns a positive refs.unwindPenalty.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "escrow_order.penalty_collected",
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "collect_disputed_refund_penalty"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindPenalty"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.sellerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                }
+              },
+              "capture": {
+                "penaltyTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Collect an escrow refund penalty"
+        },
+        "create": {
+          "agentDescription": "Open escrow against an active listing and provision its dedicated escrow account. No money moves yet. The listing must be active, and its asking price, currency, and seller account are copied onto the escrow, so passing an amount is neither needed nor allowed.",
+          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The held amount is always the listing's askingPrice and is not caller supplied. For a security deposit use the standard library module security_deposit, and for a rental or booking fee use cancellable_booking. Both live under open/hsx/std/settlements.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "buyerAccountId": "acct_sandbox_buyer000001",
+                "fundBy": "2026-08-01T21:00:00.000Z",
+                "listingId": "lst_sandbox_landcruiser1",
+                "memo": "Release after the vehicle is handed over.",
+                "productId": "prd_sandbox_marketplace01",
+                "subject": "sbj_sandbox_landcruiser1",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "open_vehicle_escrow"
             }
           ],
           "moves": [],
           "requiresRefs": [
             {
               "bind": {
-                "amount": "fields.amount",
-                "buyerAccountId": "fields.buyerAccountId",
+                "amount": "fields.askingPrice",
                 "currency": "fields.currency",
                 "sellerAccountId": "fields.sellerAccountId"
               },
-              "field": "escrowOrderId",
-              "match": {
-                "fields.listingId": "fields.listingId"
-              },
+              "field": "listingId",
               "statuses": [
-                "created",
-                "funded"
+                "active"
               ]
             }
           ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "escrowAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Create an escrow order"
+        },
+        "dispute": {
+          "agentDescription": "Freeze a funded escrow so neither release nor refund can run until the parties settle the disagreement. No money moves and the whole balance stays put. Only a funded escrow disputes.",
+          "description": "Freezes the fully funded escrow before either milestone releases, preserving the entire balance while the parties decide what happens next.",
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "hold_funds_for_dispute"
+            }
+          ],
+          "moves": [],
           "steps": [],
-          "summary": "Create an order"
+          "summary": "Dispute an escrow order"
         },
         "expire": {
-          "description": "Closes an unconfirmed agreement at its declared deadline under the machine principal.",
+          "description": "Closes an unfunded escrow at its funding deadline under the machine principal.",
           "due": {
-            "field": "confirmBy"
+            "field": "fundBy"
           },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "expire_unfunded_escrow"
+            }
+          ],
           "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.escrowAccountId"
+          },
           "steps": [],
-          "summary": "Expire an order"
+          "summary": "Expire an escrow order"
         },
-        "fulfill": {
-          "description": "Closes the agreement after escrow has released the full purchase amount to the seller.",
-          "eventName": "order.fulfilled",
-          "moves": [],
+        "fund": {
+          "agentDescription": "Move the full purchase amount from the buyer's account into the escrow account. This moves money and the buyer cannot spend it again until the escrow resolves. Only a created escrow funds, and the listing must still be active.",
+          "description": "Moves the full purchase amount from the buyer account into the dedicated escrow account while the listing remains active.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.collection.pay_in",
+                "source": "moves[0]"
+              }
+            ],
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "fund_purchase_escrow"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                }
+              },
+              "capture": {
+                "fundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
           "requiresRefs": [
             {
-              "field": "escrowOrderId",
+              "field": "listingId",
               "statuses": [
-                "released"
+                "active"
               ]
             }
           ],
+          "sandboxFailurePoint": "funding",
           "steps": [],
-          "summary": "Fulfill an order"
+          "summary": "Fund an escrow order"
+        },
+        "quote": {
+          "agentDescription": "Price the buyer's refund under the penalty schedule and park the escrow for an explicit confirmation. No money moves at quote time. Only a disputed escrow quotes, and the money only leaves when refund runs.",
+          "description": "Calculates the full buyer refund while disputed and parks the escrow for explicit confirmation. No money moves at quote time.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "quote_disputed_refund"
+            }
+          ],
+          "moves": [],
+          "quote": {
+            "baseField": "amount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "amount",
+              "buyerAccountId"
+            ],
+            "netDestinationField": "buyerAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Quote an escrow refund"
+        },
+        "refund": {
+          "agentDescription": "Confirm the quoted retreat and send the refunded amount from escrow back to the buyer. This moves money and does not reverse. Only an escrow already parked by quote refunds. Any retained penalty stays in escrow for collect_penalty.",
+          "commit": "quote",
+          "description": "Confirms the quoted retreat and returns the full held amount from escrow to the buyer.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "confirm_disputed_refund"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                }
+              },
+              "capture": {
+                "refundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Refund an escrow order"
+        },
+        "release": {
+          "agentDescription": "Pay the seller the full escrow balance and close the order. This moves money and does not reverse. Only a funded escrow releases, and the listing must be reserved and name this escrow back, so an escrow that lost its listing can never pay out.",
+          "description": "Pays the seller the full escrow amount once and closes escrow with no balance remaining. Only the escrow that reserved the listing can release: the listing must name this escrow back.",
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "release_escrow"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.sellerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                }
+              },
+              "capture": {
+                "releaseTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "listingId",
+              "match": {
+                "instrumentInstanceId": "fields.escrowOrderId"
+              },
+              "statuses": [
+                "reserved"
+              ]
+            }
+          ],
+          "sandboxFailurePoint": "release",
+          "steps": [],
+          "summary": "Release an escrow order"
+        },
+        "resume": {
+          "agentDescription": "Lift the dispute hold and put the escrow back where it was, funded and ready to release. No money moves and the balance was never touched. Only a disputed escrow resumes. Use this when the parties settled without a refund.",
+          "description": "Ends the dispute hold without moving money and returns the fully funded escrow to its first milestone.",
+          "examples": [
+            {
+              "input": {
+                "escrowOrderId": "eord_sandbox_buyerorder01",
+                "tenantId": "ten_sandbox_riyadhresale01"
+              },
+              "name": "resume_after_resolution"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Resume an escrow order"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for escrow_order when a buyer's money must sit against an active listing until the seller earns it. The amount, currency, and seller come from the locked listing, never from the caller, so you open one by naming a listing. Release pays the seller once and closes. A dispute freezes the balance until the parties resume or confirm a quoted refund.",
+      "callerParkedStates": {
+        "created": "expire fires only when fundBy is set; without a funding deadline the escrow waits on the buyer to fund or cancel",
+        "disputed": "dispute resolution is a human judgment; the parties resume the escrow or quote a refund",
+        "funded": "releasing or disputing held value is a party decision; escrow deliberately holds until the parties act",
+        "refund_quoted": "a quoted refund moves money only when the caller confirms it",
+        "refunded": "the residual penalty is collected by the operator as a deliberate follow-up transfer"
+      },
       "description": "An escrow order holds the full purchase amount and releases it to the seller exactly once. Before release, a dispute freezes the full balance until work resumes or a quoted refund is confirmed.",
+      "dials": [
+        {
+          "field": "fundBy",
+          "key": "funding_window",
+          "kind": "window",
+          "maxOffset": "P30D",
+          "summary": "Grace beyond the fundBy timestamp before an unfunded escrow expires.",
+          "title": "Funding window"
+        },
+        {
+          "key": "refund_penalty",
+          "kind": "unwind_penalty",
+          "summary": "Replaces the zero-penalty schedule refunds are quoted against, e.g. a restocking fee tier.",
+          "title": "Refund penalty schedule"
+        }
+      ],
       "fields": {
         "amount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -602,6 +1364,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Escrow Orders"
+      ],
       "parties": {
         "beneficiary": "sellerAccountId",
         "payer": "buyerAccountId"
@@ -620,19 +1386,20 @@
         ]
       },
       "summary": "Purchase money held between buyer and seller.",
+      "templateId": "escrow",
       "title": "Escrow order",
-      "unwind": {
-        "confirm": "refund",
-        "penalty": [
+      "update": {
+        "examples": [
           {
-            "bps": 0
+            "input": {
+              "escrowOrderId": "eord_sandbox_buyerorder01",
+              "fundBy": "2026-08-01T21:00:00.000Z",
+              "memo": "Buyer funds after inspection booking.",
+              "tenantId": "ten_sandbox_riyadhresale01"
+            },
+            "name": "annotate_unfunded_escrow"
           }
         ],
-        "quote": "quote",
-        "refundDestinationField": "buyerAccountId",
-        "refundableField": "amount"
-      },
-      "update": {
         "fields": [
           "fundBy",
           "memo"
@@ -640,272 +1407,6 @@
         "states": [
           "created"
         ]
-      },
-      "verbs": {
-        "cancel": {
-          "description": "Closes an unfunded escrow. Because no money moved, no unwind quote is required.",
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.escrowAccountId"
-          },
-          "steps": [],
-          "summary": "Cancel an escrow order"
-        },
-        "collect_penalty": {
-          "description": "Pays the computed retained penalty to the seller after a penalized refund. Invoke only when refund returns a positive refs.unwindPenalty.",
-          "eventName": "escrow_order.penalty_collected",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindPenalty"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.sellerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "penaltyTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Collect an escrow refund penalty"
-        },
-        "create": {
-          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The amount, currency, and seller are derived from the locked listing -- never caller-supplied -- so escrow economics are the listing's by construction.",
-          "examples": [
-            {
-              "input": {
-                "buyerAccountId": "acct_sandbox_buyer000001",
-                "fundBy": "2026-08-01T21:00:00.000Z",
-                "listingId": "lst_sandbox_landcruiser1",
-                "memo": "Release after the vehicle is handed over.",
-                "subject": "sbj_sandbox_landcruiser1"
-              },
-              "name": "open_vehicle_escrow"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "bind": {
-                "amount": "fields.askingPrice",
-                "currency": "fields.currency",
-                "sellerAccountId": "fields.sellerAccountId"
-              },
-              "field": "listingId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [
-            {
-              "bind": {
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "owner.id": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                },
-                "owner.type": {
-                  "from": "const",
-                  "value": "workspace"
-                },
-                "role": {
-                  "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "escrowAccountId": "accountId"
-              },
-              "operation": "account.escrow.provision"
-            }
-          ],
-          "summary": "Create an escrow order"
-        },
-        "dispute": {
-          "description": "Freezes the fully funded escrow before either milestone releases, preserving the entire balance while the parties decide what happens next.",
-          "moves": [],
-          "steps": [],
-          "summary": "Dispute an escrow order"
-        },
-        "expire": {
-          "description": "Closes an unfunded escrow at its funding deadline under the machine principal.",
-          "due": {
-            "field": "fundBy"
-          },
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.escrowAccountId"
-          },
-          "steps": [],
-          "summary": "Expire an escrow order"
-        },
-        "fund": {
-          "description": "Moves the full purchase amount from the buyer account into the dedicated escrow account while the listing remains active.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.amount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.buyerAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "fundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "requiresRefs": [
-            {
-              "field": "listingId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Fund an escrow order"
-        },
-        "quote": {
-          "description": "Calculates the full buyer refund while disputed and parks the escrow for explicit confirmation. No money moves at quote time.",
-          "moves": [],
-          "steps": [],
-          "summary": "Quote an escrow refund"
-        },
-        "refund": {
-          "description": "Confirms the quoted retreat and returns the full held amount from escrow to the buyer.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindRefund"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.buyerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "refundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Refund an escrow order"
-        },
-        "release": {
-          "description": "Pays the seller the full escrow amount once and closes escrow with no balance remaining. Only the escrow that reserved the listing can release: the listing must name this escrow back.",
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.amount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.sellerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "releaseTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "requiresRefs": [
-            {
-              "field": "listingId",
-              "match": {
-                "nounInstanceId": "fields.escrowOrderId"
-              },
-              "statuses": [
-                "reserved"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Release an escrow order"
-        },
-        "resume": {
-          "description": "Ends the dispute hold without moving money and returns the fully funded escrow to its first milestone.",
-          "moves": [],
-          "steps": [],
-          "summary": "Resume an escrow order"
-        }
       }
     }
   ],

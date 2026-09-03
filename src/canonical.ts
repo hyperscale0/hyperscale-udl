@@ -7,6 +7,17 @@ export function serializeUdl(value: unknown): string {
   return `${writeJson(document, 0)}\n`;
 }
 
+/** SHA-256 over the canonical UTF-8 bytes, encoded as lowercase hexadecimal. */
+export async function canonicalDigest(value: unknown): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(serializeUdl(value)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function writeJson(value: unknown, depth: number): string {
   if (value === null || typeof value !== "object") {
     const encoded = JSON.stringify(value);

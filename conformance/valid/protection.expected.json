@@ -1,5 +1,6 @@
 {
   "canonical": "protection.udl",
+  "digest": "7beee4092497852dd2105479ae3786b30b891791bb600925ee781c8cf367eb93",
   "summary": "Protection product: a policy, its premium schedule, and claims against it.",
   "verdict": "valid"
 }

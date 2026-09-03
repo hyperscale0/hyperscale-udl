@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2001",
+      "path": "$.subjects[1]"
+    }
+  ],
+  "summary": "Refuses duplicate subject kind asset; first declared at index 0.",
+  "verdict": "invalid"
+}

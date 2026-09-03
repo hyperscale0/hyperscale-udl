@@ -1,0 +1,54 @@
+{
+  "instruments": [
+    {
+      "actionOrder": [
+        "close",
+        "create"
+      ],
+      "actions": {
+        "close": {
+          "moves": [],
+          "steps": [],
+          "summary": "Close the note."
+        },
+        "create": {
+          "moves": [],
+          "steps": [],
+          "summary": "File the note."
+        }
+      },
+      "fields": {
+        "reference": {
+          "type": "string"
+        }
+      },
+      "id": "note",
+      "idPrefix": "note",
+      "lifecycle": {
+        "initial": "open",
+        "states": [
+          "open",
+          "closed"
+        ],
+        "transitions": {
+          "close": {
+            "from": [
+              "open"
+            ],
+            "to": "closed"
+          }
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "summary": "A lone surrogate \ud800 stays escaped; U+2028   and U+007F  stay literal.",
+      "title": "Canonical string escaping"
+    }
+  ],
+  "product": "canonical_string_escaping",
+  "subjects": [],
+  "title": "Canonical string escaping",
+  "udl": 1,
+  "version": 1
+}

@@ -1,7 +1,692 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "create",
+        "confirm",
+        "amend_collect",
+        "amend_refund",
+        "amend_fee",
+        "release",
+        "expire",
+        "cancel_quote",
+        "cancel_confirm",
+        "collect_penalty",
+        "package_cancel",
+        "complete"
+      ],
+      "actions": {
+        "amend_collect": {
+          "agentDescription": "Charge the traveler the fare difference when an amended itinerary costs more, paid straight to the operator. This moves money. Only a confirmed booking amends. The fare reserve is untouched, so it still pays out in full at departure. Pass fareDifference and amendmentNote.",
+          "description": "Reprices a confirmed booking whose amended itinerary costs more: the traveler pays the fare difference to the operator directly and the booking stays confirmed. The fare reserve is untouched; it still pays out in full at departure. Pair with flight_booking.update for the itinerary fields and amend_fee for the reissue fee.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "flight_booking.amendment_collected",
+          "examples": [
+            {
+              "input": {
+                "amendmentNote": "Rebooked SV1024 to the evening departure",
+                "fareDifference": "24000",
+                "flightBookingId": "fbkg_sandbox_amend0000001",
+                "tenantId": "ten_sandbox_travel000001"
+              },
+              "name": "collect_reissued_fare_increase"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "amendmentNote": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              },
+              "fareDifference": {
+                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                "pattern": "^[1-9][0-9]{0,17}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "fareDifference",
+              "amendmentNote"
+            ],
+            "type": "object"
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "input",
+                  "path": "fareDifference"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.operatorAccountId"
+                },
+                "memo": {
+                  "from": "input",
+                  "path": "amendmentNote"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                }
+              },
+              "capture": {
+                "amendCollectTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Collect an amended fare increase"
+        },
+        "amend_fee": {
+          "agentDescription": "Charge the operator's reissue fee for one amendment, in either repricing direction. This moves money from the traveler to the operator. Only a confirmed booking amends. Skip it when the amendment is fee-free, and call it alone when a reissue costs a fee but no fare difference.",
+          "description": "Collects the operator's reissue fee for one amendment from the traveler, in either repricing direction. Declared as its own action so a fee-free amendment simply never invokes it and an equal-fare reissue is a fee with no difference leg.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "flight_booking.amendment_fee_collected",
+          "examples": [
+            {
+              "input": {
+                "amendmentFee": "5000",
+                "amendmentNote": "Carrier reissue fee for the date change",
+                "flightBookingId": "fbkg_sandbox_amend0000001",
+                "tenantId": "ten_sandbox_travel000001"
+              },
+              "name": "collect_reissue_fee"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "amendmentFee": {
+                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                "pattern": "^[1-9][0-9]{0,17}$",
+                "type": "string"
+              },
+              "amendmentNote": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "amendmentFee",
+              "amendmentNote"
+            ],
+            "type": "object"
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "input",
+                  "path": "amendmentFee"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.operatorAccountId"
+                },
+                "memo": {
+                  "from": "input",
+                  "path": "amendmentNote"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                }
+              },
+              "capture": {
+                "amendFeeTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Collect a flight amendment fee"
+        },
+        "amend_refund": {
+          "agentDescription": "Refund the traveler the fare difference when an amended itinerary costs less, paid by the operator directly. This moves money. Only a confirmed booking amends. The fare reserve is untouched, so the operator's departure payout nets to the amended fare. Any reissue fee goes through amend_fee.",
+          "description": "Reprices a confirmed booking whose amended itinerary costs less: the operator refunds the fare difference to the traveler directly and the booking stays confirmed. The fare reserve is untouched, so the operator's departure payout still nets to the amended fare. Any reissue fee is collected separately by amend_fee.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "flight_booking.amendment_refunded",
+          "examples": [
+            {
+              "input": {
+                "amendmentNote": "Moved to the lower morning fare",
+                "fareDifference": "18500",
+                "flightBookingId": "fbkg_sandbox_amend0000001",
+                "tenantId": "ten_sandbox_travel000001"
+              },
+              "name": "refund_reissued_fare_decrease"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "amendmentNote": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              },
+              "fareDifference": {
+                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                "pattern": "^[1-9][0-9]{0,17}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "fareDifference",
+              "amendmentNote"
+            ],
+            "type": "object"
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "input",
+                  "path": "fareDifference"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                },
+                "memo": {
+                  "from": "input",
+                  "path": "amendmentNote"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.operatorAccountId"
+                }
+              },
+              "capture": {
+                "amendRefundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Refund an amended fare decrease"
+        },
+        "cancel_confirm": {
+          "agentDescription": "Cancel the booking and refund the fare minus the scheduled penalty from the fare reserve to the traveler. This moves money and does not reverse. Only a booking already parked by cancel_quote confirms. The retained penalty stays in the reserve for collect_penalty.",
+          "commit": "cancel_quote",
+          "description": "Unwinds the booking, refunding the fare minus the scheduled penalty from the fare reserve back to the traveler. The confirm pays the price the quote stamped in refs.unwindRefund. It never reprices. An expired offer, or one whose fare or traveler account moved since it was quoted, is refused. collect_penalty pays the retained remainder separately.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.fareReserveAccountId"
+                }
+              },
+              "capture": {
+                "refundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Confirm a flight booking cancellation"
+        },
+        "cancel_quote": {
+          "agentDescription": "Park a confirmed booking for cancellation and price the refund under the penalty schedule. No money moves, and the number is advisory because cancel_confirm reprices at its own clock. Only a confirmed booking quotes, and departure still completes a booking whose quote nobody acted on.",
+          "description": "Parks the confirmed booking for cancellation and prices the refund under the void-window penalty schedule. No money moves. The quote stamps a frozen offer that expires in 15 minutes, and only the cancellation confirm may spend it.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
+          "moves": [],
+          "quote": {
+            "baseField": "fareAmount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0,
+                "withinOffset": "P1D"
+              },
+              {
+                "bps": 2500
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "fareAmount",
+              "travelerAccountId"
+            ],
+            "netDestinationField": "travelerAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Quote a flight booking cancellation"
+        },
+        "collect_penalty": {
+          "agentDescription": "Pay the retained cancellation penalty out of the fare reserve to the operator. This moves money. Run it only after cancel_confirm, and only when that call reported a positive unwind penalty. A cancellation inside the free window retains nothing.",
+          "description": "Pays the computed retained cancellation penalty to the operator. Invoke only when cancel_confirm returns a positive refs.unwindPenalty.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "flight_booking.penalty_collected",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindPenalty"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.operatorAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.fareReserveAccountId"
+                }
+              },
+              "capture": {
+                "penaltyTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Collect a flight cancellation penalty"
+        },
+        "complete": {
+          "description": "Closes a confirmed booking at departure and pays the reserved fare to the operator under the machine principal, even if a cancellation quote is parked un-acted. This is the operator's revenue event, fired by the maintenance loop under the departure due-condition.",
+          "due": {
+            "field": "departsAt"
+          },
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.fareAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.operatorAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.fareReserveAccountId"
+                }
+              },
+              "capture": {
+                "farePayoutTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Complete a flight booking"
+        },
+        "confirm": {
+          "agentDescription": "Ask the air carrier to accept the seat, then move the full fare from the traveler into the fare reserve. This moves money and puts the booking in force. Only a held booking confirms, and only before holdExpiresAt passes, whether or not the expiry sweep has fired. A carrier that does not answer in time declines.",
+          "deadline": {
+            "field": "holdExpiresAt"
+          },
+          "decision": {
+            "capability": "air_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Runs a just-in-time air carrier decision under a deadline, then settles the fare from the traveler into the dedicated fare reserve and puts the booking in force. Refused once the hold expiry has passed, even if the expiry sweep has not fired yet.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.air_carrier",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.deadline",
+                "source": "deadline"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.fareAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.fareReserveAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                }
+              },
+              "capture": {
+                "fareTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Confirm a flight booking"
+        },
+        "create": {
+          "agentDescription": "Open the booking as a hold on a flight itinerary subject at the quoted fare and provision its fare reserve account. No money moves and the hold expires at holdExpiresAt. Name travelPackageId only when this leg belongs to a package, and that package must still be draft or booked.",
+          "description": "Opens the booking as a hold against a flight itinerary subject at the quoted fare and provisions the dedicated fare reserve. No money moves until the booking confirms; the hold carries its own expiry deadline. A booking holding a leg of a packaged trip names its travel package, admitted only while that package is still draft or booked.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "travelPackageId",
+              "optional": true,
+              "statuses": [
+                "draft",
+                "booked"
+              ]
+            }
+          ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "fareReserveAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Hold a flight booking"
+        },
+        "expire": {
+          "description": "Ends an unconfirmed hold at its deadline. No money has moved, so this is a pure lifecycle transition fired by the maintenance loop under the hold-expiry due-condition.",
+          "due": {
+            "field": "holdExpiresAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.fareReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Expire a held flight booking"
+        },
+        "package_cancel": {
+          "description": "Fires under the machine principal for a leg of a cancelled travel package: refunds the full reserved fare to the traveler, penalty-free, because the cancellation is the package's, not the traveler's. Selectable once the hold window has passed (a confirmed leg is past it in practice); a held leg simply expires on its own deadline, and an already-flown (completed) booking is never cascade-cancelled.",
+          "due": {
+            "field": "holdExpiresAt",
+            "whenParentStatus": {
+              "instrumentId": "travel_package",
+              "refField": "travelPackageId",
+              "statuses": [
+                "cancelled"
+              ]
+            }
+          },
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.fareAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.travelerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.fareReserveAccountId"
+                }
+              },
+              "capture": {
+                "packageRefundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Cancel a flight booking with its cancelled package"
+        },
+        "release": {
+          "agentDescription": "Close a hold the traveler walked away from before confirming. No money has moved and the fare reserve must be empty, so this is a lifecycle transition only. Only a held booking releases. A confirmed booking leaves through cancel_quote and cancel_confirm instead.",
+          "description": "Closes a hold the traveler abandoned before confirmation. No money has moved, so this is a pure lifecycle transition.",
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.fareReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Release a held flight booking"
+        }
+      },
+      "agentDescription": "Reach for flight_booking when a traveler holds a seat on a flight itinerary and the fare settles only once an air carrier accepts. The hold moves no money and dies at holdExpiresAt. Confirm reserves the fare, the maintenance loop pays the operator at departure, and amendments and cancellations each have their own action.",
+      "callerParkedStates": {
+        "canceled": "the residual penalty is collected by the operator as a deliberate follow-up transfer"
+      },
       "description": "A flight booking opens as a hold against a flight itinerary subject with no money moved. Confirming it runs a just-in-time air carrier decision under a deadline, then settles the fare from the traveler into a dedicated fare reserve. An unconfirmed hold expires on its deadline, cancellation unwinds through a quote then a confirm under the void-window penalty schedule, and completion at departure pays the reserved fare to the operator.",
+      "dials": [
+        {
+          "field": "holdExpiresAt",
+          "key": "hold_window",
+          "kind": "window",
+          "maxOffset": "P7D",
+          "summary": "Grace beyond the held expiry timestamp: moves the confirm cutoff and the expire sweep together.",
+          "title": "Hold window"
+        },
+        {
+          "action": "confirm",
+          "key": "carrier_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "minMs": 1000,
+          "summary": "How long confirm waits for the air carrier's just-in-time decision before the timeout default applies.",
+          "title": "Carrier decision deadline"
+        },
+        {
+          "key": "cancellation_penalty",
+          "kind": "unwind_penalty",
+          "summary": "Replaces the void-window penalty tiers cancellations are quoted against.",
+          "title": "Cancellation penalty schedule"
+        }
+      ],
       "fields": {
         "bookingNote": {
           "maxLength": 180,
@@ -142,6 +827,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Flight Bookings"
+      ],
       "parties": {
         "beneficiary": "operatorAccountId",
         "payer": "travelerAccountId"
@@ -160,22 +849,8 @@
         ]
       },
       "summary": "Held-then-confirmed flight purchase settled on a carrier decision.",
+      "templateId": "air_travel",
       "title": "Flight booking",
-      "unwind": {
-        "confirm": "cancel_confirm",
-        "penalty": [
-          {
-            "bps": 0,
-            "withinOffset": "P1D"
-          },
-          {
-            "bps": 2500
-          }
-        ],
-        "quote": "cancel_quote",
-        "refundDestinationField": "travelerAccountId",
-        "refundableField": "fareAmount"
-      },
       "update": {
         "fields": [
           "departsAt",
@@ -185,18 +860,45 @@
           "held",
           "confirmed"
         ]
-      },
-      "verbs": {
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "confirm",
+        "amend_collect",
+        "amend_refund",
+        "amend_fee",
+        "release",
+        "expire",
+        "cancel_quote",
+        "cancel_confirm",
+        "collect_penalty",
+        "package_cancel",
+        "complete"
+      ],
+      "actions": {
         "amend_collect": {
-          "description": "Reprices a confirmed booking whose amended itinerary costs more: the traveler pays the fare difference to the operator directly and the booking stays confirmed. The fare reserve is untouched; it still pays out in full at departure. Pair with flight_booking.update for the itinerary fields and amend_fee for the reissue fee.",
-          "eventName": "flight_booking.amendment_collected",
+          "agentDescription": "Charge the guest the rate difference when an amended stay costs more, paid straight to the property. The stay must be confirmed and does not change state. The rate reserve is untouched and still pays out in full at checkout. Change the dates through hotel_stay.update and any change fee through amend_fee.",
+          "description": "Reprices a confirmed stay whose amended dates or room cost more: the guest pays the rate difference to the property directly and the stay remains confirmed. The rate reserve is untouched; it still pays out in full at checkout. Pair with hotel_stay.update for the stay fields and amend_fee for the amendment fee.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "hotel_stay.amendment_collected",
           "examples": [
             {
               "input": {
-                "amendmentNote": "Rebooked SV1024 to the evening departure",
-                "fareDifference": "24000"
+                "amendmentNote": "Extended the stay by two nights",
+                "hotelStayId": "hstay_sandbox_amend000001",
+                "rateDifference": "32000",
+                "tenantId": "ten_sandbox_travel000001"
               },
-              "name": "collect_reissued_fare_increase"
+              "name": "collect_extended_stay_increase"
             }
           ],
           "input": {
@@ -207,14 +909,14 @@
                 "minLength": 1,
                 "type": "string"
               },
-              "fareDifference": {
+              "rateDifference": {
                 "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
                 "pattern": "^[1-9][0-9]{0,17}$",
                 "type": "string"
               }
             },
             "required": [
-              "fareDifference",
+              "rateDifference",
               "amendmentNote"
             ],
             "type": "object"
@@ -224,7 +926,7 @@
               "bind": {
                 "amount": {
                   "from": "input",
-                  "path": "fareDifference"
+                  "path": "rateDifference"
                 },
                 "currency": {
                   "from": "instance",
@@ -232,19 +934,19 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.operatorAccountId"
+                  "path": "fields.propertyAccountId"
                 },
                 "memo": {
                   "from": "input",
                   "path": "amendmentNote"
                 },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "fields.guestAccountId"
                 }
               },
               "capture": {
@@ -255,18 +957,29 @@
             }
           ],
           "steps": [],
-          "summary": "Collect an amended fare increase"
+          "summary": "Collect an amended rate increase"
         },
         "amend_fee": {
-          "description": "Collects the operator's reissue fee for one amendment from the traveler, in either repricing direction. Declared as its own verb so a fee-free amendment simply never invokes it and an equal-fare reissue is a fee with no difference leg.",
-          "eventName": "flight_booking.amendment_fee_collected",
+          "agentDescription": "Charge the property's change fee to the guest for one amendment, in either repricing direction. The stay must be confirmed. This is its own call, so a fee-free amendment skips it and an equal-rate change can be a fee with no difference leg. It moves the guest's money.",
+          "description": "Collects the property's amendment fee for one stay change from the guest, in either repricing direction. Declared as its own action so a fee-free amendment simply never invokes it and an equal-rate change is a fee with no difference leg.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "hotel_stay.amendment_fee_collected",
           "examples": [
             {
               "input": {
-                "amendmentFee": "5000",
-                "amendmentNote": "Carrier reissue fee for the date change"
+                "amendmentFee": "7500",
+                "amendmentNote": "Property fee for the date change",
+                "hotelStayId": "hstay_sandbox_amend000001",
+                "tenantId": "ten_sandbox_travel000001"
               },
-              "name": "collect_reissue_fee"
+              "name": "collect_date_change_fee"
             }
           ],
           "input": {
@@ -302,19 +1015,19 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.operatorAccountId"
+                  "path": "fields.propertyAccountId"
                 },
                 "memo": {
                   "from": "input",
                   "path": "amendmentNote"
                 },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "fields.guestAccountId"
                 }
               },
               "capture": {
@@ -325,18 +1038,29 @@
             }
           ],
           "steps": [],
-          "summary": "Collect a flight amendment fee"
+          "summary": "Collect a stay amendment fee"
         },
         "amend_refund": {
-          "description": "Reprices a confirmed booking whose amended itinerary costs less: the operator refunds the fare difference to the traveler directly and the booking stays confirmed. The fare reserve is untouched, so the operator's departure payout still nets to the amended fare. Any reissue fee is collected separately by amend_fee.",
-          "eventName": "flight_booking.amendment_refunded",
+          "agentDescription": "Refund the guest the rate difference when an amended stay costs less, paid by the property directly. The stay must be confirmed and does not change state. The rate reserve is untouched, so the property's checkout payout nets to the amended rate. Any change fee is a separate amend_fee call.",
+          "description": "Reprices a confirmed stay whose amended dates or room cost less: the property refunds the rate difference to the guest directly and the stay remains confirmed. The rate reserve is untouched, so the property's checkout payout still nets to the amended rate. Any amendment fee is collected separately by amend_fee.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "hotel_stay.amendment_refunded",
           "examples": [
             {
               "input": {
-                "amendmentNote": "Moved to the lower morning fare",
-                "fareDifference": "18500"
+                "amendmentNote": "Shortened the stay by one night",
+                "hotelStayId": "hstay_sandbox_amend000001",
+                "rateDifference": "16000",
+                "tenantId": "ten_sandbox_travel000001"
               },
-              "name": "refund_reissued_fare_decrease"
+              "name": "refund_shortened_stay_decrease"
             }
           ],
           "input": {
@@ -347,14 +1071,14 @@
                 "minLength": 1,
                 "type": "string"
               },
-              "fareDifference": {
+              "rateDifference": {
                 "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
                 "pattern": "^[1-9][0-9]{0,17}$",
                 "type": "string"
               }
             },
             "required": [
-              "fareDifference",
+              "rateDifference",
               "amendmentNote"
             ],
             "type": "object"
@@ -364,7 +1088,7 @@
               "bind": {
                 "amount": {
                   "from": "input",
-                  "path": "fareDifference"
+                  "path": "rateDifference"
                 },
                 "currency": {
                   "from": "instance",
@@ -372,19 +1096,19 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
+                  "path": "fields.guestAccountId"
                 },
                 "memo": {
                   "from": "input",
                   "path": "amendmentNote"
                 },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.operatorAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "fields.propertyAccountId"
                 }
               },
               "capture": {
@@ -395,10 +1119,20 @@
             }
           ],
           "steps": [],
-          "summary": "Refund an amended fare decrease"
+          "summary": "Refund an amended rate decrease"
         },
         "cancel_confirm": {
-          "description": "Unwinds the booking, refunding the fare minus the scheduled penalty from the fare reserve back to the traveler. The refund is repriced at confirm time into refs.unwindRefund; collect_penalty pays the retained remainder separately.",
+          "agentDescription": "Cancel the parked stay and refund the rate minus the penalty from the rate reserve to the guest. Requires cancel_quote first. The refund is repriced here into refs.unwindRefund, so it can differ from the quote. This moves money and does not reverse.",
+          "commit": "cancel_quote",
+          "description": "Unwinds the stay, refunding the rate minus the scheduled penalty from the rate reserve back to the guest. The confirm pays the price the quote stamped in refs.unwindRefund. It never reprices. An expired offer, or one whose rate or guest account moved since it was quoted, is refused. collect_penalty pays the retained remainder separately.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
           "moves": [
             {
               "bind": {
@@ -412,15 +1146,15 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
+                  "path": "fields.guestAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "refs.fareReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "refs.rateReserveAccountId"
                 }
               },
               "capture": {
@@ -431,17 +1165,63 @@
             }
           ],
           "steps": [],
-          "summary": "Confirm a flight booking cancellation"
+          "summary": "Confirm a hotel stay cancellation"
         },
         "cancel_quote": {
-          "description": "Parks the confirmed booking for cancellation and quotes the refund under the void-window penalty schedule. No money moves and the quote is advisory: the cancellation confirm reprices at its own clock.",
+          "agentDescription": "Park a confirmed stay for cancellation and price the refund against the free-cancel schedule. No money moves, and the number is advisory because cancel_confirm reprices at its own clock. A stay parked here still completes at checkout if nobody confirms the cancellation.",
+          "description": "Parks the confirmed stay for cancellation and prices the refund under the free-cancel penalty schedule. No money moves. The quote stamps a frozen offer that expires in 15 minutes, and only the cancellation confirm may spend it.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
           "moves": [],
+          "quote": {
+            "baseField": "rateAmount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0,
+                "withinOffset": "P2D"
+              },
+              {
+                "bps": 5000
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "guestAccountId",
+              "rateAmount"
+            ],
+            "netDestinationField": "guestAccountId",
+            "netRef": "unwindRefund"
+          },
           "steps": [],
-          "summary": "Quote a flight booking cancellation"
+          "summary": "Quote a hotel stay cancellation"
         },
         "collect_penalty": {
-          "description": "Pays the computed retained cancellation penalty to the operator. Invoke only when cancel_confirm returns a positive refs.unwindPenalty.",
-          "eventName": "flight_booking.penalty_collected",
+          "agentDescription": "Pay the retained cancellation penalty from the rate reserve to the property. Call it only after cancel_confirm returned a positive refs.unwindPenalty. When the penalty is zero the refund already drained the reserve and there is nothing to collect. This moves money.",
+          "description": "Pays the computed retained cancellation penalty to the property. Invoke only when cancel_confirm returns a positive refs.unwindPenalty.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "hotel_stay.penalty_collected",
           "moves": [
             {
               "bind": {
@@ -455,15 +1235,15 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.operatorAccountId"
+                  "path": "fields.propertyAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "refs.fareReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "refs.rateReserveAccountId"
                 }
               },
               "capture": {
@@ -474,20 +1254,34 @@
             }
           ],
           "steps": [],
-          "summary": "Collect a flight cancellation penalty"
+          "summary": "Collect a hotel cancellation penalty"
         },
         "complete": {
-          "description": "Closes a confirmed booking at departure and pays the reserved fare to the operator under the machine principal, even if a cancellation quote is parked un-acted. This is the operator's revenue event, fired by the maintenance loop under the departure due-condition.",
+          "description": "Closes a confirmed stay at checkout and pays the reserved rate to the property under the machine principal, even if a cancellation quote is parked un-acted. This is the property's revenue event, fired by the maintenance loop under the checkout due-condition.",
           "due": {
-            "field": "departsAt"
+            "field": "checkOutAt"
           },
           "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
           "moves": [
             {
               "bind": {
                 "amount": {
                   "from": "instance",
-                  "path": "fields.fareAmount"
+                  "path": "fields.rateAmount"
                 },
                 "currency": {
                   "from": "instance",
@@ -495,43 +1289,64 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.operatorAccountId"
+                  "path": "fields.propertyAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "refs.fareReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "refs.rateReserveAccountId"
                 }
               },
               "capture": {
-                "farePayoutTransferId": "transferId"
+                "ratePayoutTransferId": "transferId"
               },
               "key": "transfer",
               "operation": "internal_transfer.create"
             }
           ],
           "steps": [],
-          "summary": "Complete a flight booking"
+          "summary": "Complete a hotel stay"
         },
         "confirm": {
+          "agentDescription": "Commit the hold and move the full rate from the guest into the stay's rate reserve. A lodging supplier decides first under a 15 second deadline and a timeout declines. Refused once holdExpiresAt has passed, even before the expiry sweep fires. This moves the guest's money.",
           "deadline": {
             "field": "holdExpiresAt"
           },
           "decision": {
-            "capability": "air_carrier",
+            "capability": "lodging_supplier",
             "deadlineMs": 15000,
             "onTimeout": "decline"
           },
-          "description": "Runs a just-in-time air carrier decision under a deadline, then settles the fare from the traveler into the dedicated fare reserve and puts the booking in force. Refused once the hold expiry has passed, even if the expiry sweep has not fired yet.",
+          "description": "Runs a just-in-time lodging supplier decision under a deadline, then settles the rate from the guest into the dedicated rate reserve and commits the stay. Refused once the hold expiry has passed, even if the expiry sweep has not fired yet.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.lodging_supplier",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.deadline",
+                "source": "deadline"
+              }
+            ]
+          },
           "moves": [
             {
               "bind": {
                 "amount": {
                   "from": "instance",
-                  "path": "fields.fareAmount"
+                  "path": "fields.rateAmount"
                 },
                 "currency": {
                   "from": "instance",
@@ -539,29 +1354,38 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "refs.fareReserveAccountId"
+                  "path": "refs.rateReserveAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "fields.guestAccountId"
                 }
               },
               "capture": {
-                "fareTransferId": "transferId"
+                "rateTransferId": "transferId"
               },
               "key": "transfer",
               "operation": "internal_transfer.create"
             }
           ],
           "steps": [],
-          "summary": "Confirm a flight booking"
+          "summary": "Confirm a hotel stay"
         },
         "create": {
-          "description": "Opens the booking as a hold against a flight itinerary subject at the quoted fare and provisions the dedicated fare reserve. No money moves until the booking confirms; the hold carries its own expiry deadline. A booking holding a leg of a packaged trip names its travel package, admitted only while that package is still draft or booked.",
+          "agentDescription": "Open a stay as a hold at the quoted rate and provision its rate reserve. No money moves yet. The guest and property accounts must both be customer balance accounts in the stay currency. A stay that is a leg of a trip may name a travel package only while that package is draft or booked.",
+          "description": "Opens the stay as a hold against a lodging stay subject at the quoted rate and provisions the dedicated rate reserve. No money moves until the stay confirms; the hold carries its own expiry deadline. A stay holding a leg of a packaged trip names its travel package, admitted only while that package is still draft or booked.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
           "moves": [],
           "requiresRefs": [
             {
@@ -582,59 +1406,81 @@
                 },
                 "owner.id": {
                   "from": "instance",
-                  "path": "workspaceId"
+                  "path": "productId"
                 },
                 "owner.type": {
                   "from": "const",
-                  "value": "workspace"
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "role": {
                   "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "value": "product_escrow"
                 }
               },
               "capture": {
-                "fareReserveAccountId": "accountId"
+                "rateReserveAccountId": "accountId"
               },
               "operation": "account.escrow.provision"
             }
           ],
-          "summary": "Hold a flight booking"
+          "summary": "Hold a hotel stay"
         },
         "expire": {
           "description": "Ends an unconfirmed hold at its deadline. No money has moved, so this is a pure lifecycle transition fired by the maintenance loop under the hold-expiry due-condition.",
           "due": {
             "field": "holdExpiresAt"
           },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
           "moves": [],
           "requiresDrainedAccount": {
-            "path": "refs.fareReserveAccountId"
+            "path": "refs.rateReserveAccountId"
           },
           "steps": [],
-          "summary": "Expire a held flight booking"
+          "summary": "Expire a held hotel stay"
         },
         "package_cancel": {
-          "description": "Fires under the machine principal for a leg of a cancelled travel package: refunds the full reserved fare to the traveler, penalty-free, because the cancellation is the package's, not the traveler's. Selectable once the hold window has passed (a confirmed leg is past it in practice); a held leg simply expires on its own deadline, and an already-flown (completed) booking is never cascade-cancelled.",
+          "description": "Fires under the machine principal for a leg of a cancelled travel package: refunds the full reserved rate to the guest, penalty-free, because the cancellation is the package's, not the guest's. Selectable once the hold window has passed (a confirmed leg is past it in practice); a held leg simply expires on its own deadline, and a completed stay is never cascade-cancelled.",
           "due": {
             "field": "holdExpiresAt",
             "whenParentStatus": {
-              "nounId": "travel_package",
+              "instrumentId": "travel_package",
               "refField": "travelPackageId",
               "statuses": [
                 "cancelled"
               ]
             }
           },
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
           "moves": [
             {
               "bind": {
                 "amount": {
                   "from": "instance",
-                  "path": "fields.fareAmount"
+                  "path": "fields.rateAmount"
                 },
                 "currency": {
                   "from": "instance",
@@ -642,15 +1488,15 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.travelerAccountId"
+                  "path": "fields.guestAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "refs.fareReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "refs.rateReserveAccountId"
                 }
               },
               "capture": {
@@ -661,21 +1507,48 @@
             }
           ],
           "steps": [],
-          "summary": "Cancel a flight booking with its cancelled package"
+          "summary": "Cancel a hotel stay with its cancelled package"
         },
         "release": {
-          "description": "Closes a hold the traveler abandoned before confirmation. No money has moved, so this is a pure lifecycle transition.",
+          "agentDescription": "Close a hold the guest walked away from before confirmation. Only a held stay releases, no money has moved, and the rate reserve must be empty. Reach for this when the guest has already decided, rather than waiting for the expiry sweep.",
+          "description": "Closes a hold the guest abandoned before confirmation. No money has moved, so this is a pure lifecycle transition.",
           "moves": [],
           "requiresDrainedAccount": {
-            "path": "refs.fareReserveAccountId"
+            "path": "refs.rateReserveAccountId"
           },
           "steps": [],
-          "summary": "Release a held flight booking"
+          "summary": "Release a held hotel stay"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for hotel_stay when the caller holds one lodging stay, then confirms, amends, cancels, or completes it. Between confirm and checkout the rate sits in a dedicated per-stay reserve, not with the property. A stay can name the travel package it is a leg of, and that package is its own instrument.",
+      "callerParkedStates": {
+        "canceled": "the residual penalty is collected by the property as a deliberate follow-up transfer"
+      },
       "description": "A hotel stay opens as a hold against a lodging stay subject with no money moved. Confirming it runs a just-in-time lodging supplier decision under a deadline, then settles the rate from the guest into a dedicated rate reserve. An unconfirmed hold expires on its deadline, cancellation unwinds through a quote then a confirm under the free-cancel penalty schedule, and completion at checkout pays the reserved rate to the property.",
+      "dials": [
+        {
+          "field": "holdExpiresAt",
+          "key": "hold_window",
+          "kind": "window",
+          "maxOffset": "P7D",
+          "summary": "Grace beyond the held expiry timestamp: moves the confirm cutoff and the expire sweep together.",
+          "title": "Hold window"
+        },
+        {
+          "action": "confirm",
+          "key": "supplier_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "minMs": 1000,
+          "summary": "How long confirm waits for the lodging supplier's just-in-time decision before the timeout default applies.",
+          "title": "Supplier decision deadline"
+        },
+        {
+          "key": "cancellation_penalty",
+          "kind": "unwind_penalty",
+          "summary": "Replaces the free-cancel window tiers cancellations are quoted against.",
+          "title": "Cancellation penalty schedule"
+        }
+      ],
       "fields": {
         "checkInAt": {
           "format": "hyperscale-date-time",
@@ -820,6 +1693,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Hotel Stays"
+      ],
       "parties": {
         "beneficiary": "propertyAccountId",
         "payer": "guestAccountId"
@@ -839,22 +1716,8 @@
         ]
       },
       "summary": "Held-then-confirmed hotel stay settled on a supplier decision.",
+      "templateId": "lodging",
       "title": "Hotel stay",
-      "unwind": {
-        "confirm": "cancel_confirm",
-        "penalty": [
-          {
-            "bps": 0,
-            "withinOffset": "P2D"
-          },
-          {
-            "bps": 5000
-          }
-        ],
-        "quote": "cancel_quote",
-        "refundDestinationField": "guestAccountId",
-        "refundableField": "rateAmount"
-      },
       "update": {
         "fields": [
           "checkInAt",
@@ -865,496 +1728,122 @@
           "held",
           "confirmed"
         ]
-      },
-      "verbs": {
-        "amend_collect": {
-          "description": "Reprices a confirmed stay whose amended dates or room cost more: the guest pays the rate difference to the property directly and the stay remains confirmed. The rate reserve is untouched; it still pays out in full at checkout. Pair with hotel_stay.update for the stay fields and amend_fee for the amendment fee.",
-          "eventName": "hotel_stay.amendment_collected",
-          "examples": [
-            {
-              "input": {
-                "amendmentNote": "Extended the stay by two nights",
-                "rateDifference": "32000"
-              },
-              "name": "collect_extended_stay_increase"
-            }
-          ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "amendmentNote": {
-                "maxLength": 180,
-                "minLength": 1,
-                "type": "string"
-              },
-              "rateDifference": {
-                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
-                "pattern": "^[1-9][0-9]{0,17}$",
-                "type": "string"
-              }
-            },
-            "required": [
-              "rateDifference",
-              "amendmentNote"
-            ],
-            "type": "object"
-          },
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "input",
-                  "path": "rateDifference"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.propertyAccountId"
-                },
-                "memo": {
-                  "from": "input",
-                  "path": "amendmentNote"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "amendCollectTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Collect an amended rate increase"
-        },
-        "amend_fee": {
-          "description": "Collects the property's amendment fee for one stay change from the guest, in either repricing direction. Declared as its own verb so a fee-free amendment simply never invokes it and an equal-rate change is a fee with no difference leg.",
-          "eventName": "hotel_stay.amendment_fee_collected",
-          "examples": [
-            {
-              "input": {
-                "amendmentFee": "7500",
-                "amendmentNote": "Property fee for the date change"
-              },
-              "name": "collect_date_change_fee"
-            }
-          ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "amendmentFee": {
-                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
-                "pattern": "^[1-9][0-9]{0,17}$",
-                "type": "string"
-              },
-              "amendmentNote": {
-                "maxLength": 180,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "amendmentFee",
-              "amendmentNote"
-            ],
-            "type": "object"
-          },
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "input",
-                  "path": "amendmentFee"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.propertyAccountId"
-                },
-                "memo": {
-                  "from": "input",
-                  "path": "amendmentNote"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "amendFeeTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Collect a stay amendment fee"
-        },
-        "amend_refund": {
-          "description": "Reprices a confirmed stay whose amended dates or room cost less: the property refunds the rate difference to the guest directly and the stay remains confirmed. The rate reserve is untouched, so the property's checkout payout still nets to the amended rate. Any amendment fee is collected separately by amend_fee.",
-          "eventName": "hotel_stay.amendment_refunded",
-          "examples": [
-            {
-              "input": {
-                "amendmentNote": "Shortened the stay by one night",
-                "rateDifference": "16000"
-              },
-              "name": "refund_shortened_stay_decrease"
-            }
-          ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "amendmentNote": {
-                "maxLength": 180,
-                "minLength": 1,
-                "type": "string"
-              },
-              "rateDifference": {
-                "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
-                "pattern": "^[1-9][0-9]{0,17}$",
-                "type": "string"
-              }
-            },
-            "required": [
-              "rateDifference",
-              "amendmentNote"
-            ],
-            "type": "object"
-          },
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "input",
-                  "path": "rateDifference"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "memo": {
-                  "from": "input",
-                  "path": "amendmentNote"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.propertyAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "amendRefundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Refund an amended rate decrease"
-        },
-        "cancel_confirm": {
-          "description": "Unwinds the stay, refunding the rate minus the scheduled penalty from the rate reserve back to the guest. The refund is repriced at confirm time into refs.unwindRefund; collect_penalty pays the retained remainder separately.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindRefund"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.rateReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "refundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Confirm a hotel stay cancellation"
-        },
-        "cancel_quote": {
-          "description": "Parks the confirmed stay for cancellation and quotes the refund under the free-cancel penalty schedule. No money moves and the quote is advisory: the cancellation confirm reprices at its own clock.",
-          "moves": [],
-          "steps": [],
-          "summary": "Quote a hotel stay cancellation"
-        },
-        "collect_penalty": {
-          "description": "Pays the computed retained cancellation penalty to the property. Invoke only when cancel_confirm returns a positive refs.unwindPenalty.",
-          "eventName": "hotel_stay.penalty_collected",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindPenalty"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.propertyAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.rateReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "penaltyTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Collect a hotel cancellation penalty"
-        },
-        "complete": {
-          "description": "Closes a confirmed stay at checkout and pays the reserved rate to the property under the machine principal, even if a cancellation quote is parked un-acted. This is the property's revenue event, fired by the maintenance loop under the checkout due-condition.",
-          "due": {
-            "field": "checkOutAt"
-          },
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.rateAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.propertyAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.rateReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "ratePayoutTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Complete a hotel stay"
-        },
-        "confirm": {
-          "deadline": {
-            "field": "holdExpiresAt"
-          },
-          "decision": {
-            "capability": "lodging_supplier",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Runs a just-in-time lodging supplier decision under a deadline, then settles the rate from the guest into the dedicated rate reserve and commits the stay. Refused once the hold expiry has passed, even if the expiry sweep has not fired yet.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.rateAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "refs.rateReserveAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "rateTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Confirm a hotel stay"
-        },
-        "create": {
-          "description": "Opens the stay as a hold against a lodging stay subject at the quoted rate and provisions the dedicated rate reserve. No money moves until the stay confirms; the hold carries its own expiry deadline. A stay holding a leg of a packaged trip names its travel package, admitted only while that package is still draft or booked.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "travelPackageId",
-              "optional": true,
-              "statuses": [
-                "draft",
-                "booked"
-              ]
-            }
-          ],
-          "steps": [
-            {
-              "bind": {
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "owner.id": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                },
-                "owner.type": {
-                  "from": "const",
-                  "value": "workspace"
-                },
-                "role": {
-                  "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "rateReserveAccountId": "accountId"
-              },
-              "operation": "account.escrow.provision"
-            }
-          ],
-          "summary": "Hold a hotel stay"
-        },
-        "expire": {
-          "description": "Ends an unconfirmed hold at its deadline. No money has moved, so this is a pure lifecycle transition fired by the maintenance loop under the hold-expiry due-condition.",
-          "due": {
-            "field": "holdExpiresAt"
-          },
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.rateReserveAccountId"
-          },
-          "steps": [],
-          "summary": "Expire a held hotel stay"
-        },
-        "package_cancel": {
-          "description": "Fires under the machine principal for a leg of a cancelled travel package: refunds the full reserved rate to the guest, penalty-free, because the cancellation is the package's, not the guest's. Selectable once the hold window has passed (a confirmed leg is past it in practice); a held leg simply expires on its own deadline, and a completed stay is never cascade-cancelled.",
-          "due": {
-            "field": "holdExpiresAt",
-            "whenParentStatus": {
-              "nounId": "travel_package",
-              "refField": "travelPackageId",
-              "statuses": [
-                "cancelled"
-              ]
-            }
-          },
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.rateAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.guestAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.rateReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "packageRefundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Cancel a hotel stay with its cancelled package"
-        },
-        "release": {
-          "description": "Closes a hold the guest abandoned before confirmation. No money has moved, so this is a pure lifecycle transition.",
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.rateReserveAccountId"
-          },
-          "steps": [],
-          "summary": "Release a held hotel stay"
-        }
       }
     },
     {
+      "actionOrder": [
+        "create",
+        "confirm",
+        "cancel",
+        "complete"
+      ],
+      "actions": {
+        "cancel": {
+          "agentDescription": "Cancel a booked trip. This call is what triggers the refunds: every confirmed leg becomes due for its own package_cancel and returns its full reserve. The package itself moves nothing. A cancelled package cannot go back to booked.",
+          "description": "Cancels the bundled trip as one pure transition. The refunds are the legs' own: each confirmed flight booking and hotel stay referencing this package becomes due for its package_cancel action under the parent-status gate and refunds its full reserve as its own receipted operation.",
+          "examples": [
+            {
+              "input": {
+                "tenantId": "ten_sandbox_travel000001",
+                "travelPackageId": "tpkg_sandbox_getaway00001"
+              },
+              "name": "cancel_booked_package"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Cancel a booked travel package"
+        },
+        "complete": {
+          "agentDescription": "Close a booked trip that has already run. No money moves, because the legs paid their operators at departure and checkout. Use this rather than cancel when the traveler actually flew.",
+          "description": "Closes a booked package once the trip has run. Pure transition: the legs' own departure and checkout due actions already paid their operators from their reserves.",
+          "examples": [
+            {
+              "input": {
+                "tenantId": "ten_sandbox_travel000001",
+                "travelPackageId": "tpkg_sandbox_getaway00001"
+              },
+              "name": "complete_delivered_package"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Complete a delivered travel package"
+        },
+        "confirm": {
+          "agentDescription": "Book the whole trip. Refused with 409 aggregate_condition_unmet while any flight booking or hotel stay on this package is in any status but confirmed. No money moves here, because each leg already settled its fare into its own reserve at its own confirm.",
+          "description": "Books the package once every linked leg has confirmed: refused (409 aggregate_condition_unmet) while any flight booking or hotel stay referencing this package is in any status but confirmed. Booking the package moves no money -- each leg's fare or rate already settled into that leg's own reserve at its own confirm.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_aggregate",
+                "source": "requiresAggregate"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "tenantId": "ten_sandbox_travel000001",
+                "travelPackageId": "tpkg_sandbox_getaway00001"
+              },
+              "name": "book_confirmed_package"
+            }
+          ],
+          "moves": [],
+          "requiresAggregate": [
+            {
+              "check": {
+                "kind": "all_in"
+              },
+              "instrumentId": "flight_booking",
+              "over": "children",
+              "refField": "travelPackageId",
+              "statuses": [
+                "confirmed"
+              ]
+            },
+            {
+              "check": {
+                "kind": "all_in"
+              },
+              "instrumentId": "hotel_stay",
+              "over": "children",
+              "refField": "travelPackageId",
+              "statuses": [
+                "confirmed"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Confirm a travel package"
+        },
+        "create": {
+          "agentDescription": "Open a draft trip for one traveler party and name the payer account the legs will settle against. No money moves and no account is provisioned. Add flight bookings and hotel stays against the returned package ID before confirming.",
+          "description": "Opens the bundled trip for one traveler party and names the payer the legs will settle against. No money moves and no account is provisioned: every transfer of the trip belongs to a linked flight booking or hotel stay.",
+          "examples": [
+            {
+              "input": {
+                "departAt": "2026-09-01T21:00:00.000Z",
+                "memo": "Jeddah corniche long weekend.",
+                "payerAccountId": "acct_sandbox_traveler0001",
+                "productId": "prd_sandbox_travel000001",
+                "subject": "sbj_sandbox_travelparty01",
+                "tenantId": "ten_sandbox_travel000001"
+              },
+              "name": "draft_jeddah_getaway"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Draft a travel package"
+        }
+      },
+      "agentDescription": "Reach for travel package when one traveler's flight bookings and hotel stays have to confirm or cancel as a single trip. The package never moves money itself. Each leg holds its own fare or rate in its own reserve and pays or refunds it on its own actions.",
+      "callerParkedStates": {
+        "booked": "the operator completes a delivered trip or cancels it; the legs' own due actions carry the money either way",
+        "draft": "confirming the package is the operator's decision once every leg has settled its own reserve"
+      },
       "description": "A travel package drafts a bundled trip for one traveler party. Confirming it is refused while any linked flight booking or hotel stay is not yet confirmed, so a booked package always means every leg's money is settled in its own reserve. Cancelling a booked package flips the status each leg's own package-cancel refund waits on, and completion closes a delivered trip. The package itself never moves money.",
       "fields": {
         "departAt": {
@@ -1409,6 +1898,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Travel Packages"
+      ],
       "parties": {
         "payer": "payerAccountId"
       },
@@ -1422,74 +1915,482 @@
         ]
       },
       "summary": "One bundled trip whose flight and hotel legs confirm together.",
-      "title": "Travel package",
-      "verbs": {
-        "cancel": {
-          "description": "Cancels the bundled trip as one pure transition. The refunds are the legs' own: each confirmed flight booking and hotel stay referencing this package becomes due for its package_cancel verb under the parent-status gate and refunds its full reserve as its own receipted operation.",
-          "moves": [],
-          "steps": [],
-          "summary": "Cancel a booked travel package"
-        },
-        "complete": {
-          "description": "Closes a booked package once the trip has run. Pure transition: the legs' own departure and checkout due verbs already paid their operators from their reserves.",
-          "moves": [],
-          "steps": [],
-          "summary": "Complete a delivered travel package"
-        },
-        "confirm": {
-          "description": "Books the package once every linked leg has confirmed: refused (409 aggregate_condition_unmet) while any flight booking or hotel stay referencing this package is in any status but confirmed. Booking the package moves no money -- each leg's fare or rate already settled into that leg's own reserve at its own confirm.",
-          "moves": [],
-          "requiresAggregate": [
-            {
-              "check": {
-                "kind": "all_in"
-              },
-              "nounId": "flight_booking",
-              "over": "children",
-              "refField": "travelPackageId",
-              "statuses": [
-                "confirmed"
-              ]
-            },
-            {
-              "check": {
-                "kind": "all_in"
-              },
-              "nounId": "hotel_stay",
-              "over": "children",
-              "refField": "travelPackageId",
-              "statuses": [
-                "confirmed"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Confirm a travel package"
-        },
-        "create": {
-          "description": "Opens the bundled trip for one traveler party and names the payer the legs will settle against. No money moves and no account is provisioned: every transfer of the trip belongs to a linked flight booking or hotel stay.",
+      "templateId": "air_travel",
+      "title": "Travel package"
+    },
+    {
+      "actionOrder": [
+        "create",
+        "bind",
+        "activate",
+        "preview",
+        "cancel",
+        "withdraw",
+        "endorse",
+        "expire"
+      ],
+      "actions": {
+        "activate": {
+          "description": "Starts cover at the declared time and pays the held premium to the insurer under the machine principal.",
+          "due": {
+            "field": "startsAt"
+          },
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
           "examples": [
             {
               "input": {
-                "departAt": "2026-09-01T21:00:00.000Z",
-                "memo": "Jeddah corniche long weekend.",
-                "payerAccountId": "acct_sandbox_traveler0001",
-                "subject": "sbj_sandbox_travelparty01"
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
               },
-              "name": "draft_jeddah_getaway"
+              "name": "activate_cover_at_start"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                }
+              },
+              "capture": {
+                "premiumTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Activate a policy"
+        },
+        "bind": {
+          "agentDescription": "Ask the carrier to accept the risk under a 15 second deadline, where a timeout declines, then move the full premium from the policyholder into the policy's premium reserve. Only a quoted policy binds. Cover is not live yet. Activation happens at startsAt. This moves the policyholder's money.",
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the carrier to accept the risk, then moves the premium into its dedicated reserve until cover starts.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_carrier",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "policy.bound",
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "bind_carrier_accepted_risk"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                }
+              },
+              "capture": {
+                "premiumFundingTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Bind a policy"
+        },
+        "cancel": {
+          "agentDescription": "Confirm the previewed cancellation and return the entire reserved premium to the policyholder. It requires preview first and only works before cover activates. This moves money and does not reverse. An active policy has no cancellation path and runs to its expiry.",
+          "commit": "preview",
+          "description": "Confirms the previewed cancellation and returns the entire reserved premium to the policyholder before cover starts.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "confirm_pre_activation_cancel"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                }
+              },
+              "capture": {
+                "premiumRefundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Cancel a policy"
+        },
+        "create": {
+          "agentDescription": "Open a quote against one declared-value subject with its premium, coverage limit, peril schedule, and term, and provision the premium reserve. No premium moves. A renewal may name the prior policy only while that prior term is active or already expired.",
+          "description": "Creates a quote against one declared-value risk and provisions the premium reserve. No premium moves until the carrier binds.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "policy.quoted",
+          "examples": [
+            {
+              "input": {
+                "coverageLimit": "200000",
+                "currency": "SAR",
+                "expiresAt": "2027-08-01T00:00:00.000Z",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "perilSchedule": [
+                  {
+                    "deductibleBps": 500,
+                    "limitAmount": "200000",
+                    "peril": "accidental_damage",
+                    "waitingPeriodDays": 0
+                  },
+                  {
+                    "deductibleBps": 250,
+                    "limitAmount": "200000",
+                    "peril": "theft",
+                    "waitingPeriodDays": 7
+                  }
+                ],
+                "policyholderAccountId": "acct_sandbox_holder00001",
+                "premiumAmount": "12500",
+                "productId": "prd_sandbox_protection01",
+                "startsAt": "2026-08-01T00:00:00.000Z",
+                "subject": "sbj_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01",
+                "termsSummary": "Annual cover for accidental damage and theft."
+              },
+              "name": "quote_asset_protection"
             }
           ],
           "moves": [],
+          "requiresRefs": [
+            {
+              "field": "renewalOfPolicyId",
+              "optional": true,
+              "statuses": [
+                "active",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "premiumReserveAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Quote a policy"
+        },
+        "endorse": {
+          "agentDescription": "Rewrite the peril schedule, terms summary, or expiry on active cover. The carrier approves under a 15 second deadline and a timeout declines. No premium moves, because mid-term repricing is not modeled. A change that should reprice the cover needs a new policy.",
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Applies a carrier-approved mid-term change to active cover: the peril schedule, terms summary, or expiry may be rewritten. No premium moves; mid-term premium adjustment is not modeled.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_carrier",
+                "source": "decision"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "expiresAt": "2027-11-01T00:00:00.000Z",
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01",
+                "termsSummary": "Extended cover incl. water damage."
+              },
+              "name": "endorse_extend_active_cover"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "expiresAt": {
+                "format": "hyperscale-date-time",
+                "type": "string"
+              },
+              "perilSchedule": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "deductibleBps": {
+                      "maximum": 10000,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "limitAmount": {
+                      "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                      "pattern": "^[1-9][0-9]{0,17}$",
+                      "type": "string"
+                    },
+                    "peril": {
+                      "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                      "type": "string"
+                    },
+                    "waitingPeriodDays": {
+                      "maximum": 3650,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "peril",
+                    "limitAmount",
+                    "deductibleBps",
+                    "waitingPeriodDays"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "minItems": 1,
+                "type": "array"
+              },
+              "termsSummary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "moves": [],
           "steps": [],
-          "summary": "Draft a travel package"
+          "summary": "Endorse a policy",
+          "updates": [
+            "perilSchedule",
+            "termsSummary",
+            "expiresAt"
+          ]
+        },
+        "expire": {
+          "description": "Ends active cover at term under the machine principal. Earned premium remains with the insurer.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "expire_cover_at_term"
+            }
+          ],
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Expire a policy"
+        },
+        "preview": {
+          "agentDescription": "Price the cancellation refund while the policy is bound and cover has not started. No money moves. Under the declared schedule the refund is the whole premium. Required before cancel, which is the call that actually returns the money.",
+          "description": "Quotes the full premium refund while cover is bound but not active. No money moves until cancellation is confirmed.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "preview_pre_activation_cancel"
+            }
+          ],
+          "moves": [],
+          "quote": {
+            "baseField": "premiumAmount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "policyholderAccountId",
+              "premiumAmount"
+            ],
+            "netDestinationField": "policyholderAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Preview policy cancellation"
+        },
+        "withdraw": {
+          "agentDescription": "Drop a quote the carrier never bound. Only a quoted policy withdraws, no premium has moved, and the premium reserve must be empty. No preview is needed because there is nothing to refund.",
+          "description": "Closes an unbound quote. No premium moved, so no cancellation preview is required.",
+          "eventName": "policy.withdrawn",
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "withdraw_unbound_quote"
+            }
+          ],
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Withdraw a policy quote"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for policy when the caller quotes carrier-backed cover over one declared-value subject and drives it through bind, endorsement, and expiry. Between bind and activation the premium sits in a per-policy reserve and is fully refundable. Once cover activates the premium is the insurer's. Claims are a separate instrument.",
       "aggregateInvariants": [
         {
           "childField": "claimAmount",
-          "childNounId": "claim",
+          "childInstrumentId": "claim",
           "childRefField": "policyId",
           "childStatuses": [
             "filed",
@@ -1500,6 +2401,10 @@
           "parentField": "coverageLimit"
         }
       ],
+      "callerParkedStates": {
+        "cancel_quoted": "a quoted cancellation moves money only when the caller confirms it",
+        "quoted": "binding or withdrawing a quote is the policyholder's decision"
+      },
       "description": "A policy quotes protection over one subject, binds after a carrier decision, activates at its declared start, and expires at term. Premium remains refundable while bound but not active; activation pays the insurer and opens the policy to claims.",
       "fields": {
         "coverageLimit": {
@@ -1653,6 +2558,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Policies"
+      ],
       "parties": {
         "beneficiary": "insurerAccountId",
         "payer": "policyholderAccountId"
@@ -1673,25 +2582,40 @@
           "flight_itinerary",
           "lodging_stay",
           "vehicle",
+          "merchandise",
           "pet",
           "traveler_party",
           "employee_census"
         ]
       },
       "summary": "Carrier-backed protection over one declared-value subject.",
+      "templateId": "insurance",
       "title": "Policy",
-      "unwind": {
-        "confirm": "cancel",
-        "penalty": [
+      "update": {
+        "examples": [
           {
-            "bps": 0
+            "input": {
+              "perilSchedule": [
+                {
+                  "deductibleBps": 500,
+                  "limitAmount": "200000",
+                  "peril": "accidental_damage",
+                  "waitingPeriodDays": 0
+                },
+                {
+                  "deductibleBps": 250,
+                  "limitAmount": "200000",
+                  "peril": "theft",
+                  "waitingPeriodDays": 7
+                }
+              ],
+              "policyId": "pol_sandbox_protection001",
+              "tenantId": "ten_sandbox_protection01",
+              "termsSummary": "Covers accidental damage and theft."
+            },
+            "name": "refine_quoted_cover"
           }
         ],
-        "quote": "preview",
-        "refundDestinationField": "policyholderAccountId",
-        "refundableField": "premiumAmount"
-      },
-      "update": {
         "fields": [
           "startsAt",
           "expiresAt",
@@ -1701,305 +2625,322 @@
         "states": [
           "quoted"
         ]
-      },
-      "verbs": {
-        "activate": {
-          "description": "Starts cover at the declared time and pays the held premium to the insurer under the machine principal.",
-          "due": {
-            "field": "startsAt"
-          },
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.premiumAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Activate a policy"
-        },
-        "bind": {
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "assess",
+        "approve",
+        "attest",
+        "pay",
+        "deny",
+        "reverse"
+      ],
+      "actions": {
+        "approve": {
+          "agentDescription": "Ask the claims adjuster for a verdict and hold the claim amount from the insurer account for the claimant. Only an assessed claim can approve, and an adjuster that misses the deadline declines by default. The hold reserves money without settling it. Pay posts it, reverse voids it.",
           "decision": {
-            "capability": "insurance_carrier",
+            "capability": "insurance_claims_adjuster",
             "deadlineMs": 15000,
             "onTimeout": "decline"
           },
-          "description": "Asks the carrier to accept the risk, then moves the premium into its dedicated reserve until cover starts.",
-          "eventName": "policy.bound",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.premiumAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.policyholderAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumFundingTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Bind a policy"
-        },
-        "cancel": {
-          "description": "Confirms the previewed cancellation and returns the entire reserved premium to the policyholder before cover starts.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindRefund"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.policyholderAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumRefundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Cancel a policy"
-        },
-        "create": {
-          "description": "Creates a quote against one declared-value risk and provisions the premium reserve. No premium moves until the carrier binds.",
-          "eventName": "policy.quoted",
+          "description": "Asks the claims adjuster to approve the assessed demand, then holds the immutable claim amount from the insurer for the claimant. For a carrier that exposes an adjudication API: the verdict is the provider's, taken just in time under a deadline.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_claims_adjuster",
+                "source": "decision"
+              }
+            ],
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
           "examples": [
             {
               "input": {
-                "coverageLimit": "200000",
-                "currency": "SAR",
-                "expiresAt": "2027-08-01T00:00:00.000Z",
-                "insurerAccountId": "acct_sandbox_insurer0001",
-                "perilSchedule": [
-                  {
-                    "deductibleBps": 500,
-                    "limitAmount": "200000",
-                    "peril": "accidental_damage",
-                    "waitingPeriodDays": 0
-                  },
-                  {
-                    "deductibleBps": 250,
-                    "limitAmount": "200000",
-                    "peril": "theft",
-                    "waitingPeriodDays": 7
-                  }
-                ],
-                "policyholderAccountId": "acct_sandbox_holder00001",
-                "premiumAmount": "12500",
-                "startsAt": "2026-08-01T00:00:00.000Z",
-                "subject": "sbj_sandbox_protection001",
-                "termsSummary": "Annual cover for accidental damage and theft."
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
               },
-              "name": "quote_asset_protection"
+              "name": "approve_assessed_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "steps": [],
+          "summary": "Approve a claim"
+        },
+        "assess": {
+          "agentDescription": "Mark the filed evidence ready for an approval decision. Only a filed claim can assess and no money moves. A claim filed validly during cover stays alive even if the policy term later expires.",
+          "description": "Marks filed evidence ready for an approval decision. A claim validly filed during cover continues even if the policy term later expires.",
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "complete_claim_assessment"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Assess a claim"
+        },
+        "attest": {
+          "agentDescription": "Record an approval the insurer already made outside the platform and hold the claim amount from the insurer for the claimant. Only an assessed claim can attest, and the caller must assert the insurer as the acting party. Use this where the carrier has no adjudication API. Where one exists, approve calls it.",
+          "description": "Records the insurer's own approval of the assessed demand, taken outside the platform, and holds the immutable claim amount from the insurer for the claimant. The insurer must be asserted as the acting party. Use this where the carrier exposes no adjudication API; where one exists, approve calls it instead.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.tenant_port",
+                "source": "port"
+              }
+            ],
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "actorAccountId": "acct_sandbox_insurer0001",
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "attest_insurer_approval"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "port": {
+            "allowedParties": [
+              "payer"
+            ]
+          },
+          "steps": [],
+          "summary": "Attest an out-of-band claim approval"
+        },
+        "create": {
+          "agentDescription": "File a demand against a policy. The policy must be active, and the filed amount is reserved against its aggregate coverage limit. The caller supplies the peril, the moment it occurred, the claim amount, and both accounts. No money moves at filing.",
+          "description": "Records a demand against an active policy and reserves its filed amount against the policy's aggregate coverage limit.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "claim.filed",
+          "examples": [
+            {
+              "input": {
+                "claimAmount": "75000",
+                "claimantAccountId": "acct_sandbox_holder00001",
+                "currency": "SAR",
+                "evidenceSummary": "Covered equipment was damaged in an accidental fall.",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "occurredAt": "2026-10-14T11:30:00.000Z",
+                "peril": "accidental_damage",
+                "policyId": "pol_sandbox_protection001",
+                "productId": "prd_sandbox_protection01",
+                "subject": "sbj_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "file_accidental_damage_claim"
             }
           ],
           "moves": [],
           "requiresRefs": [
             {
-              "field": "renewalOfPolicyId",
-              "optional": true,
+              "field": "policyId",
               "statuses": [
-                "active",
-                "expired"
+                "active"
               ]
             }
           ],
-          "steps": [
-            {
-              "bind": {
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "owner.id": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                },
-                "owner.type": {
-                  "from": "const",
-                  "value": "workspace"
-                },
-                "role": {
-                  "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumReserveAccountId": "accountId"
-              },
-              "operation": "account.escrow.provision"
-            }
-          ],
-          "summary": "Quote a policy"
+          "steps": [],
+          "summary": "File a claim"
         },
-        "endorse": {
-          "decision": {
-            "capability": "insurance_carrier",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Applies a carrier-approved mid-term change to active cover: the peril schedule, terms summary, or expiry may be rewritten. No premium moves; mid-term premium adjustment is not modeled.",
+        "deny": {
+          "agentDescription": "Close a filed or assessed demand with no payout. Only a claim with no hold behind it can deny, so an approved claim goes through reverse instead. No money moves.",
+          "description": "Closes a filed or assessed demand before any payout hold exists.",
+          "eventName": "claim.denied",
           "examples": [
             {
               "input": {
-                "expiresAt": "2027-11-01T00:00:00.000Z",
-                "termsSummary": "Extended cover incl. water damage."
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
               },
-              "name": "endorse_extend_active_cover"
+              "name": "deny_unapproved_claim"
             }
           ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresAt": {
-                "format": "hyperscale-date-time",
-                "type": "string"
-              },
-              "perilSchedule": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "deductibleBps": {
-                      "maximum": 10000,
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "limitAmount": {
-                      "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
-                      "pattern": "^[1-9][0-9]{0,17}$",
-                      "type": "string"
-                    },
-                    "peril": {
-                      "pattern": "^[a-z][a-z0-9_]{1,79}$",
-                      "type": "string"
-                    },
-                    "waitingPeriodDays": {
-                      "maximum": 3650,
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "peril",
-                    "limitAmount",
-                    "deductibleBps",
-                    "waitingPeriodDays"
-                  ],
-                  "type": "object"
-                },
-                "maxItems": 24,
-                "minItems": 1,
-                "type": "array"
-              },
-              "termsSummary": {
-                "maxLength": 1000,
-                "minLength": 1,
-                "type": "string"
+          "moves": [],
+          "steps": [],
+          "summary": "Deny a claim"
+        },
+        "pay": {
+          "agentDescription": "Post the approved hold so the claim amount settles into the claimant account. Only an approved claim can pay. This settles money and is terminal.",
+          "description": "Posts the approved hold and settles the claim amount into the claimant account.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
               }
-            },
-            "type": "object"
+            ]
           },
-          "moves": [],
+          "eventName": "claim.paid",
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "pay_approved_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
           "steps": [],
-          "summary": "Endorse a policy"
+          "summary": "Pay a claim"
         },
-        "expire": {
-          "description": "Ends active cover at term under the machine principal. Earned premium remains with the insurer.",
-          "due": {
-            "field": "expiresAt"
+        "reverse": {
+          "agentDescription": "Void an approved payout hold before payment and close the claim as denied. Only an approved claim can reverse. The insurer's held funds are released and no settled money is clawed back.",
+          "description": "Voids an approved payout hold before payment and closes the claim denied. No settled money is reversed.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
           },
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.premiumReserveAccountId"
-          },
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "reverse_approved_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Claim approval reversed"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
           "steps": [],
-          "summary": "Expire a policy"
-        },
-        "preview": {
-          "description": "Quotes the full premium refund while cover is bound but not active. No money moves until cancellation is confirmed.",
-          "moves": [],
-          "steps": [],
-          "summary": "Preview policy cancellation"
-        },
-        "withdraw": {
-          "description": "Closes an unbound quote. No premium moved, so no cancellation preview is required.",
-          "eventName": "policy.withdrawn",
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.premiumReserveAccountId"
-          },
-          "steps": [],
-          "summary": "Withdraw a policy quote"
+          "summary": "Reverse claim approval"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for claim when a policyholder demands payment for a covered peril under an active policy. Filing reserves the amount against the policy's coverage limit. Use approve where the carrier exposes an adjudication API and attest where the insurer decides out of band. Premium collection and cover dates live on policy.",
+      "callerParkedStates": {
+        "approved": "paying or reversing an approved claim is the operator's deliberate money movement",
+        "assessed": "approval or denial is an adjuster's judgment, whether the adjuster answers over an API or out of band",
+        "filed": "assessment is an adjuster's judgment"
+      },
       "description": "A claim is filed against an active policy, assessed, approved or denied, and paid from the insurer account through a held transfer. Approval can be reversed before payment, releasing the insurer's hold without moving settled money.",
+      "dials": [
+        {
+          "action": "approve",
+          "key": "adjuster_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "minMs": 1000,
+          "summary": "How long approve waits for the claims adjuster's decision before the timeout default declines.",
+          "title": "Adjuster decision deadline"
+        }
+      ],
       "fields": {
         "claimAmount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -2105,6 +3046,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Claims"
+      ],
       "parties": {
         "beneficiary": "claimantAccountId",
         "payer": "insurerAccountId"
@@ -2124,14 +3069,26 @@
           "flight_itinerary",
           "lodging_stay",
           "vehicle",
+          "merchandise",
           "pet",
           "traveler_party",
           "employee_census"
         ]
       },
       "summary": "Demand against active protection for one covered peril.",
+      "templateId": "insurance",
       "title": "Claim",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "claimId": "clm_sandbox_protection001",
+              "evidenceSummary": "Damage assessment confirms the covered accidental event.",
+              "tenantId": "ten_sandbox_protection01"
+            },
+            "name": "add_claim_evidence_summary"
+          }
+        ],
         "fields": [
           "evidenceSummary"
         ],
@@ -2139,165 +3096,6 @@
           "filed",
           "assessed"
         ]
-      },
-      "verbs": {
-        "approve": {
-          "decision": {
-            "capability": "insurance_claims_adjuster",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Asks the claims adjuster to approve the assessed demand, then holds the immutable claim amount from the insurer for the claimant. For a carrier that exposes an adjudication API: the verdict is the provider's, taken just in time under a deadline.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.claimAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.claimantAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                }
-              },
-              "capture": {
-                "claimTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.reserve"
-            }
-          ],
-          "steps": [],
-          "summary": "Approve a claim"
-        },
-        "assess": {
-          "description": "Marks filed evidence ready for an approval decision. A claim validly filed during cover continues even if the policy term later expires.",
-          "moves": [],
-          "steps": [],
-          "summary": "Assess a claim"
-        },
-        "attest": {
-          "description": "Records the insurer's own approval of the assessed demand, taken outside the platform, and holds the immutable claim amount from the insurer for the claimant. The insurer must be asserted as the acting party. Use this where the carrier exposes no adjudication API; where one exists, approve calls it instead.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.claimAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.claimantAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                }
-              },
-              "capture": {
-                "claimTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.reserve"
-            }
-          ],
-          "port": {
-            "allowedParties": [
-              "payer"
-            ]
-          },
-          "steps": [],
-          "summary": "Attest an out-of-band claim approval"
-        },
-        "create": {
-          "description": "Records a demand against an active policy and reserves its filed amount against the policy's aggregate coverage limit.",
-          "eventName": "claim.filed",
-          "examples": [
-            {
-              "input": {
-                "claimAmount": "75000",
-                "claimantAccountId": "acct_sandbox_holder00001",
-                "currency": "SAR",
-                "evidenceSummary": "Covered equipment was damaged in an accidental fall.",
-                "insurerAccountId": "acct_sandbox_insurer0001",
-                "occurredAt": "2026-10-14T11:30:00.000Z",
-                "peril": "accidental_damage",
-                "policyId": "pol_sandbox_protection001",
-                "subject": "sbj_sandbox_protection001"
-              },
-              "name": "file_accidental_damage_claim"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "policyId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "File a claim"
-        },
-        "deny": {
-          "description": "Closes a filed or assessed demand before any payout hold exists.",
-          "eventName": "claim.denied",
-          "moves": [],
-          "steps": [],
-          "summary": "Deny a claim"
-        },
-        "pay": {
-          "description": "Posts the approved hold and settles the claim amount into the claimant account.",
-          "eventName": "claim.paid",
-          "moves": [
-            {
-              "bind": {
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.claimTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.post"
-            }
-          ],
-          "steps": [],
-          "summary": "Pay a claim"
-        },
-        "reverse": {
-          "description": "Voids an approved payout hold before payment and closes the claim denied. No settled money is reversed.",
-          "moves": [
-            {
-              "bind": {
-                "reason": {
-                  "from": "const",
-                  "value": "Claim approval reversed"
-                },
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.claimTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.void"
-            }
-          ],
-          "steps": [],
-          "summary": "Reverse claim approval"
-        }
       }
     }
   ],
@@ -2344,6 +3142,56 @@
         "type": "object"
       },
       "title": "Vehicle",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "merchandise",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "brand": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "category": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "condition": {
+            "enum": [
+              "new",
+              "excellent",
+              "good",
+              "fair",
+              "poor"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "serialNumber": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "yearOfManufacture": {
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "condition"
+        ],
+        "type": "object"
+      },
+      "title": "Merchandise",
       "version": 1
     },
     {

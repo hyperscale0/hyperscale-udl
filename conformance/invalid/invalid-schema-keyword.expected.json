@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL6001",
+      "path": "$.subjects[0].schema.oneOf"
+    }
+  ],
+  "summary": "Refuses JSON Schema keyword oneOf is not in the UDL schema subset.",
+  "verdict": "invalid"
+}

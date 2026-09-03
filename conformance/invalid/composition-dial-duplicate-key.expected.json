@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2001",
+      "path": "$.dials[1]"
+    }
+  ],
+  "summary": "Composition dial keys are unique across the document, the same way instrument dial keys are unique within an instrument.",
+  "verdict": "invalid"
+}

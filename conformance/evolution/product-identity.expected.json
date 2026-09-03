@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL7001",
+      "path": "$.product"
+    }
+  ],
+  "summary": "Evolution refusal for product id changed from minimal to renamed.",
+  "verdict": "invalid"
+}

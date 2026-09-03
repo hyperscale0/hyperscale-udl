@@ -1,0 +1,6 @@
+{
+  "canonical": "string-escaping.udl",
+  "digest": "78fbab9336ae8ae8b092ef1b238d86a1621f50891634b99f7bb630f9019f522f",
+  "summary": "Canonical strings escape lone surrogates and retain U+2028 and U+007F as literal code points.",
+  "verdict": "valid"
+}

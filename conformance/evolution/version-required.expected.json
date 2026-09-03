@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL7002",
+      "path": "$.version"
+    }
+  ],
+  "summary": "Evolution refusal for product definition changed without increasing version 1.",
+  "verdict": "invalid"
+}

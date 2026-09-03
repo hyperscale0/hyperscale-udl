@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL1003",
+      "path": "$.instruments[0].id"
+    }
+  ],
+  "summary": "Naming law: instrument ids are snake_case, singular, plain business English.",
+  "verdict": "invalid"
+}

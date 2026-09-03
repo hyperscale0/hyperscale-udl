@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL3001",
+      "path": "$.instruments[0].actions.touch"
+    }
+  ],
+  "summary": "Every action but create moves the instance between declared states.",
+  "verdict": "invalid"
+}

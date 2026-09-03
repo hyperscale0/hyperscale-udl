@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5006",
+      "path": "$.instruments[0].actions.quote.quote.baseField"
+    }
+  ],
+  "summary": "Freeze set completeness: an offer must freeze the base amount it prices and the account it pays, or the commit fingerprints values the price never pinned.",
+  "verdict": "invalid"
+}

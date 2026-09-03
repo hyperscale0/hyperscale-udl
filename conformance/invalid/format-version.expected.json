@@ -1,7 +1,7 @@
 {
   "issues": [
     {
-      "code": "invalid_shape",
+      "code": "UDL1003",
       "path": "$.udl"
     }
   ],

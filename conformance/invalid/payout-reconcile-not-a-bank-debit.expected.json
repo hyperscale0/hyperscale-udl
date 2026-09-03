@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5005",
+      "path": "$.instruments[0].actions.settle.reconcile[0].evidence"
+    }
+  ],
+  "summary": "Bank evidence for payouts: an instrument that owns a payout closes it against a debit statement line, never against the provider confirmation of our own instruction.",
+  "verdict": "invalid"
+}

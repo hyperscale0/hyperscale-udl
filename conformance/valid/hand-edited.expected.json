@@ -1,5 +1,6 @@
 {
   "canonical": "minimal.udl",
+  "digest": "c21d198d69e9d4cadb33aaacf37581bb388e4a8964b7fc284606cfa9f65d35bb",
   "summary": "Compact, reverse-ordered bytes canonicalize to minimal.udl.",
   "verdict": "valid"
 }

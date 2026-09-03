@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5004",
+      "path": "$.instruments[1].actions.complete.requiresAggregate[0].instrumentId"
+    }
+  ],
+  "summary": "Refuses Invalid input: expected string, received number.",
+  "verdict": "invalid"
+}

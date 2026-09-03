@@ -1,0 +1,6 @@
+{
+  "canonical": "effect-signatures.udl",
+  "digest": "f00226a7195e26f3ba0ee444488ab906af0f353a1b4c46f449e7560291e6f5fb",
+  "summary": "Effect rows carry a signature and their source clause path; notification rows keep channel and role.",
+  "verdict": "valid"
+}

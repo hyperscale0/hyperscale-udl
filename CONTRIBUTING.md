@@ -85,7 +85,7 @@ below the language rather than in it.
 ## Evolution
 
 Documents already in production are governed by the append-only law: adding
-states, transitions, optional fields, and verbs is legal, and removing,
+states, transitions, optional fields, and actions is legal, and removing,
 renaming, tightening, or changing a money step is not. A change to
 `src/evolution.ts` changes what production systems are allowed to do. Expect
 that discussion to be slow, and bring the conformance case that proves the new

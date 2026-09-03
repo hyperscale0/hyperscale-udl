@@ -1,6 +1,105 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "create",
+        "activate",
+        "suspend",
+        "resume",
+        "close"
+      ],
+      "actions": {
+        "activate": {
+          "agentDescription": "Approve the customer to hold and use cards. Only a pending cardholder can activate. Card create, activate, and unfreeze all require an active cardholder, so call this first.",
+          "description": "Approves the customer to hold and use cards.",
+          "examples": [
+            {
+              "input": {
+                "cardholderId": "chd_sandbox_customer0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "activate_approved_cardholder"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Activate a cardholder"
+        },
+        "close": {
+          "agentDescription": "Permanently end the cardholder relationship. This does not reverse and it does not cancel their cards. Cancel each card separately on the card instrument.",
+          "description": "Permanently ends the customer's cardholder relationship. Existing cards must be canceled separately.",
+          "examples": [
+            {
+              "input": {
+                "cardholderId": "chd_sandbox_customer0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "close_cardholder_relationship"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Close a cardholder"
+        },
+        "create": {
+          "agentDescription": "Register a customer as a pending cardholder. The caller supplies the tenant-local customer ID and display name, with email and phone optional. A pending cardholder cannot be issued a card yet. No money moves.",
+          "description": "Creates a pending cardholder for one verified first-party customer.",
+          "examples": [
+            {
+              "input": {
+                "customerId": "cus_sandbox_customer0001",
+                "displayName": "Noura Al Saud",
+                "email": "noura@example.test",
+                "phoneNumber": "+966500000001",
+                "productId": "prd_sandbox_cards000001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "create_customer_cardholder"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Create a cardholder"
+        },
+        "resume": {
+          "agentDescription": "Return a suspended cardholder to active so cards can be issued and activated again. Only a suspended cardholder can resume.",
+          "description": "Restores card access after a suspension is resolved.",
+          "examples": [
+            {
+              "input": {
+                "cardholderId": "chd_sandbox_customer0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "resume_cardholder_access"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Resume a cardholder"
+        },
+        "suspend": {
+          "agentDescription": "Pause the customer's card access without ending the relationship. Only an active cardholder can suspend, and suspending blocks new card issuance, activation, and unfreezing. Cards already active keep authorizing until you freeze them.",
+          "description": "Pauses the customer's card access without closing the cardholder.",
+          "examples": [
+            {
+              "input": {
+                "cardholderId": "chd_sandbox_customer0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "suspend_cardholder_access"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Suspend a cardholder"
+        }
+      },
+      "agentDescription": "Reach for cardholder when a customer must be approved to hold cards before any card exists. A suspended or closed cardholder blocks issuing, activating, and unfreezing cards. Cards already active keep working, so freeze or cancel those on the card instrument.",
+      "callerParkedStates": {
+        "active": "a cardholder in good standing stays active until the issuer or holder acts",
+        "pending": "activation follows the issuer's verification outcome",
+        "suspended": "reinstatement or closure is an issuer decision"
+      },
       "description": "A cardholder links one first-party customer to the card program, becomes active after approval, may be suspended and resumed, and closes permanently when card access ends.",
       "fields": {
         "customerId": {
@@ -62,13 +161,29 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Cardholders"
+      ],
       "required": [
         "customerId",
         "displayName"
       ],
       "summary": "Customer approved to hold cards in a product.",
+      "templateId": "wallet_cards",
       "title": "Cardholder",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "cardholderId": "chd_sandbox_customer0001",
+              "displayName": "Noura Al Saud",
+              "email": "noura@example.test",
+              "tenantId": "ten_sandbox_cards000001"
+            },
+            "name": "update_cardholder_contact"
+          }
+        ],
         "fields": [
           "displayName",
           "email",
@@ -79,52 +194,171 @@
           "active",
           "suspended"
         ]
-      },
-      "verbs": {
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "activate",
+        "freeze",
+        "unfreeze",
+        "cancel"
+      ],
+      "actions": {
         "activate": {
-          "description": "Approves the customer to hold and use cards.",
-          "moves": [],
-          "steps": [],
-          "summary": "Activate a cardholder"
-        },
-        "close": {
-          "description": "Permanently ends the customer's cardholder relationship. Existing cards must be canceled separately.",
-          "moves": [],
-          "steps": [],
-          "summary": "Close a cardholder"
-        },
-        "create": {
-          "description": "Creates a pending cardholder for one verified first-party customer.",
+          "agentDescription": "Make an issued card able to authorize. Call this once the cardholder confirms they hold the card. A card that is already active, frozen, or canceled refuses.",
+          "description": "Makes the issued virtual card available for authorization.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
           "examples": [
             {
               "input": {
-                "customerId": "cus_sandbox_customer0001",
-                "displayName": "Noura Al Saud",
-                "email": "noura@example.test",
-                "phoneNumber": "+966500000001"
+                "cardId": "card_sandbox_virtual00001",
+                "tenantId": "ten_sandbox_cards000001"
               },
-              "name": "create_customer_cardholder"
+              "name": "activate_virtual_card"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Activate a card"
+        },
+        "cancel": {
+          "agentDescription": "Permanently retire the card. This does not reverse: a canceled card never authorizes again and replacing it means issuing a new card. Posted transactions stay in its history.",
+          "description": "Permanently stops the virtual card. Existing posted transactions remain part of its history.",
+          "examples": [
+            {
+              "input": {
+                "cardId": "card_sandbox_virtual00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "cancel_virtual_card"
             }
           ],
           "moves": [],
           "steps": [],
-          "summary": "Create a cardholder"
+          "summary": "Cancel a card"
         },
-        "resume": {
-          "description": "Restores card access after a suspension is resolved.",
+        "create": {
+          "agentDescription": "Issue a new virtual card. The cardholder must already exist and be active, and the funding account must be a customer balance account in the card currency. All three spend limits are required: single purchase, daily, and monthly.",
+          "description": "Issues a virtual card to one active cardholder and binds its spend controls and funding account.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "card.issued",
+          "examples": [
+            {
+              "input": {
+                "accountId": "acct_sandbox_cardfund0001",
+                "cardholderId": "chd_sandbox_customer0001",
+                "currency": "SAR",
+                "label": "Primary virtual card",
+                "productId": "prd_sandbox_cards000001",
+                "spendControls": {
+                  "allowedCountries": [
+                    "SA"
+                  ],
+                  "allowedMerchantCategories": [
+                    "retail",
+                    "travel",
+                    "lodging"
+                  ],
+                  "dailyLimit": "100000",
+                  "monthlyLimit": "500000",
+                  "singlePurchaseLimit": "50000"
+                },
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "issue_controlled_virtual_card"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Issue a card"
+        },
+        "freeze": {
+          "agentDescription": "Stop new authorizations without destroying the card or its history. Use this for a reversible hold, such as a suspected compromise. Only an active card can freeze.",
+          "description": "Stops new authorizations while preserving the card and its history.",
+          "examples": [
+            {
+              "input": {
+                "cardId": "card_sandbox_virtual00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "freeze_virtual_card"
+            }
+          ],
           "moves": [],
           "steps": [],
-          "summary": "Resume a cardholder"
+          "summary": "Freeze a card"
         },
-        "suspend": {
-          "description": "Pauses the customer's card access without closing the cardholder.",
+        "unfreeze": {
+          "agentDescription": "Return a frozen card to active so it authorizes again. Use this once the reason for the freeze clears. Only a frozen card can unfreeze.",
+          "description": "Restores authorization after a temporary freeze.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "card.unfrozen",
+          "examples": [
+            {
+              "input": {
+                "cardId": "card_sandbox_virtual00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "unfreeze_virtual_card"
+            }
+          ],
           "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardholderId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
           "steps": [],
-          "summary": "Suspend a cardholder"
+          "summary": "Unfreeze a card"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for card when the caller wants to issue a virtual payment card to an existing cardholder, or to freeze, unfreeze, and cancel one. Spend controls are declarative limits stored on the card. Authorizations and postings against the card are separate instruments.",
+      "callerParkedStates": {
+        "active": "a live card stays usable until the holder or issuer freezes or cancels it",
+        "frozen": "unfreezing or canceling a frozen card is a deliberate holder or issuer act",
+        "issued": "activation is the cardholder's own act"
+      },
       "description": "A card is issued to one active cardholder, activates for spending, can be frozen and unfrozen without replacement, and is canceled permanently. Spend controls remain declarative data on the card.",
       "fields": {
         "accountId": {
@@ -240,6 +474,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Cards"
+      ],
       "parties": {
         "payer": "accountId"
       },
@@ -251,8 +489,32 @@
         "spendControls"
       ],
       "summary": "Virtual payment card bound to a cardholder account.",
+      "templateId": "wallet_cards",
       "title": "Card",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "cardId": "card_sandbox_virtual00001",
+              "label": "Travel card",
+              "spendControls": {
+                "allowedCountries": [
+                  "SA",
+                  "AE"
+                ],
+                "allowedMerchantCategories": [
+                  "travel",
+                  "lodging"
+                ],
+                "dailyLimit": "50000",
+                "monthlyLimit": "200000",
+                "singlePurchaseLimit": "25000"
+              },
+              "tenantId": "ten_sandbox_cards000001"
+            },
+            "name": "tighten_virtual_card_controls"
+          }
+        ],
         "fields": [
           "label",
           "spendControls"
@@ -262,92 +524,313 @@
           "active",
           "frozen"
         ]
-      },
-      "verbs": {
-        "activate": {
-          "description": "Makes the issued virtual card available for authorization.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "cardholderId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Activate a card"
-        },
-        "cancel": {
-          "description": "Permanently stops the virtual card. Existing posted transactions remain part of its history.",
-          "moves": [],
-          "steps": [],
-          "summary": "Cancel a card"
-        },
-        "create": {
-          "description": "Issues a virtual card to one active cardholder and binds its spend controls and funding account.",
-          "eventName": "card.issued",
-          "examples": [
-            {
-              "input": {
-                "accountId": "acct_sandbox_cardfund0001",
-                "cardholderId": "chd_sandbox_customer0001",
-                "currency": "SAR",
-                "label": "Primary virtual card",
-                "spendControls": {
-                  "allowedCountries": [
-                    "SA"
-                  ],
-                  "allowedMerchantCategories": [
-                    "retail",
-                    "travel",
-                    "lodging"
-                  ],
-                  "dailyLimit": "100000",
-                  "monthlyLimit": "500000",
-                  "singlePurchaseLimit": "50000"
-                }
-              },
-              "name": "issue_controlled_virtual_card"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "cardholderId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Issue a card"
-        },
-        "freeze": {
-          "description": "Stops new authorizations while preserving the card and its history.",
-          "moves": [],
-          "steps": [],
-          "summary": "Freeze a card"
-        },
-        "unfreeze": {
-          "description": "Restores authorization after a temporary freeze.",
-          "eventName": "card.unfrozen",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "cardholderId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Unfreeze a card"
-        }
       }
     },
     {
+      "actionOrder": [
+        "create",
+        "approve",
+        "capture",
+        "decline",
+        "reverse",
+        "expire"
+      ],
+      "actions": {
+        "approve": {
+          "agentDescription": "Ask the card policy for a just-in-time verdict and reserve the requested amount on the card account. Only a pending authorization can approve, and the card must still be active. A policy that misses the deadline declines by default. The reserve holds money, it does not settle it.",
+          "decision": {
+            "capability": "banking_or_card_issuing",
+            "deadlineMs": 1500,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the configured card policy for a just-in-time decision and reserves the immutable authorization amount when approved.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.banking_or_card_issuing",
+                "source": "decision"
+              }
+            ],
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "approve_authorization_after_jit_decision"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.settlementAccountId"
+                },
+                "expiresAt": {
+                  "from": "instance",
+                  "path": "fields.expiresAt"
+                },
+                "memo": {
+                  "from": "const",
+                  "value": "Card authorization hold"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.cardAccountId"
+                }
+              },
+              "capture": {
+                "authorizationTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "cardId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Approve a card authorization"
+        },
+        "capture": {
+          "agentDescription": "Post the reserved hold once the merchant completes the purchase. Only an approved authorization can capture and the hold must still exist. Capture settles money and does not reverse. Record the settled purchase afterwards with card transaction create.",
+          "description": "Posts the reserved transfer after the merchant completes the purchase.",
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "capture_completed_purchase"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
+          "steps": [],
+          "summary": "Capture a card authorization"
+        },
+        "create": {
+          "agentDescription": "Record one pending merchant request against a card. The card must already be active. The caller supplies the amount, currency, merchant name, category, country, reference, and an expiry moment for the hold. No money is held yet. Approve places the hold.",
+          "description": "Records one pending merchant request against an active virtual card. No money is held before approval.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "card_authorization.requested",
+          "examples": [
+            {
+              "input": {
+                "amount": "12500",
+                "cardAccountId": "acct_sandbox_cardfund0001",
+                "cardId": "card_sandbox_virtual00001",
+                "currency": "SAR",
+                "expiresAt": "2026-07-16T12:00:00.000Z",
+                "merchantCategory": "electronics",
+                "merchantCountry": "SA",
+                "merchantName": "Riyadh Camera Store",
+                "merchantReference": "merchant-order-1042",
+                "productId": "prd_sandbox_cards000001",
+                "settlementAccountId": "acct_sandbox_merchant0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "request_retail_authorization"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "cardId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Request a card authorization"
+        },
+        "decline": {
+          "agentDescription": "Close a pending request without placing any hold. Use this when the card policy refuses the purchase. Only a pending authorization can decline, and a declined one never captures.",
+          "description": "Closes a pending request without placing a hold after a declined card-policy decision.",
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "decline_rejected_authorization"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Decline a card authorization"
+        },
+        "expire": {
+          "description": "Voids an approved hold at its declared expiry under the machine principal.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "expire_uncaptured_authorization"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Card authorization expired"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Expire a card authorization"
+        },
+        "reverse": {
+          "agentDescription": "Void an approved hold before capture and release the reserved funds back to the card account. Only an approved authorization can reverse. This is terminal, so the authorization never captures afterwards.",
+          "description": "Voids an approved hold before capture and releases the card funds.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "reverse_uncaptured_authorization"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Card authorization reversed"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.authorizationTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Reverse a card authorization"
+        }
+      },
+      "agentDescription": "Reach for card authorization when a merchant asks whether one card purchase may go ahead. Approve asks the card policy for a just-in-time verdict and reserves the amount as a hold on the card account. The settled purchase record and any refund live in card transaction, and chargebacks live in card dispute.",
+      "callerParkedStates": {
+        "pending": "the approve or decline verdict arrives from the card network's decision flow"
+      },
       "description": "A card authorization starts pending, asks the configured card policy for an immediate decision, reserves the approved amount, and then either captures the hold, reverses it, or expires it. Declined requests never hold money.",
+      "dials": [
+        {
+          "field": "expiresAt",
+          "key": "authorization_window",
+          "kind": "window",
+          "maxOffset": "P30D",
+          "summary": "Grace beyond the authorization expiry timestamp before an uncaptured hold expires.",
+          "title": "Authorization window"
+        },
+        {
+          "action": "approve",
+          "key": "policy_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "maxMs": 5000,
+          "minMs": 500,
+          "summary": "How long approve waits for the card policy's just-in-time decision before the timeout default declines.",
+          "title": "Policy decision deadline"
+        }
+      ],
       "fields": {
         "amount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -459,6 +942,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Card authorizations"
+      ],
       "parties": {
         "beneficiary": "settlementAccountId",
         "payer": "cardAccountId"
@@ -476,15 +963,94 @@
         "expiresAt"
       ],
       "summary": "Just-in-time decision and hold for one card purchase.",
-      "title": "Card authorization",
-      "verbs": {
-        "approve": {
-          "decision": {
-            "capability": "banking_or_card_issuing",
-            "deadlineMs": 1500,
-            "onTimeout": "decline"
+      "templateId": "wallet_cards",
+      "title": "Card authorization"
+    },
+    {
+      "actionOrder": [
+        "create",
+        "refund"
+      ],
+      "actions": {
+        "create": {
+          "agentDescription": "Record the posted purchase for one captured authorization. The authorization must be in the captured state and must not already have a transaction. Amount, currency, card, merchant reference, and the account pair come from the authorization. The caller supplies only the posted moment.",
+          "description": "Records the posted purchase produced by one captured authorization. The amount, currency, card, and account pair are derived from the locked captured authorization -- never caller-supplied -- and each authorization settles into at most one transaction.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
           },
-          "description": "Asks the configured card policy for a just-in-time decision and reserves the immutable authorization amount when approved.",
+          "eventName": "card_transaction.posted",
+          "examples": [
+            {
+              "input": {
+                "cardAuthorizationId": "cau_sandbox_purchase00001",
+                "postedAt": "2026-07-10T12:05:00.000Z",
+                "productId": "prd_sandbox_cards000001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "record_captured_card_purchase"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "bind": {
+                "amount": "fields.amount",
+                "cardAccountId": "fields.cardAccountId",
+                "cardId": "fields.cardId",
+                "currency": "fields.currency",
+                "merchantReference": "fields.merchantReference",
+                "settlementAccountId": "fields.settlementAccountId"
+              },
+              "field": "cardAuthorizationId",
+              "statuses": [
+                "captured"
+              ],
+              "unique": true
+            }
+          ],
+          "steps": [],
+          "summary": "Record a card transaction"
+        },
+        "refund": {
+          "agentDescription": "Return the full posted amount from the settlement account back to the card account and close the transaction as refunded. Only a posted transaction can refund, the amount is always the full one, and a reason string is required. This settles money and is terminal.",
+          "description": "Returns the full posted amount from the settlement account to the card account and closes the transaction as refunded.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "cardTransactionId": "ctx_sandbox_purchase00001",
+                "reason": "Merchant accepted the returned item",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "refund_returned_purchase"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "maxLength": 180,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          },
           "moves": [
             {
               "bind": {
@@ -498,143 +1064,36 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.settlementAccountId"
-                },
-                "expiresAt": {
-                  "from": "instance",
-                  "path": "fields.expiresAt"
+                  "path": "fields.cardAccountId"
                 },
                 "memo": {
-                  "from": "const",
-                  "value": "Card authorization hold"
+                  "from": "input",
+                  "path": "reason"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.cardAccountId"
+                  "path": "fields.settlementAccountId"
                 }
               },
               "capture": {
-                "authorizationTransferId": "transferId"
+                "refundTransferId": "transferId"
               },
               "key": "transfer",
-              "operation": "internal_transfer.reserve"
-            }
-          ],
-          "requiresRefs": [
-            {
-              "field": "cardId",
-              "statuses": [
-                "active"
-              ]
+              "operation": "internal_transfer.create"
             }
           ],
           "steps": [],
-          "summary": "Approve a card authorization"
-        },
-        "capture": {
-          "description": "Posts the reserved transfer after the merchant completes the purchase.",
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.authorizationTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.post"
-            }
-          ],
-          "steps": [],
-          "summary": "Capture a card authorization"
-        },
-        "create": {
-          "description": "Records one pending merchant request against an active virtual card. No money is held before approval.",
-          "eventName": "card_authorization.requested",
-          "examples": [
-            {
-              "input": {
-                "amount": "12500",
-                "cardAccountId": "acct_sandbox_cardfund0001",
-                "cardId": "card_sandbox_virtual00001",
-                "currency": "SAR",
-                "expiresAt": "2026-07-16T12:00:00.000Z",
-                "merchantCategory": "electronics",
-                "merchantCountry": "SA",
-                "merchantName": "Riyadh Camera Store",
-                "merchantReference": "merchant-order-1042",
-                "settlementAccountId": "acct_sandbox_merchant0001"
-              },
-              "name": "request_retail_authorization"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "cardId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Request a card authorization"
-        },
-        "decline": {
-          "description": "Closes a pending request without placing a hold after a declined card-policy decision.",
-          "moves": [],
-          "steps": [],
-          "summary": "Decline a card authorization"
-        },
-        "expire": {
-          "description": "Voids an approved hold at its declared expiry under the machine principal.",
-          "due": {
-            "field": "expiresAt"
-          },
-          "moves": [
-            {
-              "bind": {
-                "reason": {
-                  "from": "const",
-                  "value": "Card authorization expired"
-                },
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.authorizationTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.void"
-            }
-          ],
-          "steps": [],
-          "summary": "Expire a card authorization"
-        },
-        "reverse": {
-          "description": "Voids an approved hold before capture and releases the card funds.",
-          "moves": [
-            {
-              "bind": {
-                "reason": {
-                  "from": "const",
-                  "value": "Card authorization reversed"
-                },
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.authorizationTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.void"
-            }
-          ],
-          "steps": [],
-          "summary": "Reverse a card authorization"
+          "summary": "Refund a card transaction"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for card transaction when a captured authorization has settled and the purchase needs a posted record, or when the merchant agrees to return the full amount. Refunds here are full and voluntary. A charge the merchant will not return goes to card dispute.",
+      "callerParkedStates": {
+        "posted": "posted is the settled resting state; refund is an optional scheme-window follow-up"
+      },
       "description": "A card transaction records the settled result of one captured authorization. It remains posted unless the full immutable amount is returned to the card account, after which it is refunded permanently.",
       "fields": {
         "amount": {
@@ -708,6 +1167,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Card transactions"
+      ],
       "parties": {
         "beneficiary": "settlementAccountId",
         "payer": "cardAccountId"
@@ -723,18 +1186,47 @@
         "postedAt"
       ],
       "summary": "Posted card purchase and its possible full refund.",
-      "title": "Card transaction",
-      "verbs": {
+      "templateId": "wallet_cards",
+      "title": "Card transaction"
+    },
+    {
+      "actionOrder": [
+        "create",
+        "review",
+        "win",
+        "lose"
+      ],
+      "actions": {
         "create": {
-          "description": "Records the posted purchase produced by one captured authorization. The amount, currency, card, and account pair are derived from the locked captured authorization -- never caller-supplied -- and each authorization settles into at most one transaction.",
-          "eventName": "card_transaction.posted",
+          "agentDescription": "File an evidence-backed challenge against one card transaction. The transaction must be posted. The caller supplies the reason code, at least one evidence item, and the response deadline. Amount, currency, card, and the account pair come from the transaction, never from the caller. No money moves at filing.",
+          "description": "Files an evidence-backed challenge against one transaction that is still posted. The disputed amount, currency, card, and account pair are derived from the locked transaction -- never caller-supplied.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "card_dispute.filed",
           "examples": [
             {
               "input": {
-                "cardAuthorizationId": "cau_sandbox_purchase00001",
-                "postedAt": "2026-07-10T12:05:00.000Z"
+                "cardTransactionId": "ctx_sandbox_purchase00001",
+                "evidence": [
+                  {
+                    "kind": "customer_statement",
+                    "reference": "support-case-2048",
+                    "submittedAt": "2026-07-11T10:15:00.000Z",
+                    "summary": "Customer confirms the purchase was not authorized."
+                  }
+                ],
+                "productId": "prd_sandbox_cards000001",
+                "reason": "unauthorized_purchase",
+                "responseDueAt": "2026-08-10T23:59:59.000Z",
+                "tenantId": "ten_sandbox_cards000001"
               },
-              "name": "record_captured_card_purchase"
+              "name": "file_unauthorized_purchase_dispute"
             }
           ],
           "moves": [],
@@ -745,43 +1237,98 @@
                 "cardAccountId": "fields.cardAccountId",
                 "cardId": "fields.cardId",
                 "currency": "fields.currency",
-                "merchantReference": "fields.merchantReference",
                 "settlementAccountId": "fields.settlementAccountId"
               },
-              "field": "cardAuthorizationId",
+              "field": "cardTransactionId",
               "statuses": [
-                "captured"
-              ],
-              "unique": true
+                "posted"
+              ]
             }
           ],
           "steps": [],
-          "summary": "Record a card transaction"
+          "summary": "File a card dispute"
         },
-        "refund": {
-          "description": "Returns the full posted amount from the settlement account to the card account and closes the transaction as refunded.",
+        "lose": {
+          "description": "Closes an unresolved dispute without moving money when its response deadline passes.",
+          "due": {
+            "field": "responseDueAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "eventName": "card_dispute.lost",
           "examples": [
             {
               "input": {
-                "reason": "Merchant accepted the returned item"
+                "cardDisputeId": "cdis_sandbox_purchase0001",
+                "tenantId": "ten_sandbox_cards000001"
               },
-              "name": "refund_returned_purchase"
+              "name": "close_unresolved_dispute_at_deadline"
             }
           ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "reason": {
-                "maxLength": 180,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "reason"
-            ],
-            "type": "object"
+          "moves": [],
+          "steps": [],
+          "summary": "Lose a card dispute"
+        },
+        "review": {
+          "agentDescription": "Move a filed dispute into review once its evidence is ready for an outcome decision. Only a filed dispute can review and no money moves. Evidence can still be added by update while the dispute is filed or under review.",
+          "description": "Accepts the filed evidence for an outcome decision before the response deadline.",
+          "examples": [
+            {
+              "input": {
+                "cardDisputeId": "cdis_sandbox_purchase0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "begin_card_dispute_review"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Review a card dispute"
+        },
+        "win": {
+          "agentDescription": "Ask the card policy for the final outcome and return the disputed amount from the settlement account to the card account when the cardholder wins. Only a dispute under review can win, and the challenged transaction must still be posted. This settles money and is terminal.",
+          "decision": {
+            "capability": "banking_or_card_issuing",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
           },
+          "description": "Asks the configured card policy for the final outcome and returns the disputed amount when the cardholder wins.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.banking_or_card_issuing",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "card_dispute.won",
+          "examples": [
+            {
+              "input": {
+                "cardDisputeId": "cdis_sandbox_purchase0001",
+                "tenantId": "ten_sandbox_cards000001"
+              },
+              "name": "return_won_dispute_amount"
+            }
+          ],
           "moves": [
             {
               "bind": {
@@ -798,32 +1345,57 @@
                   "path": "fields.cardAccountId"
                 },
                 "memo": {
-                  "from": "input",
-                  "path": "reason"
+                  "from": "const",
+                  "value": "Card dispute won"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
                   "path": "fields.settlementAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
                 }
               },
               "capture": {
-                "refundTransferId": "transferId"
+                "disputeTransferId": "transferId"
               },
               "key": "transfer",
               "operation": "internal_transfer.create"
             }
           ],
+          "requiresRefs": [
+            {
+              "field": "cardTransactionId",
+              "statuses": [
+                "posted"
+              ]
+            }
+          ],
           "steps": [],
-          "summary": "Refund a card transaction"
+          "summary": "Win a card dispute"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for card dispute when the cardholder challenges one already-posted card transaction. The disputed amount, card, and both accounts are copied from the locked transaction, so the caller supplies only the reason, evidence, and response deadline. A refund the merchant agrees to is card transaction refund instead.",
       "description": "A card dispute is filed with evidence against one posted transaction, enters review, and ends won or lost. A win returns the immutable disputed amount to the card account; an unresolved case is lost at its response deadline.",
+      "dials": [
+        {
+          "field": "responseDueAt",
+          "key": "response_window",
+          "kind": "window",
+          "maxOffset": "P90D",
+          "summary": "Grace beyond the response deadline before an unresolved dispute closes as lost.",
+          "title": "Response window"
+        },
+        {
+          "action": "win",
+          "key": "outcome_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "minMs": 1000,
+          "summary": "How long win waits for the card policy's final outcome before the timeout default declines.",
+          "title": "Outcome decision deadline"
+        }
+      ],
       "fields": {
         "amount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -944,6 +1516,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Card disputes"
+      ],
       "parties": {
         "beneficiary": "cardAccountId",
         "payer": "settlementAccountId"
@@ -960,8 +1536,31 @@
         "responseDueAt"
       ],
       "summary": "Evidence-backed challenge to one posted card transaction.",
+      "templateId": "wallet_cards",
       "title": "Card dispute",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "cardDisputeId": "cdis_sandbox_purchase0001",
+              "evidence": [
+                {
+                  "kind": "customer_statement",
+                  "reference": "support-case-2048",
+                  "submittedAt": "2026-07-11T10:15:00.000Z",
+                  "summary": "Customer confirms the purchase was not authorized."
+                },
+                {
+                  "kind": "merchant_correspondence",
+                  "submittedAt": "2026-07-12T09:30:00.000Z",
+                  "summary": "Merchant could not produce proof of delivery."
+                }
+              ],
+              "tenantId": "ten_sandbox_cards000001"
+            },
+            "name": "add_card_dispute_evidence"
+          }
+        ],
         "fields": [
           "evidence"
         ],
@@ -969,118 +1568,6 @@
           "filed",
           "under_review"
         ]
-      },
-      "verbs": {
-        "create": {
-          "description": "Files an evidence-backed challenge against one transaction that is still posted. The disputed amount, currency, card, and account pair are derived from the locked transaction -- never caller-supplied.",
-          "eventName": "card_dispute.filed",
-          "examples": [
-            {
-              "input": {
-                "cardTransactionId": "ctx_sandbox_purchase00001",
-                "evidence": [
-                  {
-                    "kind": "customer_statement",
-                    "reference": "support-case-2048",
-                    "submittedAt": "2026-07-11T10:15:00.000Z",
-                    "summary": "Customer confirms the purchase was not authorized."
-                  }
-                ],
-                "reason": "unauthorized_purchase",
-                "responseDueAt": "2026-08-10T23:59:59.000Z"
-              },
-              "name": "file_unauthorized_purchase_dispute"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "bind": {
-                "amount": "fields.amount",
-                "cardAccountId": "fields.cardAccountId",
-                "cardId": "fields.cardId",
-                "currency": "fields.currency",
-                "settlementAccountId": "fields.settlementAccountId"
-              },
-              "field": "cardTransactionId",
-              "statuses": [
-                "posted"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "File a card dispute"
-        },
-        "lose": {
-          "description": "Closes an unresolved dispute without moving money when its response deadline passes.",
-          "due": {
-            "field": "responseDueAt"
-          },
-          "eventName": "card_dispute.lost",
-          "moves": [],
-          "steps": [],
-          "summary": "Lose a card dispute"
-        },
-        "review": {
-          "description": "Accepts the filed evidence for an outcome decision before the response deadline.",
-          "moves": [],
-          "steps": [],
-          "summary": "Review a card dispute"
-        },
-        "win": {
-          "decision": {
-            "capability": "banking_or_card_issuing",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Asks the configured card policy for the final outcome and returns the disputed amount when the cardholder wins.",
-          "eventName": "card_dispute.won",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.amount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.cardAccountId"
-                },
-                "memo": {
-                  "from": "const",
-                  "value": "Card dispute won"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.settlementAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "disputeTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "requiresRefs": [
-            {
-              "field": "cardTransactionId",
-              "statuses": [
-                "posted"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Win a card dispute"
-        }
       }
     }
   ],

@@ -10,6 +10,54 @@ here under the release that made it.
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-09-02
+
+### Added
+
+- Stable `UDL####` diagnostics include a category, fix, message, and JSON path.
+- Evolution comparison returns coded issues instead of strings.
+- `canonicalDigest` returns a promise for SHA-256 over canonical UTF-8 bytes.
+- `udl canon` prints canonical bytes or their digest, and `udl explain` prints
+  the catalog entry for one code.
+- The conformance runner has evolution pairs and pins canonical digests, issue
+  codes, and paths.
+- Eight guides, generated clause, diagnostic, and command references,
+  `llms.txt`, `llms-full.txt`, and an agent skill now ship with the package.
+
+- `reconcile` declares one expectation about money an action cannot see yet:
+  the amount path, currency field, direction, the ref naming the provider-side
+  row, exactly one evidence source, a match law, and a window. The match law is
+  `exact`, `tolerance` bounded by a `reconcile_tolerance` dial, or `window`. An
+  expectation that never matches by the end of its window is carried by the
+  named exception child, capped by `maxOpen`. The child is declared and
+  validated at admission, not materialized: the transition refuses with
+  `state_conflict` naming it and the due sweep re-arms the expectation.
+  `UdlReconcile` exposes the clause type.
+- An action may declare a `quote` offer and exactly one other action may spend
+  it through `commit`. Both the base money field and the net destination are
+  mandatory members of `fixes`, and `fixes` and `updates` may not overlap.
+
+### Removed
+
+- `requiresSettlement` and `UdlRequiresSettlement` are gone. A payout-owning
+  instrument now declares exactly one action carrying `reconcile` against a
+  debit statement line, under any match law. There is no wrapper and no alias.
+
+### Changed
+
+- The npm package includes `docs/` and `skills/`.
+- Derived effect rows for `quote`, `commit`, and `reconcile` change the canonical
+  bytes of stored documents that carry `effects` for those clauses.
+- Format 1 now carries every instrument contract clause. Instrument metadata
+  includes archetype template, navigation, visibility, dials, caller-parked
+  states, and extensible subjects. Actions include check gates, remainder
+  arithmetic, field updates, principal policy, and sandbox failure points.
+- Remainder clauses declare their computed money refs, so computed money has
+  one authored source.
+- Evolution snapshots protect lifted clauses that affect composition,
+  admission, or execution. Navigation, examples, and parked-state reason text
+  remain editable presentation.
+
 ## [1.0.0-beta.1] - 2026-08-29
 
 - This is the first beta and has no package behavior changes from
@@ -19,35 +67,34 @@ here under the release that made it.
 
 ### Added
 
-- Verbs may declare a camelCase `publicIntent` as their author-approved public
-  name while the verb key remains the lifecycle and execution identity. System
-  due verbs must omit it. `udlPublicIntentSchema` is exported for consumers
+- Actions may declare a camelCase `publicAction` as their author-approved public
+  name while the action key remains the lifecycle and execution identity. System
+  due actions must omit it. `udlPublicActionSchema` is exported for consumers
   that admit the same name outside a complete document.
-- `captureInput` maps declared verb input fields into durable receipt refs.
-  Declare only input properties from that verb and allocate each captured key
-  in the noun's shared ref namespace.
+- `captureInput` maps declared action input fields into durable receipt refs.
+  Declare only input properties from that action and allocate each captured key
+  in the instrument's shared ref namespace.
 - `signedSum` computes stored add and subtract subtotals over typed child money,
-  then captures one net amount for exactly one payout or noun transfer. Authors
+  then captures one net amount for exactly one payout or instrument transfer. Authors
   must declare the child reference, money field, currency, admitted statuses,
   and explicit negative and zero policies.
 - `requiresExposure` gates a child amount against a stored cap, with an optional
   anchor-specific cap, and `setsAt.marker` records occurrence timestamps that
   cannot drive a due condition or deadline. Use these clauses for bounded
   installment writes and per-anchor occurrence markers.
-- `distribute` allocates one parent money field or computed money ref across
-  typed children selected by status and stored weight. Declare runtime-owned
-  money refs in `computedMoneyRefs`; the validator resolves the parent,
-  weight, statuses, and pool before admitting the document.
-- Nouns may declare up to four `derivedAmounts`. Each rule computes a declared
+- `distribute` allocates one parent money field or remainder-computed money ref
+  across typed children selected by status and stored weight. The validator
+  resolves the parent, weight, statuses, and pool before admitting the document.
+- Instruments may declare up to four `derivedAmounts`. Each rule computes a declared
   money field as 1 through 9,999 basis points of another declared money field
   with floor rounding. Callers supply neither the result nor a fixed or tiered
   rule, and a rule may not derive a field from itself.
-- Verbs may declare one `payout` intent that reads stored money, currency,
+- Actions may declare one `payout` intent that reads stored money, currency,
   source-account, and beneficiary values and captures the payout reference.
   This does not add an operation to the seven-instruction kernel.
 - A system-only `requiresSettlement` transition may read a captured payout
   reference and capture the durable evidence record that matched it. The
-  validator rejects caller input, decision ports, public intents, due and
+  validator rejects caller input, decision ports, public actions, due and
   deadline triggers, kernel steps, and money moves on that transition.
 - `validateUdlJsonSchema` validates one schema against UDL's sealed JSON Schema
   subset without applying it to a value. `UdlPayout` and
@@ -55,12 +102,12 @@ here under the release that made it.
 
 ### Changed
 
-- Evolution snapshots freeze public intents, captured receipt input,
-  distribution rules, exposure gates, signed sums, computed money refs, and
-  derived-amount arithmetic once a noun has live instances. Older snapshots
+- Evolution snapshots freeze public actions, captured receipt input,
+  distribution rules, exposure gates, signed sums, computed money clauses, and
+  derived-amount arithmetic once a instrument has live instances. Older snapshots
   remain readable when those keys are absent.
 - Evolution snapshots freeze both payout intents and settlement evidence gates.
-- Receipt refs written by the new clauses share the noun ref namespace with
+- Receipt refs written by the new clauses share the instrument ref namespace with
   kernel captures, input captures, signed sums, subject refs, and unwind refs.
 
 ## [1.0.0-alpha.4] - 2026-08-26
@@ -83,16 +130,16 @@ here under the release that made it.
   refuses now throws a `UdlError` carrying that document's issues where
   alpha.2 returned evolution violations. Measured on
   `conformance/valid/protection.udl` with the product renamed to
-  `protection_v2` and the live `claim` noun dropped: alpha.2 returned three
-  violations, naming the rename, the removed live noun, and the version that
+  `protection_v2` and the live `claim` instrument dropped: alpha.2 returned three
+  violations, naming the rename, the removed live instrument, and the version that
   did not move; this release throws `invalid_semantics` at
-  `$.nouns[0].aggregateInvariants[0].childNounId`, because another noun's
+  `$.instruments[0].aggregateInvariants[0].childInstrumentId`, because another instrument's
   aggregate still references `claim`.
 
   Read the throw as a refusal to judge, not as a verdict of no violations.
   A `catch` that treats it as a schema problem and carries on has skipped the
   append-only check entirely, and the candidate above is exactly the kind that
-  then sails through: dropping a live noun is the headline violation the law
+  then sails through: dropping a live instrument is the headline violation the law
   exists to catch. Fix the document, or use `diffValidatedUdlEvolution`.
 
   The parameters are `unknown` because the function now accepts input nobody
@@ -111,8 +158,8 @@ here under the release that made it.
 - The comparison key behind every diff carries the same depth budget the
   validator applies to a document (`UDL_LIMITS.maxDepth`, 24 levels; the
   deepest conformance document reaches 12). This is what protects
-  `diffNounEvolution`, which takes snapshots no validator has seen, and it
-  closes the case where `snapshotUdlNoun` returns a cyclic snapshot that only
+  `diffInstrumentEvolution`, which takes snapshots no validator has seen, and it
+  closes the case where `snapshotUdlInstrument` returns a cyclic snapshot that only
   detonates when something later stringifies it.
 
 ### Added
@@ -157,7 +204,8 @@ First public release. Format version 1.
 - `bun run spec:check`, which fails when the committed schema drifts from the
   grammar it was generated from.
 
-[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-beta.1...v1.0.0-rc.1
 [1.0.0-beta.1]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.5...v1.0.0-beta.1
 [1.0.0-alpha.5]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.4...v1.0.0-alpha.5
 [1.0.0-alpha.4]: https://github.com/hyperscale0/hyperscale-udl/compare/v1.0.0-alpha.3...v1.0.0-alpha.4

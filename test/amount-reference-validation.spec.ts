@@ -14,9 +14,9 @@ const currencyField = {
 
 function distributionDocument(): UdlDocument {
   return {
-    nouns: [
+    instruments: [
       {
-        computedMoneyRefs: ["storedPool"],
+        actionOrder: ["create"],
         fields: { currency: currencyField, poolAmount: moneyField },
         id: "source_pool",
         idPrefix: "spl",
@@ -24,11 +24,12 @@ function distributionDocument(): UdlDocument {
         required: ["poolAmount", "currency"],
         summary: "Stored distribution pool",
         title: "Source pool",
-        verbs: {
+        actions: {
           create: { moves: [], steps: [], summary: "Create source pool" },
         },
       },
       {
+        actionOrder: ["create", "payout"],
         fields: {
           currency: currencyField,
           parentId: {
@@ -47,7 +48,7 @@ function distributionDocument(): UdlDocument {
         required: ["parentId", "weight", "currency"],
         summary: "Stored weighted entitlement",
         title: "Entitlement",
-        verbs: {
+        actions: {
           create: {
             moves: [],
             requiresRefs: [
@@ -95,60 +96,58 @@ describe("UDL computed amount reference validation", () => {
     expect(validateUdl(distributionDocument()).ok).toBe(true);
 
     const missingParent = distributionDocument();
-    missingParent.nouns[1]!.verbs.payout!.distribute!.refField =
+    missingParent.instruments[1]!.actions.payout!.distribute!.refField =
       "missingParentId";
     expect(messages(missingParent)).toContain(
-      "distribute refField missingParentId must identify exactly one parent noun",
+      "distribute refField missingParentId must identify exactly one parent instrument",
     );
 
     const wrongParentType = distributionDocument();
-    wrongParentType.nouns[1]!.verbs.payout!.distribute!.refField = "weight";
+    wrongParentType.instruments[1]!.actions.payout!.distribute!.refField =
+      "weight";
     expect(messages(wrongParentType)).toContain(
-      "distribute refField weight must identify exactly one parent noun",
+      "distribute refField weight must identify exactly one parent instrument",
     );
 
     const missingPool = distributionDocument();
-    missingPool.nouns[1]!.verbs.payout!.distribute!.pool.path =
+    missingPool.instruments[1]!.actions.payout!.distribute!.pool.path =
       "fields.missingAmount";
     expect(messages(missingPool)).toContain(
       "distribute pool fields.missingAmount must be a declared money field or ref of source_pool",
     );
 
     const wrongPoolType = distributionDocument();
-    wrongPoolType.nouns[1]!.verbs.payout!.distribute!.pool.path =
+    wrongPoolType.instruments[1]!.actions.payout!.distribute!.pool.path =
       "fields.currency";
     expect(messages(wrongPoolType)).toContain(
       "distribute pool fields.currency must be a declared money field or ref of source_pool",
     );
 
-    const computedPool = distributionDocument();
-    computedPool.nouns[1]!.verbs.payout!.distribute!.pool.path =
-      "refs.storedPool";
-    expect(validateUdl(computedPool).ok).toBe(true);
-
     const missingComputedPool = distributionDocument();
-    missingComputedPool.nouns[1]!.verbs.payout!.distribute!.pool.path =
+    missingComputedPool.instruments[1]!.actions.payout!.distribute!.pool.path =
       "refs.missingPool";
     expect(messages(missingComputedPool)).toContain(
       "distribute pool refs.missingPool must be a declared money field or ref of source_pool",
     );
 
     const missingWeight = distributionDocument();
-    missingWeight.nouns[1]!.verbs.payout!.distribute!.weightField =
+    missingWeight.instruments[1]!.actions.payout!.distribute!.weightField =
       "missingWeight";
     expect(messages(missingWeight)).toContain(
       "distribute weightField missingWeight must be a declared money field",
     );
 
     const wrongWeightType = distributionDocument();
-    wrongWeightType.nouns[1]!.verbs.payout!.distribute!.weightField =
+    wrongWeightType.instruments[1]!.actions.payout!.distribute!.weightField =
       "currency";
     expect(messages(wrongWeightType)).toContain(
       "distribute weightField currency must be a declared money field",
     );
 
     const missingStatus = distributionDocument();
-    missingStatus.nouns[1]!.verbs.payout!.distribute!.statuses = ["missing"];
+    missingStatus.instruments[1]!.actions.payout!.distribute!.statuses = [
+      "missing",
+    ];
     expect(messages(missingStatus)).toContain(
       "distribute status missing is not declared by entitlement",
     );
@@ -156,8 +155,8 @@ describe("UDL computed amount reference validation", () => {
 
   test("rejects nonexistent and wrong-typed derived amount references", () => {
     const valid = distributionDocument();
-    valid.nouns[0]!.fields.derivedAmount = moneyField;
-    valid.nouns[0]!.derivedAmounts = [
+    valid.instruments[0]!.fields.derivedAmount = moneyField;
+    valid.instruments[0]!.derivedAmounts = [
       {
         field: "derivedAmount",
         rounding: "floor",
@@ -168,25 +167,27 @@ describe("UDL computed amount reference validation", () => {
     expect(validateUdl(valid).ok).toBe(true);
 
     const missingTarget = structuredClone(valid);
-    missingTarget.nouns[0]!.derivedAmounts![0]!.field = "missingAmount";
+    missingTarget.instruments[0]!.derivedAmounts![0]!.field = "missingAmount";
     expect(messages(missingTarget)).toContain(
       "derived amount target missingAmount must be a declared money field",
     );
 
     const wrongTargetType = structuredClone(valid);
-    wrongTargetType.nouns[0]!.derivedAmounts![0]!.field = "currency";
+    wrongTargetType.instruments[0]!.derivedAmounts![0]!.field = "currency";
     expect(messages(wrongTargetType)).toContain(
       "derived amount target currency must be a declared money field",
     );
 
     const missingSource = structuredClone(valid);
-    missingSource.nouns[0]!.derivedAmounts![0]!.sourceField = "missingAmount";
+    missingSource.instruments[0]!.derivedAmounts![0]!.sourceField =
+      "missingAmount";
     expect(messages(missingSource)).toContain(
       "derived amount source missingAmount must be a declared money field",
     );
 
     const wrongSourceType = structuredClone(valid);
-    wrongSourceType.nouns[0]!.derivedAmounts![0]!.sourceField = "currency";
+    wrongSourceType.instruments[0]!.derivedAmounts![0]!.sourceField =
+      "currency";
     expect(messages(wrongSourceType)).toContain(
       "derived amount source currency must be a declared money field",
     );

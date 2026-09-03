@@ -1,0 +1,14 @@
+{
+  "issues": [
+    {
+      "code": "UDL5009",
+      "path": "$.instruments[4].actions.reconcile.reconcile[0].exception.amountField"
+    },
+    {
+      "code": "UDL5011",
+      "path": "$.instruments[4].actions.reconcile.reconcile[0].exception.reasonField"
+    }
+  ],
+  "summary": "Reconcile exceptions require amountField and reasonField.",
+  "verdict": "invalid"
+}

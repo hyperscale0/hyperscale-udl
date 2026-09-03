@@ -1,23 +1,23 @@
 # The UDL conformance suite
 
-Every file here is data. Nothing in this directory imports the reference
-implementation, so a UDL implementation in any language can run the suite by
-reading files and comparing bytes.
-
-`../test/conformance.spec.ts` is the reference runner. Read it if a rule below
-is ambiguous.
+Every file here is data. An implementation in any language can run the suite
+without importing the TypeScript reference implementation.
 
 ## Layout
 
 ```
 conformance/
-  valid/    documents the format accepts, each with its canonical form
-  invalid/  documents the format refuses, each with the issues it must report
+  valid/<case>.udl
+  valid/<case>.expected.json
+  invalid/<case>.udl
+  invalid/<case>.expected.json
+  evolution/<case>.live.udl
+  evolution/<case>.next.udl
+  evolution/<case>.expected.json
 ```
 
-Every `<case>.udl` has a sibling `<case>.expected.json`. A file without its
-sibling is a case that silently stopped running, so the runner fails on
-orphans in either direction.
+The runner fails if either half of a case is missing. An evolution case must
+have all three named files.
 
 ## Expected files
 
@@ -26,54 +26,57 @@ A valid case:
 ```json
 {
   "canonical": "minimal.udl",
-  "summary": "Compact, reverse-ordered bytes canonicalize to minimal.udl.",
+  "digest": "c21d198d69e9d4cadb33aaacf37581bb388e4a8964b7fc284606cfa9f65d35bb",
+  "summary": "The smallest admitted document.",
   "verdict": "valid"
 }
 ```
 
-`canonical` names the file in `valid/` holding the canonical bytes for this
-input. A document that is already canonical names itself.
+`digest` is lowercase SHA-256 over the canonical UTF-8 bytes. A document that
+is already canonical names itself.
 
 An invalid case:
 
 ```json
 {
-  "issues": [{ "code": "invalid_semantics", "path": "$.nouns[0].verbs" }],
-  "summary": "Every noun declares create: nothing else can bring an instance into being.",
+  "issues": [{ "code": "UDL3001", "path": "$.instruments[0].actions" }],
+  "summary": "Every instrument declares create.",
   "verdict": "invalid"
 }
 ```
 
-`summary` is for humans reading a failure. Nothing asserts against it beyond
-requiring it to be present and non-blank.
+The runner requires a non-blank `summary`. It never compares messages.
 
-## The three levels
+## Conformance levels
 
-An implementation claims conformance at the highest level it passes.
+An implementation claims the highest level it passes.
 
-**Level 1, verdict.** Read the file as bytes. Every `valid/` case is admitted
-and every `invalid/` case is refused. This is the whole contract for a
-validator.
+1. Verdict. Admit every `valid/` document and refuse every `invalid/` document.
+2. Canonical bytes. Serialize every valid document byte for byte as its named
+   canonical file, including the trailing line feed, and match its digest.
+3. Diagnostics. Report every listed code and path for each invalid document.
+   The implementation may report extra issues.
+4. Evolution. Admit both documents, then compare the live and next definitions.
+   Report every listed UDL7xxx code and path. The implementation may report
+   extra issues.
 
-**Level 2, canonical bytes.** For each `valid/` case, serialize the parsed
-document and compare it byte for byte against the file named by `canonical`.
-Any implementation that writes UDL must pass this, or two tools will disagree
-about what the same document is.
+## Path grammar
 
-**Level 3, issues.** For each `invalid/` case, every listed `code` and `path`
-pair appears among the reported issues. Extra issues are allowed, because
-implementations legitimately differ on how many problems they report before
-giving up. Messages are never compared; they are prose and they are free to
-change.
+Issue paths use `$` for the document root, `.name` for an object member, and
+`[n]` for a zero-based array index. Evolution paths use the instrument index
+from the live document and continue to the changed member, such as
+`$.instruments[3].actions.reconcile`. A direct `diffInstrumentEvolution` call
+has no document index, so its paths start at `$.instruments`.
+
+## Runner exit rule
+
+The runner exits 0 only if every case at the claimed level passes. A missing
+file, malformed expected file, unexpected verdict, byte mismatch, digest
+mismatch, or missing issue pair makes it exit nonzero.
 
 ## Adding a case
 
-Write the `.udl` and its `.expected.json`, then run `bun test`. Keep new cases
-small and single-purpose: the point of `invalid/blank-title.udl` is that it
-differs from `valid/minimal.udl` in exactly one key. `valid/minimal.udl` is the
-smallest document both the grammar and the semantic laws accept, and it is the
-right base to mutate.
-
-The five domain documents in `valid/` are the real thing, projected from a
-shipped product catalog. They are large on purpose: they are what catches a
-regression the minimal case cannot see.
+Start from the smallest admitted document that carries the needed clause.
+Change one law where possible. Pin codes and paths, never messages. Valid cases
+must keep one example of every target in `udlClauseVocabulary`, including
+quote, commit, reconcile, checks, updates, dials, effects, and money clauses.

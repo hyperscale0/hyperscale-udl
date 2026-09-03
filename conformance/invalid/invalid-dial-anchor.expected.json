@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5008",
+      "path": "$.instruments[0].dials[0].field"
+    }
+  ],
+  "summary": "Refuses window dial field missing anchors no action deadline or due condition.",
+  "verdict": "invalid"
+}

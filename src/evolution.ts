@@ -1,6 +1,14 @@
 import { UDL_LIMITS } from "./limits.js";
-import type { UdlAggregate, UdlDocument, UdlNoun, UdlVerb } from "./schema.js";
+import { deriveUdlActionEffects } from "./effects.js";
+import type {
+  UdlAggregate,
+  UdlDocument,
+  UdlInstrument,
+  UdlAction,
+} from "./schema.js";
+import { udlClauseVocabulary } from "./schema.js";
 import { UdlError } from "./validation.js";
+import { issue, type UdlIssue } from "./diagnostics.js";
 
 export interface EvolutionFieldSnapshot {
   readonly required: boolean;
@@ -17,35 +25,50 @@ export interface EvolutionMoveSnapshot extends EvolutionStepSnapshot {
   readonly key: string;
 }
 
-export interface EvolutionVerbSnapshot {
+export interface EvolutionActionSnapshot {
   /** Missing on snapshots written before receipt-input capture existed. */
   readonly captureInput?: unknown;
   readonly deadline: unknown;
   readonly decision: unknown;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly principal?: string | null;
+  /** Missing on snapshots written before quote-commit existed. */
+  readonly commit?: string | null;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly remainder?: unknown;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly requiresChecks?: unknown;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly sandboxFailurePoint?: string | null;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly updates?: readonly string[];
   /** Missing on snapshots written before weighted distribution existed. */
   readonly distribute?: unknown;
   readonly due: unknown;
   readonly earnable: boolean;
+  /** Missing on snapshots written before derived effect rows entered UDL. */
+  readonly effects?: unknown;
   readonly eventName: string | null;
   readonly input: Readonly<Record<string, EvolutionFieldSnapshot>> | null;
   /**
    * Every top-level input schema keyword EXCEPT properties/required (those are
-   * diffed field by field). additionalProperties, oneOf, minProperties, and
-   * friends change what callers may send, so they are frozen once live.
+   * diffed field by field). additionalProperties, string and array bounds,
+   * numeric bounds, enum, const, pattern, and format change what callers may
+   * send, so they are frozen once live.
    */
   readonly inputConstraints: unknown;
   /** Missing on snapshots written before payout intents existed. */
   readonly payout?: unknown;
   readonly port: unknown;
-  /** Missing on snapshots written before public intent metadata existed. */
-  readonly publicIntent?: string | null;
+  /** Missing on snapshots written before public action metadata existed. */
+  readonly publicAction?: string | null;
   readonly requiresAggregate: unknown;
   readonly requiresDrainedAccount: unknown;
   /** Missing on snapshots written before exposure gates entered open UDL. */
   readonly requiresExposure?: unknown;
   readonly requiresRefs: unknown;
-  /** Missing on snapshots written before settlement evidence gates existed. */
-  readonly requiresSettlement?: unknown;
+  /** Missing on snapshots written before reconcile expectations existed. */
+  readonly reconcile?: unknown;
   readonly setsAt: unknown;
   /** Missing on snapshots written before signed child sums existed. */
   readonly signedSum?: unknown;
@@ -59,69 +82,118 @@ export interface EvolutionTransitionSnapshot {
 }
 
 /** The complete serializable algebra protected by append-only evolution. */
-export interface NounEvolutionSnapshot {
+export interface InstrumentEvolutionSnapshot {
+  /** Missing on snapshots written before UDL carried authored action order. */
+  readonly actionOrder?: readonly string[];
   readonly aggregateInvariants: readonly string[];
-  /** Missing on snapshots written before typed computed refs entered UDL. */
-  readonly computedMoneyRefs?: readonly string[];
+  /** Missing on snapshots written before UDL completeness. */
+  readonly callerParkedStates?: Readonly<Record<string, string>>;
   readonly derivedAmounts: readonly string[];
+  /** Missing on snapshots written before UDL completeness. */
+  readonly dials?: unknown;
   readonly distinctParties?: true;
+  /** Missing on snapshots written before unified fee rules entered UDL. */
+  readonly feeRules?: unknown;
   readonly fields: Readonly<Record<string, EvolutionFieldSnapshot>>;
   readonly id: string;
   readonly idPrefix: string;
   readonly initial: string;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly nav?: readonly string[];
   readonly parties: Readonly<Record<string, string>>;
   readonly partitions: readonly string[];
   readonly states: readonly string[];
   readonly subjects: readonly string[];
+  /** Missing on snapshots written before UDL completeness. */
+  readonly subjectExtensible?: boolean;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly surfaceVisibility?: string | null;
+  /** Missing on snapshots written before UDL completeness. */
+  readonly templateId?: string | null;
   readonly transitions: Readonly<Record<string, EvolutionTransitionSnapshot>>;
-  readonly unwind: unknown;
+  /** Every quote-commit pair, keyed by quoting action. */
+  readonly quotes: unknown;
   readonly updateFields: readonly string[];
+  /** Missing on snapshots written before UDL completeness. */
+  readonly updateExamples?: unknown;
   readonly updateStates: readonly string[];
-  readonly verbs: Readonly<Record<string, EvolutionVerbSnapshot>>;
+  readonly actions: Readonly<Record<string, EvolutionActionSnapshot>>;
 }
 
-/** Project an open .udl noun into the evolution engine's exact semantic shape. */
-export function snapshotUdlNoun(noun: UdlNoun): NounEvolutionSnapshot {
-  const required = new Set(noun.required);
+/** Project an open .udl instrument into the evolution engine's exact semantic shape. */
+export function snapshotUdlInstrument(
+  instrument: UdlInstrument,
+): InstrumentEvolutionSnapshot {
+  const required = new Set(instrument.required);
   return {
-    aggregateInvariants: (noun.aggregateInvariants ?? []).map(
+    actionOrder: [...instrument.actionOrder],
+    aggregateInvariants: (instrument.aggregateInvariants ?? []).map(
       aggregateInvariantKey,
     ),
-    computedMoneyRefs: [...(noun.computedMoneyRefs ?? [])].sort(),
-    derivedAmounts: (noun.derivedAmounts ?? []).map(
+    callerParkedStates: instrument.callerParkedStates ?? {},
+    derivedAmounts: (instrument.derivedAmounts ?? []).map(
       (amount) =>
         `${amount.field}=floor(${amount.sourceField}*${amount.rule.bps}/10000)`,
     ),
-    ...(noun.distinctParties ? { distinctParties: true as const } : {}),
+    dials: instrument.dials ?? [],
+    ...(instrument.distinctParties ? { distinctParties: true as const } : {}),
+    ...(instrument.feeRules
+      ? {
+          feeRules: instrument.feeRules.map((fee) => ({
+            ...fee,
+            rule:
+              fee.rule.kind === "tiered"
+                ? {
+                    ...fee.rule,
+                    tiers: fee.rule.tiers.map((tier) => ({
+                      ...tier,
+                      rule: { ...tier.rule },
+                    })),
+                  }
+                : { ...fee.rule },
+          })),
+        }
+      : {}),
     fields: Object.fromEntries(
-      Object.entries(noun.fields).map(([field, schema]) => [
+      Object.entries(instrument.fields).map(([field, schema]) => [
         field,
         { required: required.has(field), schema },
       ]),
     ),
-    id: noun.id,
-    idPrefix: noun.idPrefix,
-    initial: noun.lifecycle.initial,
-    parties: compactStringRecord(noun.parties),
-    partitions: (noun.partitions ?? []).map(
+    id: instrument.id,
+    idPrefix: instrument.idPrefix,
+    initial: instrument.lifecycle.initial,
+    nav: instrument.nav ?? [],
+    parties: compactStringRecord(instrument.parties),
+    partitions: (instrument.partitions ?? []).map(
       (partition) =>
         `${partition.totalField} = ${[...partition.pieceFields].sort().join(" + ")}`,
     ),
-    states: [...noun.lifecycle.states],
-    subjects: noun.subject ? [...noun.subject.kinds] : [],
+    states: [...instrument.lifecycle.states],
+    subjects: instrument.subject ? [...instrument.subject.kinds] : [],
+    subjectExtensible: instrument.subject?.extensible ?? false,
+    surfaceVisibility: instrument.surfaceVisibility ?? null,
+    templateId: instrument.templateId ?? null,
     transitions: Object.fromEntries(
-      Object.entries(noun.lifecycle.transitions).map(([verb, transition]) => [
-        verb,
-        { from: [...transition.from], to: transition.to },
-      ]),
+      Object.entries(instrument.lifecycle.transitions).map(
+        ([action, transition]) => [
+          action,
+          { from: [...transition.from], to: transition.to },
+        ],
+      ),
     ),
-    unwind: noun.unwind ?? null,
-    updateFields: noun.update?.fields ?? [],
-    updateStates: noun.update?.states ?? [],
-    verbs: Object.fromEntries(
-      Object.entries(noun.verbs).map(([verb, definition]) => [
-        verb,
-        snapshotUdlVerb(definition),
+    quotes: Object.fromEntries(
+      Object.entries(instrument.actions)
+        .filter(([, action]) => action.quote)
+        .map(([name, action]) => [name, action.quote]),
+    ),
+    updateFields: instrument.update?.fields ?? [],
+    updateExamples: instrument.update?.examples ?? null,
+    updateStates: instrument.update?.states ?? [],
+    actions: Object.fromEntries(
+      instrument.actionOrder.map((action) => [
+        action,
+        snapshotUdlAction(instrument.actions[action]!),
       ]),
     ),
   };
@@ -136,6 +208,23 @@ export function snapshotUdlNoun(noun: UdlNoun): NounEvolutionSnapshot {
  * clean `resource_limit` issue: parse first, then diff.
  */
 export function diffValidatedUdlEvolution(
+  previous: UdlDocument,
+  next: UdlDocument,
+): readonly UdlIssue[] {
+  return diffValidatedUdlEvolutionMessages(previous, next).map((message) => {
+    const instrumentId = /^([^:]+): /.exec(message)?.[1];
+    const instrumentIndex = previous.instruments.findIndex(
+      (instrument) => instrument.id === instrumentId,
+    );
+    const base =
+      instrumentIndex < 0
+        ? "$.instruments"
+        : `$.instruments[${instrumentIndex}]`;
+    return evolutionIssue(message, base);
+  });
+}
+
+function diffValidatedUdlEvolutionMessages(
   previous: UdlDocument,
   next: UdlDocument,
 ): readonly string[] {
@@ -172,26 +261,32 @@ export function diffValidatedUdlEvolution(
     if (!previousSubjects.has(kind)) semanticChange = true;
   }
 
-  const previousNouns = new Map(
-    previous.nouns.map((noun) => [noun.id, snapshotUdlNoun(noun)] as const),
+  const previousInstruments = new Map(
+    previous.instruments.map(
+      (instrument) =>
+        [instrument.id, snapshotUdlInstrument(instrument)] as const,
+    ),
   );
-  const nextNouns = new Map(
-    next.nouns.map((noun) => [noun.id, snapshotUdlNoun(noun)] as const),
+  const nextInstruments = new Map(
+    next.instruments.map(
+      (instrument) =>
+        [instrument.id, snapshotUdlInstrument(instrument)] as const,
+    ),
   );
-  for (const [id, noun] of previousNouns) {
-    const current = nextNouns.get(id);
+  for (const [id, instrument] of previousInstruments) {
+    const current = nextInstruments.get(id);
     if (!current) {
       semanticChange = true;
-      violations.push(`${id}: live noun was removed from the product`);
+      violations.push(`${id}: live instrument was removed from the product`);
       continue;
     }
-    if (stableStringify(noun) !== stableStringify(current)) {
+    if (stableStringify(instrument) !== stableStringify(current)) {
       semanticChange = true;
     }
-    violations.push(...diffNounEvolution(noun, current));
+    violations.push(...diffInstrumentEvolutionMessages(instrument, current));
   }
-  for (const id of nextNouns.keys()) {
-    if (!previousNouns.has(id)) semanticChange = true;
+  for (const id of nextInstruments.keys()) {
+    if (!previousInstruments.has(id)) semanticChange = true;
   }
 
   if (semanticChange && next.version <= previous.version) {
@@ -202,13 +297,22 @@ export function diffValidatedUdlEvolution(
   return violations;
 }
 
-/** Diff one noun snapshot. An empty result means the change is additive. */
-export function diffNounEvolution(
-  previous: NounEvolutionSnapshot,
-  next: NounEvolutionSnapshot,
+/** Diff one instrument snapshot. An empty result means the change is additive. */
+export function diffInstrumentEvolution(
+  previous: InstrumentEvolutionSnapshot,
+  next: InstrumentEvolutionSnapshot,
+): readonly UdlIssue[] {
+  return diffInstrumentEvolutionMessages(previous, next).map((message) =>
+    evolutionIssue(message, "$.instruments"),
+  );
+}
+
+function diffInstrumentEvolutionMessages(
+  previous: InstrumentEvolutionSnapshot,
+  next: InstrumentEvolutionSnapshot,
 ): readonly string[] {
   if (previous.id !== next.id) {
-    return [`noun id changed from ${previous.id} to ${next.id}`];
+    return [`instrument id changed from ${previous.id} to ${next.id}`];
   }
   const violations: string[] = [];
   if (previous.idPrefix !== next.idPrefix) {
@@ -229,15 +333,15 @@ export function diffNounEvolution(
       (state) => `lifecycle state ${state} was removed or renamed`,
     ),
   );
-  for (const [verb, transition] of Object.entries(previous.transitions)) {
-    const current = next.transitions[verb];
+  for (const [action, transition] of Object.entries(previous.transitions)) {
+    const current = next.transitions[action];
     if (!current) {
-      violations.push(`transition for verb ${verb} was removed or renamed`);
+      violations.push(`transition for action ${action} was removed or renamed`);
       continue;
     }
     if (transition.to !== current.to) {
       violations.push(
-        `transition for verb ${verb} changed its target state from ${transition.to} to ${current.to}`,
+        `transition for action ${action} changed its target state from ${transition.to} to ${current.to}`,
       );
     }
     violations.push(
@@ -245,7 +349,7 @@ export function diffNounEvolution(
         transition.from,
         current.from,
         (state) =>
-          `transition for verb ${verb} no longer fires from state ${state}`,
+          `transition for action ${action} no longer fires from state ${state}`,
       ),
     );
   }
@@ -254,16 +358,46 @@ export function diffNounEvolution(
   if (Boolean(previous.distinctParties) !== Boolean(next.distinctParties)) {
     violations.push("distinct-party admission changed after becoming live");
   }
-  violations.push(...diffVerbs(previous.verbs, next.verbs));
+  if (previous.actionOrder) {
+    const previousActions = new Set(previous.actionOrder);
+    const retainedActionOrder = (next.actionOrder ?? []).filter((action) =>
+      previousActions.has(action),
+    );
+    if (
+      stableStringify(previous.actionOrder) !==
+      stableStringify(retainedActionOrder)
+    ) {
+      violations.push("instrument action order changed after becoming live");
+    }
+  }
+  violations.push(...diffActions(previous.actions, next.actions));
   violations.push(...diffParties(previous.parties, next.parties));
   violations.push(...diffAggregates(previous, next));
   if (
-    stableStringify(previous.computedMoneyRefs ?? []) !==
-    stableStringify(next.computedMoneyRefs ?? [])
+    stableStringify(Object.keys(previous.callerParkedStates ?? {}).sort()) !==
+    stableStringify(Object.keys(next.callerParkedStates ?? {}).sort())
+  ) {
+    violations.push("caller-parked state annotations changed");
+  }
+  if (
+    stableStringify(previous.dials ?? []) !== stableStringify(next.dials ?? [])
+  ) {
+    violations.push("instrument dials changed after becoming live");
+  }
+  if (
+    (previous.surfaceVisibility ?? null) !== (next.surfaceVisibility ?? null)
   ) {
     violations.push(
-      "computed money refs changed; runtime-derived money surfaces are frozen once live",
+      "instrument surface visibility changed after becoming live",
     );
+  }
+  if ((previous.templateId ?? null) !== (next.templateId ?? null)) {
+    violations.push(
+      "instrument archetype template changed after becoming live",
+    );
+  }
+  if (previous.subjectExtensible && !next.subjectExtensible) {
+    violations.push("tenant-defined subject kinds are no longer accepted");
   }
   if (
     stableStringify(previous.derivedAmounts ?? []) !==
@@ -271,6 +405,14 @@ export function diffNounEvolution(
   ) {
     violations.push(
       "derived amount rules changed; derived money arithmetic is frozen once live",
+    );
+  }
+  if (
+    stableStringify(previous.feeRules ?? []) !==
+    stableStringify(next.feeRules ?? [])
+  ) {
+    violations.push(
+      "feeRules changed; fee calculation and settlement funding are frozen once live",
     );
   }
   violations.push(
@@ -286,7 +428,7 @@ export function diffNounEvolution(
           `partition law [${law}] was added, which can reject existing callers`,
       ),
   );
-  violations.push(...diffUnwind(previous.unwind, next.unwind));
+  violations.push(...diffQuotes(previous.quotes, next.quotes));
   violations.push(
     ...removedSetEntries(
       previous.subjects,
@@ -307,14 +449,89 @@ export function diffNounEvolution(
   return violations.map((violation) => `${next.id}: ${violation}`);
 }
 
-function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
+function evolutionIssue(message: string, instrumentBase: string): UdlIssue {
+  if (message.startsWith("product id changed"))
+    return issue("UDL7001", "$.product", message);
+  if (message.startsWith("product version moved backward"))
+    return issue("UDL7001", "$.version", message);
+  if (message.startsWith("product definition changed"))
+    return issue("UDL7002", "$.version", message);
+  if (message.startsWith("subject kind "))
+    return issue("UDL7001", "$.subjects", message);
+
+  const instrumentMatch = /^([^:]+): (.*)$/.exec(message);
+  const detail = instrumentMatch?.[2] ?? message;
+  const transitionAction = /^transition for action ([a-z][a-z0-9_]*)/.exec(
+    detail,
+  )?.[1];
+  if (transitionAction)
+    return issue(
+      "UDL7001",
+      `${instrumentBase}.lifecycle.transitions.${transitionAction}`,
+      message,
+    );
+  const action = /^action ([a-z][a-z0-9_]*)/.exec(detail)?.[1];
+  if (action)
+    return issue("UDL7001", `${instrumentBase}.actions.${action}`, message);
+  if (detail.includes("instrument id"))
+    return issue("UDL7001", instrumentBase, message);
+  if (
+    detail.includes("id prefix") ||
+    detail.includes("lifecycle") ||
+    detail.includes("transition") ||
+    detail.includes("initial") ||
+    detail.includes("live instrument was removed")
+  )
+    return issue("UDL7001", `${instrumentBase}.lifecycle`, message);
+  if (detail.startsWith("field "))
+    return issue("UDL7001", `${instrumentBase}.fields`, message);
+  if (
+    detail.includes("move") ||
+    detail.includes("payout") ||
+    detail.includes("fee") ||
+    detail.includes("quote") ||
+    detail.includes("derived amount") ||
+    detail.includes("partition") ||
+    detail.includes("distribution") ||
+    detail.includes("signed child sum") ||
+    detail.includes("earnable")
+  )
+    return issue("UDL7001", `${instrumentBase}.actions`, message);
+  if (
+    detail.includes("gate") ||
+    detail.includes("check prerequisite") ||
+    detail.includes("reconcile expectation") ||
+    detail.includes("drained-account") ||
+    detail.includes("exposure") ||
+    detail.includes("aggregate")
+  )
+    return issue("UDL7001", `${instrumentBase}.actions`, message);
+  if (
+    detail.startsWith("action ") ||
+    detail.includes("action order") ||
+    detail.includes("step count")
+  )
+    return issue("UDL7001", `${instrumentBase}.actions`, message);
+  return issue("UDL7001", instrumentBase, message);
+}
+
+function snapshotUdlAction(definition: UdlAction): EvolutionActionSnapshot {
   return {
     captureInput: definition.captureInput ?? null,
+    commit: definition.commit ?? null,
     deadline: definition.deadline ?? null,
     decision: definition.decision ?? null,
+    principal: definition.principal ?? null,
+    remainder: definition.remainder ?? null,
+    requiresChecks: definition.requiresChecks ?? [],
+    sandboxFailurePoint: definition.sandboxFailurePoint ?? null,
+    updates: definition.updates ?? [],
     distribute: definition.distribute ?? null,
     due: definition.due ?? null,
     earnable: definition.earnable ?? false,
+    effects:
+      definition.effects ??
+      deriveUdlActionEffects(definition, udlClauseVocabulary),
     eventName: definition.eventName ?? null,
     input: definition.input ? snapshotJsonSchemaFields(definition.input) : null,
     inputConstraints: definition.input
@@ -322,7 +539,7 @@ function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
       : null,
     payout: definition.payout ?? null,
     port: definition.port ?? null,
-    publicIntent: definition.publicIntent ?? null,
+    publicAction: definition.publicAction ?? null,
     setsAt: definition.setsAt ?? null,
     signedSum: definition.signedSum ?? null,
     moves: definition.moves.map((move) => ({
@@ -335,7 +552,7 @@ function snapshotUdlVerb(definition: UdlVerb): EvolutionVerbSnapshot {
     requiresDrainedAccount: definition.requiresDrainedAccount ?? null,
     requiresExposure: definition.requiresExposure ?? [],
     requiresRefs: definition.requiresRefs ?? [],
-    requiresSettlement: definition.requiresSettlement ?? null,
+    reconcile: definition.reconcile ?? null,
     steps: definition.steps.map((step) => ({
       bind: step.bind,
       capture: step.capture ?? {},
@@ -406,48 +623,48 @@ function diffFields(
   return violations;
 }
 
-function diffVerbs(
-  previous: Readonly<Record<string, EvolutionVerbSnapshot>>,
-  next: Readonly<Record<string, EvolutionVerbSnapshot>>,
+function diffActions(
+  previous: Readonly<Record<string, EvolutionActionSnapshot>>,
+  next: Readonly<Record<string, EvolutionActionSnapshot>>,
 ): string[] {
   const violations: string[] = [];
-  for (const [verb, descriptor] of Object.entries(previous)) {
-    const current = next[verb];
+  for (const [action, descriptor] of Object.entries(previous)) {
+    const current = next[action];
     if (!current) {
-      violations.push(`verb ${verb} was removed or renamed`);
+      violations.push(`action ${action} was removed or renamed`);
       continue;
     }
     if (descriptor.moves.length !== current.moves.length) {
       violations.push(
-        `verb ${verb} changed its move count from ${descriptor.moves.length} to ${current.moves.length}; money movement is frozen once live`,
+        `action ${action} changed its move count from ${descriptor.moves.length} to ${current.moves.length}; money movement is frozen once live`,
       );
     } else {
       descriptor.moves.forEach((move, index) => {
         const nextMove = current.moves[index] as EvolutionMoveSnapshot;
         if (stableStringify(move) !== stableStringify(nextMove)) {
           violations.push(
-            `verb ${verb} changed move ${move.key} at index ${index}; money movement is frozen once live`,
+            `action ${action} changed move ${move.key} at index ${index}; money movement is frozen once live`,
           );
         }
       });
     }
     if (descriptor.steps.length !== current.steps.length) {
       violations.push(
-        `verb ${verb} changed its step count from ${descriptor.steps.length} to ${current.steps.length}; a live verb's steps are frozen`,
+        `action ${action} changed its step count from ${descriptor.steps.length} to ${current.steps.length}; a live action's steps are frozen`,
       );
     } else {
       descriptor.steps.forEach((step, index) => {
         const nextStep = current.steps[index] as EvolutionStepSnapshot;
         if (stableStringify(step) === stableStringify(nextStep)) return;
         violations.push(
-          `verb ${verb} changed step ${index} (${step.operation}); a live verb's steps are frozen`,
+          `action ${action} changed step ${index} (${step.operation}); a live action's steps are frozen`,
         );
       });
     }
     violations.push(
-      ...diffInput(verb, descriptor.input ?? {}, current.input ?? {}),
+      ...diffInput(action, descriptor.input ?? {}, current.input ?? {}),
     );
-    // A verb gaining its first input is additive (per-field checks still catch
+    // A action gaining its first input is additive (per-field checks still catch
     // added-as-required); once an input is live, its schema envelope is frozen.
     if (
       descriptor.input !== null &&
@@ -455,72 +672,105 @@ function diffVerbs(
         stableStringify(current.inputConstraints)
     ) {
       violations.push(
-        `verb ${verb} changed its input schema beyond declared fields; a live verb input is frozen`,
+        `action ${action} changed its input schema beyond declared fields; a live action input is frozen`,
       );
     }
     if (
       stableStringify(descriptor.requiresRefs) !==
       stableStringify(current.requiresRefs)
     ) {
-      violations.push(`verb ${verb} changed its cross-noun gates`);
+      violations.push(`action ${action} changed its cross-instrument gates`);
     }
     if (
       stableStringify(descriptor.requiresAggregate) !==
       stableStringify(current.requiresAggregate)
     ) {
-      violations.push(`verb ${verb} changed its aggregate admission gates`);
+      violations.push(`action ${action} changed its aggregate admission gates`);
     }
     if (
       stableStringify(descriptor.requiresDrainedAccount) !==
       stableStringify(current.requiresDrainedAccount)
     ) {
-      violations.push(`verb ${verb} changed its drained-account gate`);
+      violations.push(`action ${action} changed its drained-account gate`);
     }
     if (
       descriptor.requiresExposure !== undefined &&
       stableStringify(descriptor.requiresExposure) !==
         stableStringify(current.requiresExposure)
     ) {
-      violations.push(`verb ${verb} changed its exposure admission gates`);
+      violations.push(`action ${action} changed its exposure admission gates`);
     }
     if (
-      descriptor.requiresSettlement !== undefined &&
-      stableStringify(descriptor.requiresSettlement) !==
-        stableStringify(current.requiresSettlement)
+      descriptor.reconcile !== undefined &&
+      stableStringify(descriptor.reconcile) !==
+        stableStringify(current.reconcile)
     ) {
-      violations.push(`verb ${verb} changed its settlement evidence gate`);
+      violations.push(`action ${action} changed its reconcile expectations`);
     }
     if (
       stableStringify(descriptor.payout ?? null) !==
       stableStringify(current.payout ?? null)
     ) {
-      violations.push(`verb ${verb} changed its payout intent`);
+      violations.push(`action ${action} changed its payout intent`);
     }
     if (descriptor.earnable !== current.earnable) {
-      violations.push(`verb ${verb} changed its earnable flag`);
+      violations.push(`action ${action} changed its earnable flag`);
+    }
+    if (
+      descriptor.effects !== undefined &&
+      stableStringify(descriptor.effects) !== stableStringify(current.effects)
+    ) {
+      violations.push(`action ${action} changed its derived effects`);
     }
     if (descriptor.eventName !== current.eventName) {
-      violations.push(`verb ${verb} changed its event name`);
+      violations.push(`action ${action} changed its event name`);
     }
     if (stableStringify(descriptor.due) !== stableStringify(current.due)) {
-      violations.push(`verb ${verb} changed its due condition`);
+      violations.push(`action ${action} changed its due condition`);
     }
     if (
       stableStringify(descriptor.deadline) !== stableStringify(current.deadline)
     ) {
-      violations.push(`verb ${verb} changed its admission deadline`);
+      violations.push(`action ${action} changed its admission deadline`);
     }
     if (
       stableStringify(descriptor.decision) !== stableStringify(current.decision)
     ) {
-      violations.push(`verb ${verb} changed its provider decision`);
+      violations.push(`action ${action} changed its provider decision`);
+    }
+    if ((descriptor.principal ?? null) !== (current.principal ?? null)) {
+      violations.push(`action ${action} changed its caller principal`);
+    }
+    if (
+      stableStringify(descriptor.remainder ?? null) !==
+      stableStringify(current.remainder ?? null)
+    ) {
+      violations.push(`action ${action} changed its remainder rule`);
+    }
+    if (
+      stableStringify(descriptor.requiresChecks ?? []) !==
+      stableStringify(current.requiresChecks ?? [])
+    ) {
+      violations.push(`action ${action} changed its check prerequisites`);
+    }
+    if (
+      (descriptor.sandboxFailurePoint ?? null) !==
+      (current.sandboxFailurePoint ?? null)
+    ) {
+      violations.push(`action ${action} changed its sandbox failure point`);
+    }
+    if (
+      stableStringify(descriptor.updates ?? []) !==
+      stableStringify(current.updates ?? [])
+    ) {
+      violations.push(`action ${action} changed its field updates`);
     }
     if (
       stableStringify(descriptor.distribute) !==
       stableStringify(current.distribute)
     ) {
       violations.push(
-        `verb ${verb} changed its distribution rule; money distribution is frozen once live`,
+        `action ${action} changed its distribution rule; money distribution is frozen once live`,
       );
     }
     if (
@@ -528,41 +778,41 @@ function diffVerbs(
       stableStringify(descriptor.captureInput) !==
         stableStringify(current.captureInput)
     ) {
-      violations.push(`verb ${verb} changed its captured receipt input`);
+      violations.push(`action ${action} changed its captured receipt input`);
     }
     if (stableStringify(descriptor.port) !== stableStringify(current.port)) {
-      violations.push(`verb ${verb} changed its decision port`);
+      violations.push(`action ${action} changed its decision port`);
     }
     if (
-      descriptor.publicIntent != null &&
-      descriptor.publicIntent !== current.publicIntent
+      descriptor.publicAction != null &&
+      descriptor.publicAction !== current.publicAction
     ) {
-      violations.push(`verb ${verb} changed its public intent`);
+      violations.push(`action ${action} changed its public action`);
     }
     if (
       stableStringify(descriptor.setsAt) !== stableStringify(current.setsAt)
     ) {
-      violations.push(`verb ${verb} changed its computed timestamp`);
+      violations.push(`action ${action} changed its computed timestamp`);
     }
     if (
       descriptor.signedSum !== undefined &&
       stableStringify(descriptor.signedSum) !==
         stableStringify(current.signedSum)
     ) {
-      violations.push(`verb ${verb} changed its signed child sum`);
+      violations.push(`action ${action} changed its signed child sum`);
     }
   }
-  for (const [verb, descriptor] of Object.entries(next)) {
-    if (previous[verb] || descriptor.payout == null) continue;
+  for (const [action, descriptor] of Object.entries(next)) {
+    if (previous[action] || descriptor.payout == null) continue;
     violations.push(
-      `verb ${verb} added a payout intent; external money movement is frozen once live`,
+      `action ${action} added a payout intent; external money movement is frozen once live`,
     );
   }
   return violations;
 }
 
 function diffInput(
-  verb: string,
+  action: string,
   previous: Readonly<Record<string, EvolutionFieldSnapshot>>,
   next: Readonly<Record<string, EvolutionFieldSnapshot>>,
 ): string[] {
@@ -570,30 +820,30 @@ function diffInput(
   for (const [field, descriptor] of Object.entries(previous)) {
     const current = next[field];
     if (!current) {
-      // Compiled verb inputs are strict objects, so a removed field starts
-      // rejecting every caller that still sends it -- same law as noun fields.
+      // Compiled action inputs are strict objects, so a removed field starts
+      // rejecting every caller that still sends it -- same law as instrument fields.
       violations.push(
-        `verb ${verb} input field ${field} was removed or renamed`,
+        `action ${action} input field ${field} was removed or renamed`,
       );
       continue;
     }
     if (!descriptor.required && current.required) {
       violations.push(
-        `verb ${verb} input field ${field} became required, tightening the verb input`,
+        `action ${action} input field ${field} became required, tightening the action input`,
       );
     }
     if (
       stableStringify(descriptor.schema) !== stableStringify(current.schema)
     ) {
       violations.push(
-        `verb ${verb} input field ${field} schema changed; a live verb input schema is frozen`,
+        `action ${action} input field ${field} schema changed; a live action input schema is frozen`,
       );
     }
   }
   for (const [field, descriptor] of Object.entries(next)) {
     if (!previous[field] && descriptor.required) {
       violations.push(
-        `verb ${verb} input field ${field} was added as required, tightening the verb input`,
+        `action ${action} input field ${field} was added as required, tightening the action input`,
       );
     }
   }
@@ -618,8 +868,8 @@ function diffParties(
 }
 
 function diffAggregates(
-  previous: NounEvolutionSnapshot,
-  next: NounEvolutionSnapshot,
+  previous: InstrumentEvolutionSnapshot,
+  next: InstrumentEvolutionSnapshot,
 ): string[] {
   return [
     ...removedSetEntries(
@@ -636,13 +886,13 @@ function diffAggregates(
   ];
 }
 
-function diffUnwind(previous: unknown, next: unknown): string[] {
-  if (previous === null) return [];
-  if (next === null) return ["unwind policy was removed"];
+function diffQuotes(previous: unknown, next: unknown): string[] {
+  if (previous === null || previous === undefined) return [];
+  if (next === null || next === undefined) return ["quote policy was removed"];
   return stableStringify(previous) === stableStringify(next)
     ? []
     : [
-        "unwind policy changed; the penalty schedule and refund destination are frozen once live",
+        "quote policy changed; the charge schedule, the frozen fields, and the refund destination are frozen once live",
       ];
 }
 
@@ -651,7 +901,7 @@ function aggregateInvariantKey(invariant: UdlAggregate): string {
     "childField" in invariant
       ? invariant.childField
       : `count${invariant.window ? `[${invariant.window.field} per ${invariant.window.days}d]` : ""}`;
-  return `${invariant.childNounId}.${measure} within ${invariant.parentField} via ${invariant.childRefField} while ${[...invariant.childStatuses].sort().join(",")}`;
+  return `${invariant.childInstrumentId}.${measure} within ${invariant.parentField} via ${invariant.childRefField} while ${[...invariant.childStatuses].sort().join(",")}`;
 }
 
 function removedSetEntries(
@@ -689,11 +939,11 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
 function stableStringify(value: unknown, depth = 1): string {
   if (depth > UDL_LIMITS.maxDepth) {
     throw new UdlError([
-      {
-        code: "resource_limit",
-        message: `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
-        path: "$",
-      },
+      issue(
+        "UDL1004",
+        "$",
+        `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
+      ),
     ]);
   }
   if (value === null || typeof value !== "object") {

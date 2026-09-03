@@ -1,5 +1,6 @@
 {
   "canonical": "insured-travel.udl",
-  "summary": "Travel booking with cover: flights, hotels, packages, policies, and claims across five nouns.",
+  "digest": "1227cefb800e07472d7d9ea9aef8b67add58e349578cebf138f329fdf3df7949",
+  "summary": "Travel booking with cover: flights, hotels, packages, policies, and claims across five instruments.",
   "verdict": "valid"
 }

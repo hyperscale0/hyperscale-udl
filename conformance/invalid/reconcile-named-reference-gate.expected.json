@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5001",
+      "path": "$.instruments[0].actions.reconcile.requiresRefs[0].field"
+    }
+  ],
+  "summary": "An action named reconcile does not change the code for an ordinary reference-gate defect.",
+  "verdict": "invalid"
+}

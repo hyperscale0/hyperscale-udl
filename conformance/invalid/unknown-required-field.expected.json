@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2002",
+      "path": "$.instruments[0].required[6]"
+    }
+  ],
+  "summary": "Refuses required references unknown field missing.",
+  "verdict": "invalid"
+}

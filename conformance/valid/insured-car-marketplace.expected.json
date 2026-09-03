@@ -1,5 +1,6 @@
 {
   "canonical": "insured-car-marketplace.udl",
+  "digest": "f419cf74a30e2e6354ca5fc2614496a397720b6df59e37f2f6e7a9e382f96603",
   "summary": "Vehicle sale with motor cover: a listing, an escrowed sale, and a policy bound to it.",
   "verdict": "valid"
 }

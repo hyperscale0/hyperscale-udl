@@ -1,5 +1,6 @@
 {
   "canonical": "cards.udl",
+  "digest": "88e78d45c95da1c3a3e53a75ce9a817c8d52a87ac6525d56ddd6322e0da05cce",
   "summary": "Card issuing: authorizations, transactions, and refunds over the sealed kernel.",
   "verdict": "valid"
 }

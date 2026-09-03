@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The `udl` command. Three verbs over the same library the compiler uses:
+ * The `udl` command. Actions over the same library the compiler uses:
  * `validate` answers whether a document is admissible, `fmt` writes the
  * canonical bytes, and `diff` answers whether a change is legal against a
  * document that already has live instances.
@@ -9,10 +9,12 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import {
   canonicalizeUdl,
+  canonicalDigest,
   diffValidatedUdlEvolution,
   parseUdl,
   UdlError,
   type UdlDocument,
+  udlDiagnostic,
 } from "./index.js";
 
 const USAGE = `udl - the Universal Domain Language toolchain
@@ -20,7 +22,9 @@ const USAGE = `udl - the Universal Domain Language toolchain
 usage:
   udl validate <file>          parse <file> and report every issue found
   udl fmt <file> [--write]     print the canonical form, or rewrite the file
+  udl canon <file> [--digest]  print canonical bytes, or their SHA-256 digest
   udl diff <live> <next>       check <next> against the append-only law
+  udl explain UDL####          explain one stable diagnostic code
   udl help                     print this
 
 exit codes:
@@ -40,13 +44,52 @@ async function main(argv: readonly string[]): Promise<number> {
       return validateCommand(rest);
     case "fmt":
       return formatCommand(rest);
+    case "canon":
+      return canonCommand(rest);
     case "diff":
       return diffCommand(rest);
+    case "explain":
+      return explainCommand(rest);
     case undefined:
       return usageError("udl: no command given");
     default:
       return usageError(`udl: unknown command ${command}`);
   }
+}
+
+async function canonCommand(args: readonly string[]): Promise<number> {
+  const digest = args.includes("--digest");
+  const [file, ...extra] = args.filter((argument) => argument !== "--digest");
+  if (file === undefined || extra.length > 0) {
+    return usageError("usage: udl canon <file> [--digest]");
+  }
+  const bytes = await readDocument(file);
+  if (bytes === null) return 2;
+  let document: UdlDocument;
+  try {
+    document = parseUdl(bytes);
+  } catch (error) {
+    return reportIssues(file, error);
+  }
+  if (digest) console.log(await canonicalDigest(document));
+  else process.stdout.write(canonicalizeUdl(bytes));
+  return 0;
+}
+
+function explainCommand(args: readonly string[]): number {
+  const [code, ...extra] = args;
+  if (code === undefined || extra.length > 0) {
+    return usageError("usage: udl explain UDL####");
+  }
+  const diagnostic = udlDiagnostic(code);
+  if (!diagnostic) {
+    return usageError(`udl: unknown diagnostic code ${code}`);
+  }
+  console.log(`${code} ${diagnostic.title}`);
+  console.log(`category: ${diagnostic.category}`);
+  console.log(`family: ${diagnostic.family}`);
+  console.log(`fix: ${diagnostic.fix}`);
+  return 0;
 }
 
 async function validateCommand(args: readonly string[]): Promise<number> {
@@ -108,8 +151,11 @@ async function diffCommand(args: readonly string[]): Promise<number> {
     console.log(`${nextPath}: additive`);
     return 0;
   }
-  for (const violation of violations)
-    console.error(`${nextPath}: ${violation}`);
+  for (const violation of violations) {
+    console.error(
+      `${nextPath}: ${violation.code} ${violation.path}: ${violation.message}`,
+    );
+  }
   return 1;
 }
 

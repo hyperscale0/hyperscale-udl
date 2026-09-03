@@ -1,0 +1,57 @@
+{
+  "instruments": [
+    {
+      "actionOrder": [
+        "close",
+        "create"
+      ],
+      "actions": {
+        "close": {
+          "agentDescription": "Close a note that has already been filed. Takes the note id and nothing else, and moves no money.",
+          "moves": [],
+          "steps": [],
+          "summary": "Close the note."
+        },
+        "create": {
+          "agentDescription": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "moves": [],
+          "steps": [],
+          "summary": "File the note."
+        }
+      },
+      "agentDescription": "A filed note. Read it to recover the reference an operator recorded, and close it when the matter it tracks is settled.",
+      "fields": {
+        "reference": {
+          "type": "string"
+        }
+      },
+      "id": "note",
+      "idPrefix": "note",
+      "lifecycle": {
+        "initial": "open",
+        "states": [
+          "open",
+          "closed"
+        ],
+        "transitions": {
+          "close": {
+            "from": [
+              "open"
+            ],
+            "to": "closed"
+          }
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "summary": "A note a tenant files and later closes.",
+      "title": "Note"
+    }
+  ],
+  "product": "minimal",
+  "subjects": [],
+  "title": "Minimal",
+  "udl": 1,
+  "version": 1
+}

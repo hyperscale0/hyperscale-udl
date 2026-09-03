@@ -1,6 +1,104 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "create",
+        "reserve",
+        "unreserve",
+        "complete",
+        "delist"
+      ],
+      "actions": {
+        "complete": {
+          "agentDescription": "Mark the car sold. Refused unless the referenced escrow has settled, so the seller is already paid before the listing closes. Sold is terminal and does not reverse.",
+          "description": "Marks the car sold after the reserving escrow settles to the seller. Pure lifecycle transition over the catalog row.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowId",
+              "statuses": [
+                "settled"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Complete a vehicle listing sale"
+        },
+        "create": {
+          "agentDescription": "Publish the car to the marketplace at an asking price. No money moves. The listing stays on the market until a buyer's escrow reserves it or the seller delists it.",
+          "description": "Publishes the car to the marketplace at an asking price. No money moves until an escrow is opened against it.",
+          "moves": [],
+          "steps": [],
+          "summary": "Create a vehicle listing"
+        },
+        "delist": {
+          "agentDescription": "Withdraw an unsold car from the marketplace. Only a listing still on the market delists. A reserved one has to unreserve first. No money moves.",
+          "description": "Withdraws an unsold car from the marketplace. No money has moved, so this is a pure lifecycle transition.",
+          "moves": [],
+          "steps": [],
+          "summary": "Delist a vehicle listing"
+        },
+        "reserve": {
+          "agentDescription": "Take the listing off the market for a buyer. Refused unless the referenced vehicle escrow is funded, so the buyer's money is already held before the car is held. No money moves.",
+          "description": "Takes the listing off the market while a buyer's escrow holds funds. The referenced escrow must currently hold the buyer's funds.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowId",
+              "statuses": [
+                "funded"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Reserve a vehicle listing"
+        },
+        "unreserve": {
+          "agentDescription": "Put a reserved car back on the market. Refused unless the referenced escrow is canceled or its penalty collected, so a live escrow can never lose its reservation. No money moves.",
+          "description": "Relists the car after the reserving escrow is canceled. No money has moved on the listing itself.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "escrowId",
+              "statuses": [
+                "canceled",
+                "penalty_collected"
+              ]
+            }
+          ],
+          "steps": [],
+          "summary": "Return a reserved vehicle listing to the market"
+        }
+      },
+      "agentDescription": "Reach for vehicle listing when a seller advertises one car at an asking price and the listing status has to track a buyer's escrow. The listing moves no money at all. The buyer's funds are held by the vehicle escrow it references, and every transition here checks that escrow's status.",
+      "callerParkedStates": {
+        "listed": "reserving or delisting is a party act on an open listing",
+        "reserved": "completing or unreserving a reservation is a party decision"
+      },
       "description": "A vehicle listing advertises one car for sale at an asking price. It is reserved while a vehicle escrow holds the buyer's funds, sold when the escrow settles to the seller, returned to the market if the escrow is canceled, or delisted by the seller before sale.",
       "fields": {
         "askingPrice": {
@@ -79,6 +177,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Vehicle Listings"
+      ],
       "parties": {
         "subjectHolder": "sellerAccountId"
       },
@@ -94,6 +196,7 @@
         ]
       },
       "summary": "Marketplace listing for an insured used car offered by a seller.",
+      "templateId": "marketplace",
       "title": "Vehicle listing",
       "update": {
         "fields": [
@@ -105,70 +208,218 @@
         "states": [
           "listed"
         ]
-      },
-      "verbs": {
-        "complete": {
-          "description": "Marks the car sold after the reserving escrow settles to the seller. Pure lifecycle transition over the catalog row.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "escrowId",
-              "statuses": [
-                "settled"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Complete a vehicle listing sale"
-        },
-        "create": {
-          "description": "Publishes the car to the marketplace at an asking price. No money moves until an escrow is opened against it.",
-          "moves": [],
-          "steps": [],
-          "summary": "Create a vehicle listing"
-        },
-        "delist": {
-          "description": "Withdraws an unsold car from the marketplace. No money has moved, so this is a pure lifecycle transition.",
-          "moves": [],
-          "steps": [],
-          "summary": "Delist a vehicle listing"
-        },
-        "reserve": {
-          "description": "Takes the listing off the market while a buyer's escrow holds funds. The referenced escrow must currently hold the buyer's funds.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "escrowId",
-              "statuses": [
-                "funded"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Reserve a vehicle listing"
-        },
-        "unreserve": {
-          "description": "Relists the car after the reserving escrow is canceled. No money has moved on the listing itself.",
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "escrowId",
-              "statuses": [
-                "canceled",
-                "penalty_collected"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Return a reserved vehicle listing to the market"
-        }
       }
     },
     {
+      "actionOrder": [
+        "create",
+        "bind",
+        "open_claim",
+        "settle_claim",
+        "deny_claim",
+        "expire",
+        "cancel"
+      ],
+      "actions": {
+        "bind": {
+          "agentDescription": "Put a quote in force. An insurance carrier underwrites it under a 15 second deadline and a timeout declines. On acceptance the full premium settles from the policyholder to the insurer. Only a quoted policy binds. This moves the policyholder's money and does not reverse.",
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Underwrites the policy through an insurance carrier under a deadline, then settles the premium from the policyholder into the insurer account and puts the policy in force.",
+          "earnable": true,
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_carrier",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "motor_policy.bound",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                }
+              },
+              "capture": {
+                "premiumTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Bind a motor policy"
+        },
+        "cancel": {
+          "agentDescription": "Close a quote that never bound. Only a quoted policy cancels, no premium has moved, and there is nothing to refund. An in-force policy has no cancellation path here and lapses at its expiry instead.",
+          "description": "Closes a quote that never bound. No money has moved, so this is a pure lifecycle transition.",
+          "moves": [],
+          "steps": [],
+          "summary": "Cancel a quoted motor policy"
+        },
+        "create": {
+          "agentDescription": "Open a policy quote against one vehicle subject with its premium and coverage amount. No money moves and the quote is not in force. Binding is a separate call that runs carrier underwriting.",
+          "description": "Opens the policy quote against a vehicle subject. No money moves until the policy binds.",
+          "moves": [],
+          "steps": [],
+          "summary": "Quote a motor policy"
+        },
+        "deny_claim": {
+          "agentDescription": "Refuse the open claim and void the pending coverage hold, returning the reserved amount to the insurer. The policy must be in claim_open. No money reaches the policyholder. Denied is a terminal state, so a rejected claim cannot be reopened on this policy.",
+          "description": "Denies the claim and voids the pending coverage hold, releasing the reserved amount back to the insurer account.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Motor claim denied"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
+          "steps": [],
+          "summary": "Deny a motor claim"
+        },
+        "expire": {
+          "description": "Ends coverage at term with no open claim. The collected premium stays with the insurer, so this is a pure lifecycle transition fired by the maintenance loop under the expiry due-condition.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "moves": [],
+          "steps": [],
+          "summary": "Expire a motor policy"
+        },
+        "open_claim": {
+          "agentDescription": "Open a claim by reserving the coverage amount from the insurer toward the policyholder as a pending ledger hold. The policy must be active. The insurer account must already hold the coverage amount or the reservation is rejected for insufficient balance. Nothing settles until settle_claim.",
+          "description": "Places a pending ledger hold for the coverage amount from the insurer account toward the policyholder. The insurer account must be capitalized to the coverage amount, or the hold is rejected for insufficient balance.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.coverageAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "steps": [],
+          "summary": "Open a motor claim"
+        },
+        "settle_claim": {
+          "agentDescription": "Approve the open claim and post the pending hold, landing the coverage amount in the policyholder's account. The policy must be in claim_open. This releases the insurer's money for real and does not reverse. Use deny_claim to void the hold instead.",
+          "description": "Approves the claim and posts the held coverage amount, settling the payout into the policyholder account.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "motor_policy.claim_settled",
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
+          "steps": [],
+          "summary": "Settle a motor claim"
+        }
+      },
+      "agentDescription": "Reach for motor_policy when the caller quotes, binds, or claims on vehicle insurance for one car. The premium settles to the insurer on bind, and a claim reserves the coverage amount from the insurer toward the policyholder until an adjuster settles or denies it. Vehicle escrow orders capped by this policy are their own instrument.",
       "aggregateInvariants": [
         {
           "childField": "price",
-          "childNounId": "vehicle_escrow",
+          "childInstrumentId": "vehicle_escrow",
           "childRefField": "policyId",
           "childStatuses": [
             "created",
@@ -178,6 +429,10 @@
           "parentField": "coverageAmount"
         }
       ],
+      "callerParkedStates": {
+        "claim_open": "settling or denying a claim is an adjuster's judgment",
+        "quoted": "binding or canceling a quote is the policyholder's decision"
+      },
       "description": "A motor policy insures a vehicle subject: the premium settles into the insurer account on bind, and a claim holds the coverage amount as a pending ledger reservation from the insurer toward the policyholder, posted on settlement or voided on denial. Binding is underwritten by an insurance carrier under a deadline; coverage lapses on expiry.",
       "fields": {
         "coverageAmount": {
@@ -281,6 +536,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Motor Policies"
+      ],
       "parties": {
         "beneficiary": "insurerAccountId",
         "payer": "policyholderAccountId"
@@ -299,6 +558,7 @@
         ]
       },
       "summary": "Vehicle insurance policy priced and capped on a declared car value.",
+      "templateId": "insurance",
       "title": "Motor policy",
       "update": {
         "fields": [
@@ -307,23 +567,36 @@
         "states": [
           "quoted"
         ]
-      },
-      "verbs": {
-        "bind": {
-          "decision": {
-            "capability": "insurance_carrier",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "fund",
+        "release",
+        "quote_cancel",
+        "confirm_cancel",
+        "collect_penalty"
+      ],
+      "actions": {
+        "collect_penalty": {
+          "agentDescription": "Pay the retained cancellation penalty from escrow to the seller, which drains the escrow. Call it only when confirm_cancel returned a positive penalty. A cancellation quoted at zero penalty has nothing to collect.",
+          "description": "Pays the computed retained cancellation penalty to the seller. Invoke only when confirm_cancel returns a positive refs.unwindPenalty.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
           },
-          "description": "Underwrites the policy through an insurance carrier under a deadline, then settles the premium from the policyholder into the insurer account and puts the policy in force.",
-          "earnable": true,
-          "eventName": "motor_policy.bound",
+          "eventName": "vehicle_escrow.penalty_collected",
           "moves": [
             {
               "bind": {
                 "amount": {
                   "from": "instance",
-                  "path": "fields.premiumAmount"
+                  "path": "refs.unwindPenalty"
                 },
                 "currency": {
                   "from": "instance",
@@ -331,77 +604,45 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.insurerAccountId"
+                  "path": "fields.sellerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.policyholderAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
+                  "path": "refs.escrowAccountId"
                 }
               },
               "capture": {
-                "premiumTransferId": "transferId"
+                "penaltyTransferId": "transferId"
               },
               "key": "transfer",
               "operation": "internal_transfer.create"
             }
           ],
           "steps": [],
-          "summary": "Bind a motor policy"
+          "summary": "Collect a vehicle cancellation penalty"
         },
-        "cancel": {
-          "description": "Closes a quote that never bound. No money has moved, so this is a pure lifecycle transition.",
-          "moves": [],
-          "steps": [],
-          "summary": "Cancel a quoted motor policy"
-        },
-        "create": {
-          "description": "Opens the policy quote against a vehicle subject. No money moves until the policy binds.",
-          "moves": [],
-          "steps": [],
-          "summary": "Quote a motor policy"
-        },
-        "deny_claim": {
-          "description": "Denies the claim and voids the pending coverage hold, releasing the reserved amount back to the insurer account.",
-          "moves": [
-            {
-              "bind": {
-                "reason": {
-                  "from": "const",
-                  "value": "Motor claim denied"
-                },
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.claimTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.void"
-            }
-          ],
-          "steps": [],
-          "summary": "Deny a motor claim"
-        },
-        "expire": {
-          "description": "Ends coverage at term with no open claim. The collected premium stays with the insurer, so this is a pure lifecycle transition fired by the maintenance loop under the expiry due-condition.",
-          "due": {
-            "field": "expiresAt"
+        "confirm_cancel": {
+          "agentDescription": "Refund the quoted amount, the price minus the scheduled penalty, from escrow to the buyer. Call quote_cancel first, it seeds the amount. This moves money and does not reverse. Any retained penalty stays in escrow until collect_penalty pays it out.",
+          "commit": "quote_cancel",
+          "description": "Unwinds the escrow, refunding the price minus the scheduled penalty to the buyer. The quote seeded that amount into refs.unwindRefund; this step moves it from the escrow account back to the buyer.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
           },
-          "moves": [],
-          "steps": [],
-          "summary": "Expire a motor policy"
-        },
-        "open_claim": {
-          "description": "Places a pending ledger hold for the coverage amount from the insurer account toward the policyholder. The insurer account must be capitalized to the coverage amount, or the hold is rejected for insufficient balance.",
           "moves": [
             {
               "bind": {
                 "amount": {
                   "from": "instance",
-                  "path": "fields.coverageAmount"
+                  "path": "refs.unwindRefund"
                 },
                 "currency": {
                   "from": "instance",
@@ -409,45 +650,230 @@
                 },
                 "destinationAccountId": {
                   "from": "instance",
-                  "path": "fields.policyholderAccountId"
+                  "path": "fields.buyerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
                 },
                 "sourceAccountId": {
                   "from": "instance",
-                  "path": "fields.insurerAccountId"
+                  "path": "refs.escrowAccountId"
                 }
               },
               "capture": {
-                "claimTransferId": "transferId"
+                "refundTransferId": "transferId"
               },
               "key": "transfer",
-              "operation": "internal_transfer.reserve"
+              "operation": "internal_transfer.create"
             }
           ],
           "steps": [],
-          "summary": "Open a motor claim"
+          "summary": "Confirm a vehicle escrow cancellation"
         },
-        "settle_claim": {
-          "description": "Approves the claim and posts the held coverage amount, settling the payout into the policyholder account.",
-          "eventName": "motor_policy.claim_settled",
+        "create": {
+          "agentDescription": "Open the escrow and provision its account. No money moves. The price is admitted against the referenced motor policy's coverage cap, so an underinsured car is refused here rather than at funding.",
+          "description": "Opens the escrow and provisions its dedicated product escrow account. The price is admitted against the motor policy's coverage cap.",
+          "moves": [],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "escrowAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Create a vehicle escrow"
+        },
+        "fund": {
+          "agentDescription": "Move the full price from the buyer's account into escrow. This is the first money movement on the escrow, so get the buyer's confirmation. Only an escrow in created can fund.",
+          "description": "Moves the price from the buyer account into the escrow account.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.collection.pay_in",
+                "source": "moves[0]"
+              }
+            ]
+          },
           "moves": [
             {
               "bind": {
-                "transferId": {
+                "amount": {
                   "from": "instance",
-                  "path": "refs.claimTransferId"
+                  "path": "fields.price"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
                 }
               },
+              "capture": {
+                "fundTransferId": "transferId"
+              },
               "key": "transfer",
-              "operation": "internal_transfer.post"
+              "operation": "internal_transfer.create"
             }
           ],
+          "sandboxFailurePoint": "funding",
           "steps": [],
-          "summary": "Settle a motor claim"
+          "summary": "Fund a vehicle escrow"
+        },
+        "quote_cancel": {
+          "agentDescription": "Price the cancellation. No money moves. It computes the penalty from the schedule and parks the refund amount on the escrow for confirm_cancel to move. Only a funded escrow can be quoted, and once quoted, release is no longer reachable.",
+          "description": "Parks the funded escrow for cancellation and quotes the refund under the penalty schedule. No money moves; the confirm executes the refund.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
+          "moves": [],
+          "quote": {
+            "baseField": "price",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 500,
+                "withinOffset": "P7D"
+              },
+              {
+                "bps": 1000
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "buyerAccountId",
+              "price"
+            ],
+            "netDestinationField": "buyerAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Quote a vehicle escrow cancellation"
+        },
+        "release": {
+          "agentDescription": "Pay the full price from escrow to the seller and close the escrow as settled. Refused unless the motor policy is active at the moment of the call. This does not reverse: there is no clawback window after release.",
+          "description": "Clears the full price from the escrow account to the seller while the car's motor policy is active.",
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.price"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.sellerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                }
+              },
+              "capture": {
+                "releaseTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "requiresRefs": [
+            {
+              "field": "policyId",
+              "statuses": [
+                "active"
+              ]
+            }
+          ],
+          "sandboxFailurePoint": "release",
+          "steps": [],
+          "summary": "Release a vehicle escrow"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for vehicle escrow when a car buyer's money has to be held until the vehicle's motor policy is confirmed active, then paid to the seller in full. Cancellation runs a quote first and a confirm second, and a penalty comes off the buyer's refund. The listing itself is a separate instrument.",
+      "callerParkedStates": {
+        "cancel_quoted": "a quoted cancellation moves money only when the caller confirms it",
+        "canceled": "the residual penalty is collected by the operator as a deliberate follow-up transfer",
+        "created": "funding the escrow is the buyer's act",
+        "funded": "releasing or quoting a cancellation over held value is a party decision"
+      },
       "description": "A vehicle escrow holds the buyer's funds in a dedicated product escrow account, then releases the full price to the seller while the car's motor policy is active. Before release it can unwind through a quote then a confirm that refunds the price to the buyer under a penalty schedule.",
+      "dials": [
+        {
+          "key": "cancellation_penalty",
+          "kind": "unwind_penalty",
+          "summary": "Replaces the tiered cancellation penalty schedule quotes price against.",
+          "title": "Cancellation penalty schedule"
+        }
+      ],
       "fields": {
         "buyerAccountId": {
           "description": "Hyperscale account ID",
@@ -539,6 +965,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Vehicle Escrows"
+      ],
       "parties": {
         "beneficiary": "sellerAccountId",
         "payer": "buyerAccountId"
@@ -556,22 +986,8 @@
         ]
       },
       "summary": "Insured-car escrow that clears to the seller while coverage is live.",
+      "templateId": "escrow",
       "title": "Vehicle escrow",
-      "unwind": {
-        "confirm": "confirm_cancel",
-        "penalty": [
-          {
-            "bps": 500,
-            "withinOffset": "P7D"
-          },
-          {
-            "bps": 1000
-          }
-        ],
-        "quote": "quote_cancel",
-        "refundDestinationField": "buyerAccountId",
-        "refundableField": "price"
-      },
       "update": {
         "fields": [
           "memo"
@@ -579,203 +995,6 @@
         "states": [
           "created"
         ]
-      },
-      "verbs": {
-        "collect_penalty": {
-          "description": "Pays the computed retained cancellation penalty to the seller. Invoke only when confirm_cancel returns a positive refs.unwindPenalty.",
-          "eventName": "vehicle_escrow.penalty_collected",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindPenalty"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.sellerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "penaltyTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Collect a vehicle cancellation penalty"
-        },
-        "confirm_cancel": {
-          "description": "Unwinds the escrow, refunding the price minus the scheduled penalty to the buyer. The quote seeded that amount into refs.unwindRefund; this step moves it from the escrow account back to the buyer.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindRefund"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.buyerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "refundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Confirm a vehicle escrow cancellation"
-        },
-        "create": {
-          "description": "Opens the escrow and provisions its dedicated product escrow account. The price is admitted against the motor policy's coverage cap.",
-          "moves": [],
-          "steps": [
-            {
-              "bind": {
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "owner.id": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                },
-                "owner.type": {
-                  "from": "const",
-                  "value": "workspace"
-                },
-                "role": {
-                  "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "escrowAccountId": "accountId"
-              },
-              "operation": "account.escrow.provision"
-            }
-          ],
-          "summary": "Create a vehicle escrow"
-        },
-        "fund": {
-          "description": "Moves the price from the buyer account into the escrow account.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.price"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.buyerAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "fundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Fund a vehicle escrow"
-        },
-        "quote_cancel": {
-          "description": "Parks the funded escrow for cancellation and quotes the refund under the penalty schedule. No money moves; the confirm executes the refund.",
-          "moves": [],
-          "steps": [],
-          "summary": "Quote a vehicle escrow cancellation"
-        },
-        "release": {
-          "description": "Clears the full price from the escrow account to the seller while the car's motor policy is active.",
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.price"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.sellerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.escrowAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "releaseTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "requiresRefs": [
-            {
-              "field": "policyId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "Release a vehicle escrow"
-        }
       }
     }
   ],

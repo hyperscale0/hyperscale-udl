@@ -1,7 +1,7 @@
 {
   "issues": [
     {
-      "code": "invalid_utf8",
+      "code": "UDL1001",
       "path": "$"
     }
   ],

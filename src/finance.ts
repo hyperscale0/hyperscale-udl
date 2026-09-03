@@ -1,7 +1,9 @@
 import type { UdlBinding } from "./schema.js";
 import { UDL_LIMITS } from "./limits.js";
+import type { UdlIssueCode } from "./diagnostics.js";
 
 export interface FinanceIssue {
+  readonly code: UdlIssueCode;
   readonly message: string;
   readonly path: readonly PropertyKey[];
 }
@@ -20,7 +22,7 @@ interface FinancialMove extends FinancialStep {
   readonly key: string;
 }
 
-interface FinancialNoun {
+interface FinancialInstrument {
   readonly lifecycle: {
     readonly initial: string;
     readonly states: readonly string[];
@@ -35,24 +37,38 @@ interface FinancialNoun {
         readonly subjectHolder?: string | undefined;
       }
     | undefined;
-  readonly unwind?:
-    | {
-        readonly confirm: string;
-        readonly penalty: readonly {
-          readonly bps: number;
-        }[];
-        readonly refundableField: string;
-      }
-    | undefined;
-  readonly verbs: Readonly<
+  readonly actions: Readonly<
     Record<
       string,
       {
+        readonly commit?: string | undefined;
         readonly moves?: readonly FinancialMove[];
+        readonly quote?:
+          | {
+              readonly baseField: string;
+              readonly chargeRef: string;
+              readonly charges: readonly { readonly bps: number }[];
+              readonly netRef: string;
+            }
+          | undefined;
         readonly steps: readonly FinancialStep[];
       }
     >
   >;
+}
+
+/**
+ * One quote-commit pair, flattened for the typestate. The quoting action prices
+ * `baseField` into the charge and the net; the committing action spends the net
+ * out of the account that funded the base.
+ */
+interface QuoteFacts {
+  readonly baseField: string;
+  readonly chargeRef: string;
+  readonly chargeCanBeNonzero: boolean;
+  readonly commit: string;
+  readonly netRef: string;
+  readonly quoting: string;
 }
 
 type Balance =
@@ -74,6 +90,8 @@ interface Reservation {
 
 interface Effect {
   readonly amount: string;
+  /** The quoted base a refund effect returns; absent on every other kind. */
+  readonly refundable?: string;
   readonly kind:
     | "credit"
     | "debit"
@@ -109,131 +127,128 @@ function withoutPiece(
 }
 
 /**
- * One financial typestate owner for canonical UDL and static noun contracts.
+ * One financial typestate owner for canonical UDL and static instrument contracts.
  * It proves a tracked escrow account holds an exact set of funded amounts,
  * models held transfers through reserve/post/void, consumes every direct
- * debit piece by piece, and makes the unwind refund's sole remainder an
+ * debit piece by piece, and makes the quoted refund's sole remainder an
  * exactly-once penalty payout.
  */
-export function analyzeNounFinance(
-  noun: FinancialNoun,
+export function analyzeInstrumentFinance(
+  instrument: FinancialInstrument,
   options: FinanceOptions = {},
 ): readonly FinanceIssue[] {
   const issues: FinanceIssue[] = [];
   const seenIssues = new Set<string>();
-  const add = (path: readonly PropertyKey[], message: string): void => {
+  const add = (
+    path: readonly PropertyKey[],
+    message: string,
+    code: UdlIssueCode = "UDL4001",
+  ): void => {
     const key = `${path.join(".")}\0${message}`;
     if (seenIssues.has(key)) return;
     seenIssues.add(key);
-    issues.push({ message, path });
+    issues.push({ code, message, path });
   };
 
-  const admissionProblem = financeAdmissionProblem(noun);
+  const admissionProblem = financeAdmissionProblem(instrument);
   if (admissionProblem) {
-    add(["lifecycle"], admissionProblem);
+    add(["lifecycle"], admissionProblem, "UDL1004");
     return issues;
   }
 
-  const trackedAccounts = workspaceEscrowAccounts(noun);
-  const confirmTransfer = noun.unwind
-    ? noun.verbs[noun.unwind.confirm]?.moves?.filter(
-        (move) => move.operation === "internal_transfer.create",
-      )[0]
-    : undefined;
-  const refundSource = canonicalAccount(
-    noun,
-    confirmTransfer?.bind.sourceAccountId,
-  );
-  if (refundSource) trackedAccounts.add(refundSource);
+  const trackedAccounts = productEscrowAccounts(instrument);
+  const quotes = quoteFacts(instrument, options);
+  const refundSources = new Map<string, string>();
+  for (const quote of quotes) {
+    const commitTransfer = instrument.actions[quote.commit]?.moves?.filter(
+      (move) => move.operation === "internal_transfer.create",
+    )[0];
+    const source = canonicalAccount(
+      instrument,
+      commitTransfer?.bind.sourceAccountId,
+    );
+    if (!source) continue;
+    refundSources.set(quote.commit, source);
+    trackedAccounts.add(source);
+  }
+  const refundSourceAccounts = new Set(refundSources.values());
   if (trackedAccounts.size === 0) return [];
   if (trackedAccounts.size > UDL_LIMITS.financeAccounts) {
     add(
-      ["verbs"],
+      ["actions"],
       `financial analysis exceeds ${UDL_LIMITS.financeAccounts} tracked accounts`,
+      "UDL1004",
     );
     return issues;
   }
 
-  const reservations = reservationsByKey(noun);
-  const declaresPenaltyPayout = Object.values(noun.verbs).some((verb) =>
-    (verb.moves ?? []).some((move) =>
-      Object.values(move.bind).some(
-        (binding) =>
-          binding.from === "instance" && binding.path === "refs.unwindPenalty",
-      ),
-    ),
-  );
-  const penaltyCanBeNonzero =
-    options.penaltyMayBeNonzero === true ||
-    declaresPenaltyPayout ||
-    noun.unwind?.penalty.some((tier) => tier.bps > 0) === true;
-
-  if (noun.unwind) {
-    validatePenaltyPayout(noun, refundSource, penaltyCanBeNonzero, add);
+  const reservations = reservationsByKey(instrument);
+  for (const quote of quotes) {
+    validateChargePayout(
+      instrument,
+      quote,
+      refundSources.get(quote.commit),
+      add,
+    );
   }
 
   let pathVariants = 0;
   let work = 0;
   for (const account of trackedAccounts) {
-    const effects = effectsByVerb(
-      noun,
-      account,
-      reservations,
-      penaltyCanBeNonzero,
-    );
+    const effects = effectsByAction(instrument, account, reservations, quotes);
     const createEffects = effects.get("create") ?? [];
     work += 1 + createEffects.length;
     if (work > UDL_LIMITS.financeWork) {
       add(
         ["lifecycle"],
         `financial analysis exceeds ${UDL_LIMITS.financeWork} deterministic work units`,
+        "UDL1004",
       );
       return issues;
     }
     const initial = applyEffects(
-      noun,
       account,
       "create",
       { balance: EMPTY, holds: {} },
       createEffects,
       reservations,
-      account === refundSource,
+      refundSourceAccounts.has(account),
       add,
     );
     const states = new Map<string, Map<string, AccountState>>([
-      [noun.lifecycle.initial, new Map([[stateKey(initial), initial]])],
+      [instrument.lifecycle.initial, new Map([[stateKey(initial), initial]])],
     ]);
     pathVariants += 1;
-    const pending = [noun.lifecycle.initial];
+    const pending = [instrument.lifecycle.initial];
     while (pending.length > 0) {
       const from = pending.shift() as string;
       const sourceStates = states.get(from);
       if (!sourceStates) continue;
-      for (const [verb, transition] of Object.entries(
-        noun.lifecycle.transitions,
+      for (const [action, transition] of Object.entries(
+        instrument.lifecycle.transitions,
       )) {
         if (!transition.from.includes(from)) continue;
         const targetStates = states.get(transition.to) ?? new Map();
         states.set(transition.to, targetStates);
         let grew = false;
         for (const sourceState of sourceStates.values()) {
-          const transitionEffects = effects.get(verb) ?? [];
+          const transitionEffects = effects.get(action) ?? [];
           work += 1 + transitionEffects.length;
           if (work > UDL_LIMITS.financeWork) {
             add(
               ["lifecycle"],
               `financial analysis exceeds ${UDL_LIMITS.financeWork} deterministic work units`,
+              "UDL1004",
             );
             return issues;
           }
           const targetState = applyEffects(
-            noun,
             account,
-            verb,
+            action,
             sourceState,
             transitionEffects,
             reservations,
-            account === refundSource,
+            refundSourceAccounts.has(account),
             add,
           );
           const key = stateKey(targetState);
@@ -244,6 +259,7 @@ export function analyzeNounFinance(
             add(
               ["lifecycle"],
               `financial analysis exceeds ${UDL_LIMITS.financePathVariants} distinct path variants`,
+              "UDL1004",
             );
             return issues;
           }
@@ -254,7 +270,7 @@ export function analyzeNounFinance(
       }
     }
     const nonterminalStates = new Set(
-      Object.values(noun.lifecycle.transitions).flatMap(
+      Object.values(instrument.lifecycle.transitions).flatMap(
         (transition) => transition.from,
       ),
     );
@@ -268,7 +284,7 @@ export function analyzeNounFinance(
           continue;
         }
         add(
-          ["lifecycle", "states", noun.lifecycle.states.indexOf(state)],
+          ["lifecycle", "states", instrument.lifecycle.states.indexOf(state)],
           `terminal state ${state} can strand value in ${formatAccount(account)}`,
         );
       }
@@ -279,34 +295,34 @@ export function analyzeNounFinance(
 }
 
 export function financeAdmissionProblem(
-  noun: FinancialNoun,
+  instrument: FinancialInstrument,
 ): string | undefined {
-  if (noun.lifecycle.states.length > UDL_LIMITS.financeStates) {
+  if (instrument.lifecycle.states.length > UDL_LIMITS.financeStates) {
     return `financial analysis exceeds ${UDL_LIMITS.financeStates} lifecycle states`;
   }
   let transitionCount = 0;
   let transitionEdges = 0;
-  for (const name in noun.lifecycle.transitions) {
-    if (!Object.hasOwn(noun.lifecycle.transitions, name)) continue;
+  for (const name in instrument.lifecycle.transitions) {
+    if (!Object.hasOwn(instrument.lifecycle.transitions, name)) continue;
     transitionCount += 1;
     if (transitionCount > UDL_LIMITS.financeTransitions) {
       return `financial analysis exceeds ${UDL_LIMITS.financeTransitions} lifecycle transitions`;
     }
-    transitionEdges += noun.lifecycle.transitions[name]?.from.length ?? 0;
+    transitionEdges += instrument.lifecycle.transitions[name]?.from.length ?? 0;
     if (transitionEdges > UDL_LIMITS.financeTransitionEdges) {
       return `financial analysis exceeds ${UDL_LIMITS.financeTransitionEdges} lifecycle transition edges`;
     }
   }
-  let verbCount = 0;
+  let actionCount = 0;
   let effectCount = 0;
-  for (const name in noun.verbs) {
-    if (!Object.hasOwn(noun.verbs, name)) continue;
-    verbCount += 1;
-    if (verbCount > UDL_LIMITS.financeVerbs) {
-      return `financial analysis exceeds ${UDL_LIMITS.financeVerbs} verbs`;
+  for (const name in instrument.actions) {
+    if (!Object.hasOwn(instrument.actions, name)) continue;
+    actionCount += 1;
+    if (actionCount > UDL_LIMITS.financeActions) {
+      return `financial analysis exceeds ${UDL_LIMITS.financeActions} actions`;
     }
-    const verb = noun.verbs[name];
-    effectCount += (verb?.steps.length ?? 0) + (verb?.moves?.length ?? 0);
+    const action = instrument.actions[name];
+    effectCount += (action?.steps.length ?? 0) + (action?.moves?.length ?? 0);
     if (effectCount > UDL_LIMITS.financeEffects) {
       return `financial analysis exceeds ${UDL_LIMITS.financeEffects} kernel effects`;
     }
@@ -314,14 +330,14 @@ export function financeAdmissionProblem(
   return undefined;
 }
 
-function workspaceEscrowAccounts(noun: FinancialNoun): Set<string> {
+function productEscrowAccounts(instrument: FinancialInstrument): Set<string> {
   const accounts = new Set<string>();
-  for (const verb of Object.values(noun.verbs)) {
-    for (const step of verb.steps) {
+  for (const action of Object.values(instrument.actions)) {
+    for (const step of action.steps) {
       if (
         step.operation !== "account.escrow.provision" ||
         step.bind.role?.from !== "const" ||
-        step.bind.role.value !== "workspace_escrow"
+        step.bind.role.value !== "product_escrow"
       ) {
         continue;
       }
@@ -331,13 +347,13 @@ function workspaceEscrowAccounts(noun: FinancialNoun): Set<string> {
     }
   }
 
-  // `workspace_escrow` also backs open-ended balance products such as wallets.
+  // `product_escrow` also backs open-ended balance products such as wallets.
   // Only instance-bound amounts claim static conservation; caller-sized flows
-  // remain runtime balance checks. Unwind sources are added separately above.
+  // remain runtime balance checks. Commit sources are added separately above.
   return new Set(
     [...accounts].filter((account) =>
-      Object.values(noun.verbs).some((verb) =>
-        (verb.moves ?? []).some((step) => {
+      Object.values(instrument.actions).some((action) =>
+        (action.moves ?? []).some((step) => {
           if (
             (step.operation !== "internal_transfer.create" &&
               step.operation !== "internal_transfer.reserve") ||
@@ -346,8 +362,10 @@ function workspaceEscrowAccounts(noun: FinancialNoun): Set<string> {
             return false;
           }
           return (
-            canonicalAccount(noun, step.bind.sourceAccountId) === account ||
-            canonicalAccount(noun, step.bind.destinationAccountId) === account
+            canonicalAccount(instrument, step.bind.sourceAccountId) ===
+              account ||
+            canonicalAccount(instrument, step.bind.destinationAccountId) ===
+              account
           );
         }),
       ),
@@ -356,15 +374,15 @@ function workspaceEscrowAccounts(noun: FinancialNoun): Set<string> {
 }
 
 function reservationsByKey(
-  noun: FinancialNoun,
+  instrument: FinancialInstrument,
 ): ReadonlyMap<string, Reservation> {
   const reservations = new Map<string, Reservation>();
-  for (const verb of Object.values(noun.verbs)) {
-    for (const step of verb.moves ?? []) {
+  for (const action of Object.values(instrument.actions)) {
+    for (const step of action.moves ?? []) {
       if (step.operation !== "internal_transfer.reserve") continue;
-      const source = canonicalAccount(noun, step.bind.sourceAccountId);
+      const source = canonicalAccount(instrument, step.bind.sourceAccountId);
       const destination = canonicalAccount(
-        noun,
+        instrument,
         step.bind.destinationAccountId,
       );
       const amount = amountIdentity(step.bind.amount);
@@ -382,54 +400,80 @@ function reservationsByKey(
   return reservations;
 }
 
-function effectsByVerb(
-  noun: FinancialNoun,
+function effectsByAction(
+  instrument: FinancialInstrument,
   account: string,
   reservations: ReadonlyMap<string, Reservation>,
-  penaltyCanBeNonzero: boolean,
+  quotes: readonly QuoteFacts[],
 ): ReadonlyMap<string, readonly Effect[]> {
+  const quoteByCommit = new Map(quotes.map((quote) => [quote.commit, quote]));
+  const chargePaths = new Map(
+    quotes.map((quote) => [`refs.${quote.chargeRef}`, quote]),
+  );
   return new Map(
-    Object.entries(noun.verbs).map(([verbName, verb]) => [
-      verbName,
-      (verb.moves ?? []).flatMap((step, stepIndex) => {
-        const path = ["verbs", verbName, "moves", stepIndex, "bind"] as const;
+    Object.entries(instrument.actions).map(([actionName, action]) => [
+      actionName,
+      (action.moves ?? []).flatMap((step, stepIndex) => {
+        const path = [
+          "actions",
+          actionName,
+          "moves",
+          stepIndex,
+          "bind",
+        ] as const;
         if (step.operation === "internal_transfer.create") {
           const effects: Effect[] = [];
           const amount = amountIdentity(step.bind.amount);
           if (
-            canonicalAccount(noun, step.bind.destinationAccountId) === account
+            canonicalAccount(instrument, step.bind.destinationAccountId) ===
+            account
           ) {
             effects.push({ amount, kind: "credit", path });
           }
-          const source = canonicalAccount(noun, step.bind.sourceAccountId);
+          const source = canonicalAccount(
+            instrument,
+            step.bind.sourceAccountId,
+          );
           if (source && accountsMayAlias(source, account)) {
-            const kind =
-              verbName === noun.unwind?.confirm &&
-              step.bind.amount?.from === "instance" &&
-              step.bind.amount.path === "refs.unwindRefund"
-                ? "refund"
-                : step.bind.amount?.from === "instance" &&
-                    step.bind.amount.path === "refs.unwindPenalty"
-                  ? "penalty_debit"
-                  : step.bind.amount?.from === "instance"
-                    ? "debit"
-                    : "dynamic_debit";
+            const committed = quoteByCommit.get(actionName);
+            const amountPath =
+              step.bind.amount?.from === "instance"
+                ? step.bind.amount.path
+                : undefined;
+            const refunded =
+              committed && amountPath === `refs.${committed.netRef}`
+                ? committed
+                : undefined;
+            const charged = amountPath
+              ? chargePaths.get(amountPath)
+              : undefined;
+            const kind = refunded
+              ? "refund"
+              : charged
+                ? "penalty_debit"
+                : amountPath !== undefined
+                  ? "debit"
+                  : "dynamic_debit";
             effects.push({
               amount:
-                kind === "refund" && !penaltyCanBeNonzero
+                refunded && !refunded.chargeCanBeNonzero
                   ? "refund_without_penalty"
                   : amount,
               kind,
               path,
+              ...(refunded ? { refundable: refunded.baseField } : {}),
             });
           }
           return effects;
         }
         if (step.operation === "internal_transfer.reserve") {
           const reservation =
-            transferRefKey(step) ?? `${verbName}:${stepIndex}`;
+            transferRefKey(step) ?? `${actionName}:${stepIndex}`;
           const effects: Effect[] = [];
-          const source = canonicalAccount(noun, step.bind.sourceAccountId);
+          const source = canonicalAccount(
+            instrument,
+            step.bind.sourceAccountId,
+          );
           if (source && accountsMayAlias(source, account)) {
             effects.push({
               amount: amountIdentity(step.bind.amount),
@@ -439,7 +483,8 @@ function effectsByVerb(
             });
           }
           if (
-            canonicalAccount(noun, step.bind.destinationAccountId) === account
+            canonicalAccount(instrument, step.bind.destinationAccountId) ===
+            account
           ) {
             effects.push({
               amount: amountIdentity(step.bind.amount),
@@ -481,9 +526,8 @@ function effectsByVerb(
 }
 
 function applyEffects(
-  noun: FinancialNoun,
   account: string,
-  verb: string,
+  action: string,
   input: AccountState,
   effects: readonly Effect[],
   reservations: ReadonlyMap<string, Reservation>,
@@ -495,7 +539,7 @@ function applyEffects(
   const accountLabel = formatAccount(account);
   for (const effect of effects) {
     const fail = (message: string): void =>
-      add([...effect.path, "sourceAccountId"], `verb ${verb} ${message}`);
+      add([...effect.path, "sourceAccountId"], `action ${action} ${message}`);
     if (effect.kind === "credit") {
       if (
         exactBalance &&
@@ -503,7 +547,7 @@ function applyEffects(
       ) {
         add(
           [...effect.path, "destinationAccountId"],
-          `verb ${verb} funds ${accountLabel} while earlier value may remain; unwind funding must establish exactly one refundable balance`,
+          `action ${action} funds ${accountLabel} while earlier value may remain; quoted funding must establish exactly one refundable balance`,
         );
         balance = UNKNOWN;
         continue;
@@ -556,7 +600,7 @@ function applyEffects(
           } else {
             add(
               [...effect.path, "transferId"],
-              `verb ${verb} restores a held ${accountLabel} balance on top of existing value`,
+              `action ${action} restores a held ${accountLabel} balance on top of existing value`,
             );
             balance = UNKNOWN;
           }
@@ -566,7 +610,7 @@ function applyEffects(
         if (balance.kind !== "empty" || Object.keys(holds).length > 0) {
           add(
             [...effect.path, "transferId"],
-            `verb ${verb} posts funding into ${accountLabel} while earlier value may remain`,
+            `action ${action} posts funding into ${accountLabel} while earlier value may remain`,
           );
           balance = UNKNOWN;
         } else {
@@ -576,7 +620,7 @@ function applyEffects(
       continue;
     }
     if (effect.kind === "refund") {
-      const refundable = `fields.${noun.unwind?.refundableField ?? ""}`;
+      const refundable = `fields.${effect.refundable ?? ""}`;
       if (
         balance.kind !== "funded" ||
         balance.amounts.length !== 1 ||
@@ -597,7 +641,7 @@ function applyEffects(
     if (effect.kind === "penalty_debit") {
       if (balance.kind !== "penalty") {
         fail(
-          `cannot pay refs.unwindPenalty from ${accountLabel} before the refund leaves that exact remainder`,
+          `cannot pay the quoted charge from ${accountLabel} before the refund leaves that exact remainder`,
         );
       }
       balance = EMPTY;
@@ -608,7 +652,7 @@ function applyEffects(
         fail(`can debit unfunded ${accountLabel}`);
       } else if (balance.kind === "penalty") {
         fail(
-          `can debit ${accountLabel} after its refund left only refs.unwindPenalty`,
+          `can debit ${accountLabel} after its refund left only the quoted charge`,
         );
       }
       balance = balance.kind === "empty" ? EMPTY : { kind: "unknown" };
@@ -622,7 +666,7 @@ function applyEffects(
       fail(`can debit unfunded ${accountLabel}`);
     } else if (balance.kind === "penalty") {
       fail(
-        `can debit ${accountLabel} after its refund left only refs.unwindPenalty`,
+        `can debit ${accountLabel} after its refund left only the quoted charge`,
       );
     } else if (balance.kind === "funded" || exactBalance) {
       fail(
@@ -634,59 +678,108 @@ function applyEffects(
   return { balance, holds };
 }
 
-function validatePenaltyPayout(
-  noun: FinancialNoun,
+/**
+ * Flattens every quote-commit pair the instrument declares. A quoting action
+ * with no committing action, or a commit naming a non-quoting action, is a
+ * validator failure rather than a typestate one, so it is simply skipped here.
+ */
+function quoteFacts(
+  instrument: FinancialInstrument,
+  options: FinanceOptions,
+): readonly QuoteFacts[] {
+  const facts: QuoteFacts[] = [];
+  for (const [quoting, action] of Object.entries(instrument.actions)) {
+    const quote = action.quote;
+    if (!quote) continue;
+    const commit = Object.entries(instrument.actions).find(
+      ([, candidate]) => candidate.commit === quoting,
+    )?.[0];
+    if (commit === undefined) continue;
+    const chargePath = `refs.${quote.chargeRef}`;
+    const declaresChargePayout = Object.values(instrument.actions).some(
+      (candidate) =>
+        (candidate.moves ?? []).some((move) =>
+          Object.values(move.bind).some(
+            (binding) =>
+              binding.from === "instance" && binding.path === chargePath,
+          ),
+        ),
+    );
+    facts.push({
+      baseField: quote.baseField,
+      chargeCanBeNonzero:
+        options.penaltyMayBeNonzero === true ||
+        declaresChargePayout ||
+        quote.charges.some((tier) => tier.bps > 0),
+      chargeRef: quote.chargeRef,
+      commit,
+      netRef: quote.netRef,
+      quoting,
+    });
+  }
+  return facts;
+}
+
+/**
+ * The quoted charge is the exact remainder the commit leaves behind, so it may
+ * fund one transfer, out of the same account the refund left, in its own
+ * one-way action directly after the commit.
+ */
+function validateChargePayout(
+  instrument: FinancialInstrument,
+  quote: QuoteFacts,
   refundSource: string | undefined,
-  required: boolean,
   add: (path: readonly PropertyKey[], message: string) => void,
 ): void {
-  const uses = Object.entries(noun.verbs).flatMap(([verbName, verb]) =>
-    (verb.moves ?? []).flatMap((step, stepIndex) =>
-      Object.entries(step.bind).flatMap(([target, binding]) =>
-        binding.from === "instance" && binding.path === "refs.unwindPenalty"
-          ? [{ binding, step, stepIndex, target, verb, verbName }]
-          : [],
+  const chargePath = `refs.${quote.chargeRef}`;
+  const uses = Object.entries(instrument.actions).flatMap(
+    ([actionName, action]) =>
+      (action.moves ?? []).flatMap((step, stepIndex) =>
+        Object.entries(step.bind).flatMap(([target, binding]) =>
+          binding.from === "instance" && binding.path === chargePath
+            ? [{ binding, step, stepIndex, target, action, actionName }]
+            : [],
+        ),
       ),
-    ),
   );
-  if (required && uses.length !== 1) {
+  if (quote.chargeCanBeNonzero && uses.length !== 1) {
     add(
-      ["verbs"],
-      `refs.unwindPenalty is consumed ${uses.length} times; a nonzero penalty schedule requires exactly one payout`,
+      ["actions"],
+      `${chargePath} is consumed ${uses.length} times; a nonzero charge schedule requires exactly one payout`,
     );
   }
   if (uses.length === 0) return;
   if (uses.length !== 1) {
-    if (!required) {
+    if (!quote.chargeCanBeNonzero) {
       add(
-        ["verbs"],
-        `refs.unwindPenalty is consumed ${uses.length} times; it may fund at most one payout`,
+        ["actions"],
+        `${chargePath} is consumed ${uses.length} times; it may fund at most one payout`,
       );
     }
     return;
   }
 
   const use = uses[0] as (typeof uses)[number];
-  const payoutTransition = noun.lifecycle.transitions[use.verbName];
-  const confirmTarget = noun.lifecycle.transitions[noun.unwind!.confirm]?.to;
-  const source = canonicalAccount(noun, use.step.bind.sourceAccountId);
+  const payoutTransition = instrument.lifecycle.transitions[use.actionName];
+  const commitTarget = instrument.lifecycle.transitions[quote.commit]?.to;
+  const source = canonicalAccount(instrument, use.step.bind.sourceAccountId);
   const destination = canonicalAccount(
-    noun,
+    instrument,
     use.step.bind.destinationAccountId,
   );
-  const directAfterConfirm =
-    confirmTarget !== undefined &&
+  const directAfterCommit =
+    commitTarget !== undefined &&
     payoutTransition?.from.length === 1 &&
-    payoutTransition.from[0] === confirmTarget;
+    payoutTransition.from[0] === commitTarget;
   const oneWay =
     payoutTransition !== undefined &&
-    payoutTransition.to !== confirmTarget &&
-    !stateCanReach(noun, payoutTransition.to, confirmTarget);
+    payoutTransition.to !== commitTarget &&
+    !stateCanReach(instrument, payoutTransition.to, commitTarget);
   const valid =
     use.target === "amount" &&
     use.step.operation === "internal_transfer.create" &&
-    (use.verb.moves?.length ?? 0) === 1 &&
-    directAfterConfirm &&
+    (use.action.moves?.length ?? 0) === 1 &&
+    directAfterCommit &&
     oneWay &&
     source !== undefined &&
     source === refundSource &&
@@ -694,14 +787,14 @@ function validatePenaltyPayout(
     !accountsMayAlias(source, destination);
   if (!valid) {
     add(
-      ["verbs", use.verbName, "moves", use.stepIndex, "bind", use.target],
-      `refs.unwindPenalty must be the amount of one internal transfer from the unwind refund source to a different account, in its own one-way verb directly after ${noun.unwind!.confirm}`,
+      ["actions", use.actionName, "moves", use.stepIndex, "bind", use.target],
+      `${chargePath} must be the amount of one internal transfer from the quoted refund source to a different account, in its own one-way action directly after ${quote.commit}`,
     );
   }
 }
 
 function canonicalAccount(
-  noun: FinancialNoun,
+  instrument: FinancialInstrument,
   binding: UdlBinding | undefined,
 ): string | undefined {
   if (binding?.from !== "instance") return undefined;
@@ -711,7 +804,9 @@ function canonicalAccount(
   if (root === "refs") return `ref:${key}`;
   if (root === "party") {
     const field =
-      noun.parties?.[key as keyof NonNullable<FinancialNoun["parties"]>];
+      instrument.parties?.[
+        key as keyof NonNullable<FinancialInstrument["parties"]>
+      ];
     return field ? `field:${field}` : undefined;
   }
   return undefined;
@@ -741,7 +836,7 @@ function boundTransferRefKey(step: FinancialStep): string | undefined {
 }
 
 function stateCanReach(
-  noun: FinancialNoun,
+  instrument: FinancialInstrument,
   start: string,
   target: string | undefined,
 ): boolean {
@@ -751,7 +846,7 @@ function stateCanReach(
   while (pending.length > 0) {
     const state = pending.shift() as string;
     if (state === target) return true;
-    for (const transition of Object.values(noun.lifecycle.transitions)) {
+    for (const transition of Object.values(instrument.lifecycle.transitions)) {
       if (!transition.from.includes(state) || seen.has(transition.to)) continue;
       seen.add(transition.to);
       pending.push(transition.to);

@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5012",
+      "path": "$.instruments[4].actions.reconcile.reconcile[0].exception.reasonField"
+    }
+  ],
+  "summary": "Refuses seller_payout_debit_adjustment.amount must be a text field.",
+  "verdict": "invalid"
+}

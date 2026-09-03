@@ -1,54 +1,92 @@
 export { canonicalizeUdl, parseUdl } from "./parser.js";
-export { serializeUdl } from "./canonical.js";
+export { canonicalDigest, serializeUdl } from "./canonical.js";
+export { issue, udlDiagnostic, udlDiagnostics } from "./diagnostics.js";
+export type {
+  UdlDiagnostic,
+  UdlDiagnosticFamily,
+  UdlIssue,
+  UdlIssueCategory,
+  UdlIssueCode,
+} from "./diagnostics.js";
+export {
+  udlCheckEvidenceProfile,
+  udlCheckEvidenceProfiles,
+  type UdlCheckEvidenceProfile,
+} from "./check-profiles.js";
 export { fixedIsoDurationMs } from "./duration.js";
 export {
-  analyzeNounFinance,
+  deriveUdlActionEffects,
+  movementClass,
+  udlEffectKinds,
+  type DerivedUdlEffects,
+  type UdlEffectKind,
+  type UdlMovementClass,
+} from "./effects.js";
+export {
+  analyzeInstrumentFinance,
   type FinanceIssue,
   type FinanceOptions,
 } from "./finance.js";
 export {
-  diffNounEvolution,
+  diffInstrumentEvolution,
   diffValidatedUdlEvolution,
-  snapshotUdlNoun,
+  snapshotUdlInstrument,
 } from "./evolution.js";
 export type {
   EvolutionFieldSnapshot,
   EvolutionMoveSnapshot,
   EvolutionStepSnapshot,
   EvolutionTransitionSnapshot,
-  EvolutionVerbSnapshot,
-  NounEvolutionSnapshot,
+  EvolutionActionSnapshot,
+  InstrumentEvolutionSnapshot,
 } from "./evolution.js";
 export {
+  quoteExpiresAtRefKey,
+  quoteFrozenRefKey,
+  quoteSeededRefKeys,
   UDL_FORMAT_VERSION,
+  udlClauseVocabulary,
   udlDocumentSchema,
+  udlInstrumentActionIdSchema,
   udlKernelOperationSchema,
-  udlPublicIntentSchema,
+  udlProviderFamilyIdSchema,
+  udlPublicActionSchema,
 } from "./schema.js";
 export type {
   UdlAggregate,
   UdlAggregateCondition,
   UdlBinding,
+  UdlCompositionDial,
   UdlDeclaredValuePolicy,
   UdlDecision,
+  UdlDial,
   UdlDocument,
   UdlDue,
+  UdlEffects,
   UdlExample,
   UdlGate,
   UdlKernelOperation,
   UdlLifecycle,
   UdlLifecycleTransition,
-  UdlNoun,
-  UdlNounSubject,
+  UdlInstrument,
+  UdlInstrumentSubject,
   UdlPayout,
-  UdlRequiresSettlement,
+  UdlQuote,
+  UdlProviderFamilyId,
+  UdlCheckRequirement,
+  UdlClauseCardinality,
+  UdlClauseEffect,
+  UdlReconcile,
+  UdlRemainder,
   UdlStep,
   UdlSubject,
-  UdlUnwind,
-  UdlVerb,
+  UdlAction,
+  UdlClauseVocabularyEntry,
 } from "./schema.js";
 export {
   assertValidUdl,
+  isReconcileExceptionChild,
+  reconcileExceptionChildProblems,
   openReferenceShapeBudget,
   UdlError,
   validateUdl,
@@ -57,7 +95,5 @@ export {
 } from "./validation.js";
 export type {
   ReferenceShapeBudget,
-  UdlIssue,
-  UdlIssueCode,
   UdlValidationResult,
 } from "./validation.js";

@@ -1,7 +1,8 @@
 import { serializeUdl } from "./canonical.js";
+import { issue } from "./diagnostics.js";
 import { UDL_LIMITS } from "./limits.js";
 import type { UdlDocument } from "./schema.js";
-import { assertValidUdl, UdlError, type UdlIssue } from "./validation.js";
+import { assertValidUdl, UdlError } from "./validation.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -14,11 +15,11 @@ export function parseUdl(source: string | Uint8Array): UdlDocument {
       : source.byteLength;
   if (sourceBytes > UDL_LIMITS.maxSourceBytes) {
     throw new UdlError([
-      {
-        code: "resource_limit",
-        message: `UDL source exceeds ${UDL_LIMITS.maxSourceBytes} bytes`,
-        path: "$",
-      },
+      issue(
+        "UDL1004",
+        "$",
+        `UDL source exceeds ${UDL_LIMITS.maxSourceBytes} bytes`,
+      ),
     ]);
   }
   return parseUdlText(
@@ -32,12 +33,11 @@ function parseUdlText(source: string): UdlDocument {
     value = JSON.parse(source) as unknown;
   } catch (error) {
     throw new UdlError([
-      {
-        code: "invalid_json",
-        message:
-          error instanceof Error ? error.message : "could not parse JSON",
-        path: "$",
-      },
+      issue(
+        "UDL1002",
+        "$",
+        error instanceof Error ? error.message : "could not parse JSON",
+      ),
     ]);
   }
   return assertValidUdl(value);
@@ -51,11 +51,8 @@ function decodeUdlBytes(source: Uint8Array): string {
   try {
     return utf8Decoder.decode(source);
   } catch {
-    const issue: UdlIssue = {
-      code: "invalid_utf8",
-      message: "UDL bytes must be valid UTF-8",
-      path: "$",
-    };
-    throw new UdlError([issue]);
+    throw new UdlError([
+      issue("UDL1001", "$", "UDL bytes must be valid UTF-8"),
+    ]);
   }
 }

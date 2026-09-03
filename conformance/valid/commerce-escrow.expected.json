@@ -1,5 +1,6 @@
 {
   "canonical": "commerce-escrow.udl",
+  "digest": "1fedf9ed3a071fa0356d3d5053960d9839bb3d8dd2f7ccecc002b08a9a35a483",
   "summary": "Marketplace escrow: funds held on order, released to the seller on delivery.",
   "verdict": "valid"
 }

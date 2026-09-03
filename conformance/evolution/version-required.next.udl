@@ -1,8 +1,27 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "close",
+        "create"
+      ],
+      "actions": {
+        "close": {
+          "moves": [],
+          "steps": [],
+          "summary": "Close the note."
+        },
+        "create": {
+          "moves": [],
+          "steps": [],
+          "summary": "File the note."
+        }
+      },
       "fields": {
         "reference": {
+          "type": "string"
+        },
+        "memo": {
           "type": "string"
         }
       },
@@ -27,14 +46,7 @@
         "reference"
       ],
       "summary": "A note a tenant files and later closes.",
-      "title": "Note",
-      "verbs": {
-        "close": {
-          "moves": [],
-          "steps": [],
-          "summary": "Close the note."
-        }
-      }
+      "title": "Note"
     }
   ],
   "product": "minimal",
@@ -43,3 +55,4 @@
   "udl": 1,
   "version": 1
 }
+

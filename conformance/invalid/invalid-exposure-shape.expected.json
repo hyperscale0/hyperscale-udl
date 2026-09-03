@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5003",
+      "path": "$.instruments[2].actions.repay.requiresExposure[0].childInstrumentId"
+    }
+  ],
+  "summary": "Refuses Invalid input: expected string, received number.",
+  "verdict": "invalid"
+}

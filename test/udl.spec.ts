@@ -1,25 +1,63 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
-  analyzeNounFinance,
+  analyzeInstrumentFinance as analyzeInstrumentFinanceRaw,
   parseUdl,
   serializeUdl,
   UdlError,
-  validateUdl,
+  validateUdl as validateUdlRaw,
   validateUdlSchemaValue,
   type UdlDocument,
 } from "../src/index.js";
 import { financeAdmissionProblem } from "../src/finance.js";
 import { UDL_LIMITS } from "../src/limits.js";
 import {
-  diffNounEvolution,
-  diffValidatedUdlEvolution,
-  snapshotUdlNoun,
-  type EvolutionVerbSnapshot,
-  type NounEvolutionSnapshot,
+  diffInstrumentEvolution as diffInstrumentEvolutionRaw,
+  diffValidatedUdlEvolution as diffValidatedUdlEvolutionRaw,
+  snapshotUdlInstrument,
+  type EvolutionActionSnapshot,
+  type InstrumentEvolutionSnapshot,
 } from "../src/index.js";
 
 const fixtureRoot = join(import.meta.dir, "..", "conformance", "valid");
+
+const compactIssue = <
+  T extends {
+    readonly code: string;
+    readonly message: string;
+    readonly path: unknown;
+  },
+>(
+  value: T,
+) => ({ code: value.code, message: value.message, path: value.path });
+
+function validateUdl(value: unknown) {
+  const result = validateUdlRaw(value);
+  return result.ok
+    ? result
+    : { ...result, issues: result.issues.map(compactIssue) };
+}
+
+function analyzeInstrumentFinance(
+  ...args: Parameters<typeof analyzeInstrumentFinanceRaw>
+) {
+  return analyzeInstrumentFinanceRaw(...args).map(({ message, path }) => ({
+    message,
+    path,
+  }));
+}
+
+function diffInstrumentEvolution(
+  ...args: Parameters<typeof diffInstrumentEvolutionRaw>
+): readonly string[] {
+  return diffInstrumentEvolutionRaw(...args).map((entry) => entry.message);
+}
+
+function diffValidatedUdlEvolution(
+  ...args: Parameters<typeof diffValidatedUdlEvolutionRaw>
+): readonly string[] {
+  return diffValidatedUdlEvolutionRaw(...args).map((entry) => entry.message);
+}
 
 async function readFixture(name: string): Promise<string> {
   return Bun.file(join(fixtureRoot, name)).text();
@@ -35,7 +73,7 @@ describe("UDL canonical artifacts", () => {
     document.title = "\u062d\u0645\u0627\u064a\u0629";
 
     const serialized = serializeUdl(document);
-    expect(serialized.startsWith('{\n  "nouns":')).toBe(true);
+    expect(serialized.startsWith('{\n  "instruments":')).toBe(true);
     expect(serialized.endsWith("\n")).toBe(true);
     expect(serialized.endsWith("\n\n")).toBe(false);
     expect(parseUdl(new TextEncoder().encode(serialized)).title).toBe(
@@ -49,15 +87,15 @@ describe("UDL grammar validation", () => {
     const atLimit = capturedError(() =>
       parseUdl(new Uint8Array(UDL_LIMITS.maxSourceBytes)),
     );
-    expect(atLimit.issues[0]?.code).toBe("invalid_json");
+    expect(atLimit.issues[0]?.code).toBe("UDL1002");
 
     const error = capturedError(() =>
       parseUdl(new Uint8Array(UDL_LIMITS.maxSourceBytes + 1)),
     );
 
-    expect(error.issues).toEqual([
+    expect(error.issues.map(compactIssue)).toEqual([
       {
-        code: "resource_limit",
+        code: "UDL1004",
         message: `UDL source exceeds ${UDL_LIMITS.maxSourceBytes} bytes`,
         path: "$",
       },
@@ -72,7 +110,7 @@ describe("UDL grammar validation", () => {
     const admitted = validateUdl(atLimit);
     expect(
       !admitted.ok &&
-        admitted.issues.every((issue) => issue.code !== "resource_limit"),
+        admitted.issues.every((issue) => issue.code !== "UDL1004"),
     ).toBe(true);
 
     let nested: Record<string, unknown> = {};
@@ -86,7 +124,7 @@ describe("UDL grammar validation", () => {
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues[0]).toEqual(
       expect.objectContaining({
-        code: "resource_limit",
+        code: "UDL1004",
         message: `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
       }),
     );
@@ -98,7 +136,7 @@ describe("UDL grammar validation", () => {
     );
     expect(
       !admitted.ok &&
-        admitted.issues.every((issue) => issue.code !== "resource_limit"),
+        admitted.issues.every((issue) => issue.code !== "UDL1004"),
     ).toBe(true);
 
     const result = validateUdl(
@@ -108,7 +146,7 @@ describe("UDL grammar validation", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues[0]).toEqual({
-      code: "resource_limit",
+      code: "UDL1004",
       message: `UDL contains more than ${UDL_LIMITS.maxNodes} values`,
       path: "$",
     });
@@ -123,7 +161,7 @@ describe("UDL grammar validation", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues[0]).toEqual({
-      code: "resource_limit",
+      code: "UDL1004",
       message: "UDL contains more than 10000 values",
       path: "$[0]",
     });
@@ -133,8 +171,7 @@ describe("UDL grammar validation", () => {
     const shared = { value: "same JSON subtree" };
     const aliased = validateUdl({ first: shared, second: shared });
     expect(
-      !aliased.ok &&
-        aliased.issues.every((issue) => issue.code !== "resource_limit"),
+      !aliased.ok && aliased.issues.every((issue) => issue.code !== "UDL1004"),
     ).toBe(true);
 
     const cyclic: Record<string, unknown> = {};
@@ -143,7 +180,7 @@ describe("UDL grammar validation", () => {
     expect(cycle).toEqual({
       issues: [
         {
-          code: "resource_limit",
+          code: "UDL1004",
           message: "UDL must not contain object cycles",
           path: "$.self",
         },
@@ -198,7 +235,7 @@ describe("UDL grammar validation", () => {
       atLimit.every(
         (result) =>
           !result.ok &&
-          result.issues.every((issue) => issue.code !== "resource_limit"),
+          result.issues.every((issue) => issue.code !== "UDL1004"),
       ),
     ).toBe(true);
 
@@ -216,7 +253,7 @@ describe("UDL grammar validation", () => {
     ];
     expect(
       overLimit.every(
-        (result) => !result.ok && result.issues[0]?.code === "resource_limit",
+        (result) => !result.ok && result.issues[0]?.code === "UDL1004",
       ),
     ).toBe(true);
   });
@@ -225,9 +262,9 @@ describe("UDL grammar validation", () => {
     const invalidUtf8 = Uint8Array.from([0xc3, 0x28]);
     const error = capturedError(() => parseUdl(invalidUtf8));
 
-    expect(error.issues).toEqual([
+    expect(error.issues.map(compactIssue)).toEqual([
       {
-        code: "invalid_utf8",
+        code: "UDL1001",
         message: "UDL bytes must be valid UTF-8",
         path: "$",
       },
@@ -237,7 +274,7 @@ describe("UDL grammar validation", () => {
   test("reports malformed JSON separately from grammar failures", () => {
     const error = capturedError(() => parseUdl('{"udl":1'));
 
-    expect(error.issues[0]?.code).toBe("invalid_json");
+    expect(error.issues[0]?.code).toBe("UDL1002");
     expect(error.issues[0]?.path).toBe("$");
   });
 
@@ -256,61 +293,61 @@ describe("UDL grammar validation", () => {
 
   test("admits only bounded JSON Schema regexes and the sealed schema subset", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    document.nouns[0]!.fields.hostile = {
+    document.instruments[0]!.fields.hostile = {
       pattern: "^(a+)+$",
       type: "string",
     };
-    document.nouns[0]!.fields.extension = {
+    document.instruments[0]!.fields.extension = {
       oneOf: [{ type: "string" }],
     };
-    document.nouns[0]!.fields.tooLong = {
+    document.instruments[0]!.fields.tooLong = {
       pattern: `^${"a".repeat(319)}$`,
       type: "string",
     };
     // The two catastrophic-backtracking constructions: ambiguous alternation
     // groups in sequence, and variable-width quantifiers in sequence. Both are
     // a product of branch factors, and both are refused by the same budget.
-    document.nouns[0]!.fields.exponentialAlternation = {
+    document.instruments[0]!.fields.exponentialAlternation = {
       pattern: `^${"(?:a|aa)".repeat(13)}$`,
       type: "string",
     };
-    document.nouns[0]!.fields.quantifierProduct = {
+    document.instruments[0]!.fields.quantifierProduct = {
       pattern: "^a{0,64}a{0,64}b$",
       type: "string",
     };
-    document.nouns[0]!.fields.stackedQuantifier = {
+    document.instruments[0]!.fields.stackedQuantifier = {
       pattern: "^a{1,2}{1,2}$",
       type: "string",
     };
-    document.nouns[0]!.fields.unsupportedFormat = {
+    document.instruments[0]!.fields.unsupportedFormat = {
       format: "regex",
       type: "string",
     };
-    document.nouns[0]!.fields.invalidSyntax = {
+    document.instruments[0]!.fields.invalidSyntax = {
       pattern: "^[z-a]$",
       type: "string",
     };
-    document.nouns[0]!.fields.malformedEnum = {
+    document.instruments[0]!.fields.malformedEnum = {
       enum: "not-an-array",
       type: "string",
     };
-    document.nouns[0]!.fields.malformedItems = {
+    document.instruments[0]!.fields.malformedItems = {
       items: "not-a-schema",
       type: "array",
     };
-    document.nouns[0]!.fields.malformedFeeCollectionPort = {
+    document.instruments[0]!.fields.malformedFeeCollectionPort = {
       type: "string",
       "x-hyperscale-fee-collection-port": false,
     };
-    document.nouns[0]!.fields.negativeLength = {
+    document.instruments[0]!.fields.negativeLength = {
       maxLength: -1,
       type: "string",
     };
-    document.nouns[0]!.fields.topLevelAlternation = {
+    document.instruments[0]!.fields.topLevelAlternation = {
       pattern: "^foo|bar$",
       type: "string",
     };
-    document.nouns[0]!.fields.escapedTerminalAnchor = {
+    document.instruments[0]!.fields.escapedTerminalAnchor = {
       pattern: "^money\\$",
       type: "string",
     };
@@ -322,80 +359,80 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toEqual(
       expect.arrayContaining([
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema pattern may not contain unbounded quantifiers",
-          path: "$.nouns[0].fields.hostile.pattern",
+          path: "$.instruments[0].fields.hostile.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema keyword oneOf is not in the UDL schema subset",
-          path: "$.nouns[0].fields.extension.oneOf",
+          path: "$.instruments[0].fields.extension.oneOf",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema pattern exceeds 320 characters",
-          path: "$.nouns[0].fields.tooLong.pattern",
+          path: "$.instruments[0].fields.tooLong.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: `JSON Schema pattern may branch more than ${UDL_LIMITS.maxPatternPaths} ways`,
-          path: "$.nouns[0].fields.exponentialAlternation.pattern",
+          path: "$.instruments[0].fields.exponentialAlternation.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: `JSON Schema pattern may branch more than ${UDL_LIMITS.maxPatternPaths} ways`,
-          path: "$.nouns[0].fields.quantifierProduct.pattern",
+          path: "$.instruments[0].fields.quantifierProduct.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema pattern contains an ambiguous quantifier",
-          path: "$.nouns[0].fields.stackedQuantifier.pattern",
+          path: "$.instruments[0].fields.stackedQuantifier.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: expect.stringContaining(
             "JSON Schema format must be one of hyperscale-date, hyperscale-date-time, hyperscale-email, hyperscale-uri",
           ),
-          path: "$.nouns[0].fields.unsupportedFormat.format",
+          path: "$.instruments[0].fields.unsupportedFormat.format",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema pattern is not valid ECMAScript syntax",
-          path: "$.nouns[0].fields.invalidSyntax.pattern",
+          path: "$.instruments[0].fields.invalidSyntax.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema enum must be a non-empty array",
-          path: "$.nouns[0].fields.malformedEnum.enum",
+          path: "$.instruments[0].fields.malformedEnum.enum",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message: "JSON Schema items require an array schema and object value",
-          path: "$.nouns[0].fields.malformedItems.items",
+          path: "$.instruments[0].fields.malformedItems.items",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message:
             "x-hyperscale-fee-collection-port must be true on a string schema",
-          path: '$.nouns[0].fields.malformedFeeCollectionPort["x-hyperscale-fee-collection-port"]',
+          path: '$.instruments[0].fields.malformedFeeCollectionPort["x-hyperscale-fee-collection-port"]',
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message:
             "JSON Schema maxLength must be a non-negative integer on the matching schema type",
-          path: "$.nouns[0].fields.negativeLength.maxLength",
+          path: "$.instruments[0].fields.negativeLength.maxLength",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message:
             "JSON Schema pattern alternation must be enclosed in a group",
-          path: "$.nouns[0].fields.topLevelAlternation.pattern",
+          path: "$.instruments[0].fields.topLevelAlternation.pattern",
         },
         {
-          code: "invalid_semantics",
+          code: "UDL6001",
           message:
             "JSON Schema pattern must be explicitly anchored with ^ and $",
-          path: "$.nouns[0].fields.escapedTerminalAnchor.pattern",
+          path: "$.instruments[0].fields.escapedTerminalAnchor.pattern",
         },
       ]),
     );
@@ -403,8 +440,8 @@ describe("UDL grammar validation", () => {
 
   test("enforces sealed Hyperscale formats without regex fallbacks", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const policy = document.nouns[0];
-    const example = policy?.verbs.create?.examples?.[0];
+    const policy = document.instruments[0];
+    const example = policy?.actions.create?.examples?.[0];
     if (!policy || !example) throw new Error("policy create example missing");
     policy.fields.exactTime = {
       format: "hyperscale-date-time",
@@ -470,7 +507,7 @@ describe("UDL grammar validation", () => {
           message: expect.stringContaining(
             `String does not match format "${format}"`,
           ),
-          path: "$.nouns[0].verbs.create.examples[0].input",
+          path: "$.instruments[0].actions.create.examples[0].input",
         }),
       );
       if (field === "exactDate") {
@@ -504,7 +541,7 @@ describe("UDL grammar validation", () => {
     ];
     for (const retiredFormat of retiredFormats) {
       const document = structuredClone(await parsedFixture("protection.udl"));
-      document.nouns[0]!.fields.retiredFormat = {
+      document.instruments[0]!.fields.retiredFormat = {
         format: retiredFormat,
         type: "string",
       };
@@ -514,41 +551,41 @@ describe("UDL grammar validation", () => {
       expect(result.ok).toBe(false);
       if (result.ok) throw new Error("expected invalid UDL");
       expect(result.issues).toContainEqual({
-        code: "invalid_semantics",
+        code: "UDL6001",
         message:
           "JSON Schema format must be one of hyperscale-date, hyperscale-date-time, hyperscale-email, hyperscale-uri",
-        path: "$.nouns[0].fields.retiredFormat.format",
+        path: "$.instruments[0].fields.retiredFormat.format",
       });
     }
   });
 
   test("pins the regex branch budget at N and N+1", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    document.nouns[0]!.fields.patternLengthAtLimit = {
+    document.instruments[0]!.fields.patternLengthAtLimit = {
       pattern: `^${"a".repeat(UDL_LIMITS.maxPatternLength - 2)}$`,
       type: "string",
     };
     // 2^12 ways exactly. One more group doubles past the budget.
-    document.nouns[0]!.fields.branchesAtLimit = {
+    document.instruments[0]!.fields.branchesAtLimit = {
       pattern: `^${"(?:a|b)".repeat(12)}$`,
       type: "string",
     };
     // Fixed-width quantifiers never branch, so any number of them is admitted.
-    document.nouns[0]!.fields.fixedQuantifiers = {
+    document.instruments[0]!.fields.fixedQuantifiers = {
       pattern: `^${"a{1}".repeat(64)}$`,
       type: "string",
     };
-    document.nouns[0]!.fields.variableWidthAtLimit = {
+    document.instruments[0]!.fields.variableWidthAtLimit = {
       pattern: `^a{0,${UDL_LIMITS.maxStringLength}}$`,
       type: "string",
     };
     expect(validateUdl(document).ok).toBe(true);
 
-    document.nouns[0]!.fields.branchesOverLimit = {
+    document.instruments[0]!.fields.branchesOverLimit = {
       pattern: `^${"(?:a|b)".repeat(13)}$`,
       type: "string",
     };
-    document.nouns[0]!.fields.variableWidthOverLimit = {
+    document.instruments[0]!.fields.variableWidthOverLimit = {
       pattern: `^a{0,${UDL_LIMITS.maxStringLength + 1}}$`,
       type: "string",
     };
@@ -560,11 +597,11 @@ describe("UDL grammar validation", () => {
       expect.arrayContaining([
         expect.objectContaining({
           message: `JSON Schema pattern may branch more than ${UDL_LIMITS.maxPatternPaths} ways`,
-          path: "$.nouns[0].fields.branchesOverLimit.pattern",
+          path: "$.instruments[0].fields.branchesOverLimit.pattern",
         }),
         expect.objectContaining({
           message: `JSON Schema pattern quantifier upper bound must not exceed ${UDL_LIMITS.maxStringLength}`,
-          path: "$.nouns[0].fields.variableWidthOverLimit.pattern",
+          path: "$.instruments[0].fields.variableWidthOverLimit.pattern",
         }),
       ]),
     );
@@ -572,8 +609,8 @@ describe("UDL grammar validation", () => {
 
   test("refuses the backtracking bomb before any value is matched against it", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const policy = document.nouns[0];
-    const example = policy?.verbs.create?.examples?.[0];
+    const policy = document.instruments[0];
+    const example = policy?.actions.create?.examples?.[0];
     if (!policy || !example) throw new Error("policy create example missing");
     // 53 ambiguous alternations at exactly maxPatternLength, paired with the
     // input that makes every one of the 2^53 splits fail: the construction the
@@ -591,9 +628,9 @@ describe("UDL grammar validation", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL6001",
       message: `JSON Schema pattern may branch more than ${UDL_LIMITS.maxPatternPaths} ways`,
-      path: "$.nouns[0].fields.bomb.pattern",
+      path: "$.instruments[0].fields.bomb.pattern",
     });
     expect(elapsedMs).toBeLessThan(1_000);
   });
@@ -603,11 +640,12 @@ describe("UDL grammar validation", () => {
       gateField: (index: number) => string,
     ): Promise<ReturnType<typeof validateUdl>> => {
       const document = structuredClone(await parsedFixture("protection.udl"));
-      const policy = document.nouns[0];
-      if (!policy) throw new Error("policy noun missing");
+      const policy = document.instruments[0];
+      if (!policy) throw new Error("policy instrument missing");
       for (let index = 0; index < 46; index += 1) {
-        document.nouns.push({
-          description: `Filler noun ${index}.`,
+        document.instruments.push({
+          actionOrder: ["create"],
+          description: `Filler instrument ${index}.`,
           fields: {},
           id: `filler_${index}`,
           idPrefix: `f${String.fromCharCode(97 + Math.floor(index / 26))}${String.fromCharCode(97 + (index % 26))}`,
@@ -615,7 +653,7 @@ describe("UDL grammar validation", () => {
           required: [],
           summary: "Filler",
           title: `Filler ${index}`,
-          verbs: {
+          actions: {
             create: {
               description: "Creates a filler.",
               moves: [],
@@ -630,8 +668,8 @@ describe("UDL grammar validation", () => {
           pattern: "^clm_(sandbox|live)_[a-z0-9]{8,64}$",
           type: "string",
         };
-        policy.verbs[`gate_verb_${index}`] = {
-          description: "Gate verb.",
+        policy.actions[`gate_action_${index}`] = {
+          description: "Gate action.",
           moves: [],
           requiresRefs: [{ field: gateField(index), statuses: ["filed"] }],
           steps: [],
@@ -642,18 +680,18 @@ describe("UDL grammar validation", () => {
     };
 
     const overBudget = {
-      code: "resource_limit" as const,
-      message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer nouns, reference gates, or payout intents`,
-      path: "$.nouns",
+      code: "UDL1004" as const,
+      message: `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer instruments, reference gates, or payout intents`,
+      path: "$.instruments",
     };
 
-    // 46 gates on ONE field over 46 nouns is one answer per noun, not per gate.
+    // 46 gates on ONE field over 46 instruments is one answer per instrument, not per gate.
     const sharedField = await widened(() => "sharedGateId");
     expect(sharedField.ok).toBe(false);
     if (sharedField.ok) throw new Error("expected invalid UDL");
     expect(sharedField.issues).not.toContainEqual(overBudget);
 
-    // 46 distinct gate fields over 46 nouns is a genuine 2116-answer product,
+    // 46 distinct gate fields over 46 instruments is a genuine 2116-answer product,
     // and that is where validation refuses to keep paying.
     const distinctFields = await widened((index) => `gate${index}Id`);
     expect(distinctFields.ok).toBe(false);
@@ -661,42 +699,44 @@ describe("UDL grammar validation", () => {
     expect(distinctFields.issues).toEqual([overBudget]);
   });
 
-  test("requires one create verb and a transition for every other verb", async () => {
+  test("requires one create action and a transition for every other action", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    delete document.nouns[0]?.verbs.create;
-    delete document.nouns[0]?.lifecycle.transitions.expire;
+    delete document.instruments[0]?.actions.create;
+    delete document.instruments[0]?.lifecycle.transitions.expire;
     const result = validateUdl(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "every noun must declare the create verb",
-      path: "$.nouns[0].verbs",
+      code: "UDL3001",
+      message: "every instrument must declare the create action",
+      path: "$.instruments[0].actions",
     });
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "verb expire must declare a lifecycle transition",
-      path: "$.nouns[0].verbs.expire",
+      code: "UDL3001",
+      message: "action expire must declare a lifecycle transition",
+      path: "$.instruments[0].actions.expire",
     });
   });
 
-  test("checks lifecycle states and cross-noun gates", async () => {
+  test("checks lifecycle states and cross-instrument gates", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const listing = document.nouns.find((noun) => noun.id === "listing");
+    const listing = document.instruments.find(
+      (instrument) => instrument.id === "listing",
+    );
     if (!listing) throw new Error("listing fixture missing");
     listing.lifecycle.transitions.sell!.to = "missing";
-    listing.verbs.sell!.requiresRefs![0]!.statuses = ["missing"];
+    listing.actions.sell!.requiresRefs![0]!.statuses = ["missing"];
     const result = validateUdl(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining([
-        "$.nouns[0].lifecycle.transitions.sell.to",
-        "$.nouns[0].verbs.sell.requiresRefs[0].statuses[0]",
+        "$.instruments[0].lifecycle.transitions.sell.to",
+        "$.instruments[0].actions.sell.requiresRefs[0].statuses[0]",
       ]),
     );
   });
@@ -705,70 +745,76 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
     if (!escrow) throw new Error("escrow_order fixture missing");
-    const nounIndex = document.nouns.indexOf(escrow);
-    escrow.verbs.create!.requiresRefs![0]!.optional = true;
-    escrow.verbs.fund!.requiresRefs![0]!.optional = true;
+    const instrumentIndex = document.instruments.indexOf(escrow);
+    escrow.actions.create!.requiresRefs![0]!.optional = true;
+    escrow.actions.fund!.requiresRefs![0]!.optional = true;
 
     const held = validateUdl(document);
     expect(held.ok).toBe(false);
     if (held.ok) throw new Error("expected invalid UDL");
     expect(held.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL5001",
       message:
         "optional declares an opt-out on listingId, which required lists",
-      path: `$.nouns[${nounIndex}].verbs.fund.requiresRefs[0].optional`,
+      path: `$.instruments[${instrumentIndex}].actions.fund.requiresRefs[0].optional`,
     });
     expect(held.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL5001",
       message:
         "an optional reference can only bind optional fields; required lists amount",
-      path: `$.nouns[${nounIndex}].verbs.create.requiresRefs[0].bind.amount`,
+      path: `$.instruments[${instrumentIndex}].actions.create.requiresRefs[0].bind.amount`,
     });
 
-    delete escrow.verbs.create!.requiresRefs![0]!.optional;
+    delete escrow.actions.create!.requiresRefs![0]!.optional;
     escrow.required = escrow.required.filter((field) => field !== "listingId");
     expect(validateUdl(document).ok).toBe(true);
   });
 
   test("checks deadline fields, offsets, and exclusion with due", async () => {
     const document = structuredClone(await parsedFixture("insured-travel.udl"));
-    const flight = document.nouns.find((noun) => noun.id === "flight_booking");
-    if (!flight?.verbs.confirm?.deadline) {
+    const flight = document.instruments.find(
+      (instrument) => instrument.id === "flight_booking",
+    );
+    if (!flight?.actions.confirm?.deadline) {
       throw new Error("flight_booking confirm fixture missing deadline");
     }
-    flight.verbs.confirm.deadline.field = "missingField";
-    flight.verbs.confirm.deadline.offset = "P1M";
-    // A due verb also declaring a deadline would race itself: one facet fires
+    flight.actions.confirm.deadline.field = "missingField";
+    flight.actions.confirm.deadline.offset = "P1M";
+    // A due action also declaring a deadline would race itself: one facet fires
     // AT the moment, the other refuses AFTER it.
-    flight.verbs.expire!.deadline = { field: "holdExpiresAt" };
-    flight.verbs.expire!.due!.offset = "P1Y";
+    flight.actions.expire!.deadline = { field: "holdExpiresAt" };
+    flight.actions.expire!.due!.offset = "P1Y";
     const result = validateUdl(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(flight);
+    const instrumentIndex = document.instruments.indexOf(flight);
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining([
-        `$.nouns[${nounIndex}].verbs.confirm.deadline.field`,
-        `$.nouns[${nounIndex}].verbs.confirm.deadline.offset`,
-        `$.nouns[${nounIndex}].verbs.expire.deadline`,
-        `$.nouns[${nounIndex}].verbs.expire.due.offset`,
+        `$.instruments[${instrumentIndex}].actions.confirm.deadline.field`,
+        `$.instruments[${instrumentIndex}].actions.confirm.deadline.offset`,
+        `$.instruments[${instrumentIndex}].actions.expire.deadline`,
+        `$.instruments[${instrumentIndex}].actions.expire.due.offset`,
       ]),
     );
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "a verb cannot declare both a due condition and a deadline",
-      path: `$.nouns[${nounIndex}].verbs.expire.deadline`,
+      code: "UDL3001",
+      message: "a action cannot declare both a due condition and a deadline",
+      path: `$.instruments[${instrumentIndex}].actions.expire.deadline`,
     });
   });
 
-  test("requires a due verb to leave every source state", async () => {
+  test("requires a due action to leave every source state", async () => {
     const document = structuredClone(await parsedFixture("insured-travel.udl"));
-    const flight = document.nouns.find((noun) => noun.id === "flight_booking");
+    const flight = document.instruments.find(
+      (instrument) => instrument.id === "flight_booking",
+    );
     const transition = flight?.lifecycle.transitions.expire;
-    if (!flight?.verbs.expire?.due || !transition) {
+    if (!flight?.actions.expire?.due || !transition) {
       throw new Error("flight_booking expire fixture missing due transition");
     }
     transition.to = transition.from[0]!;
@@ -777,56 +823,58 @@ describe("UDL grammar validation", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(flight);
+    const instrumentIndex = document.instruments.indexOf(flight);
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL3001",
       message:
-        "a due verb must leave every source state so the maintenance loop fires its anchor exactly once",
-      path: `$.nouns[${nounIndex}].verbs.expire.due`,
+        "a due action must leave every source state so the maintenance loop fires its anchor exactly once",
+      path: `$.instruments[${instrumentIndex}].actions.expire.due`,
     });
   });
 
-  test("keeps public intent distinct from verb identity and private on due verbs", async () => {
+  test("keeps public action distinct from action identity and private on due actions", async () => {
     const document = structuredClone(await parsedFixture("cards.udl"));
-    const authorization = document.nouns.find(
-      (noun) => noun.id === "card_authorization",
+    const authorization = document.instruments.find(
+      (instrument) => instrument.id === "card_authorization",
     );
-    if (!authorization?.verbs.approve || !authorization.verbs.expire?.due) {
-      throw new Error("card authorization public-intent fixture missing");
+    if (!authorization?.actions.approve || !authorization.actions.expire?.due) {
+      throw new Error("card authorization public-action fixture missing");
     }
-    authorization.verbs.approve.publicIntent = "approveCardPayment";
+    authorization.actions.approve.publicAction = "approveCardPayment";
     expect(validateUdl(document).ok).toBe(true);
     expect(authorization.lifecycle.transitions.approve).toBeDefined();
 
-    authorization.verbs.expire.publicIntent = "expireCardPayment";
+    authorization.actions.expire.publicAction = "expireCardPayment";
     const result = validateUdl(document);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(authorization);
+    const instrumentIndex = document.instruments.indexOf(authorization);
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "a system due verb cannot declare a public intent",
-      path: `$.nouns[${nounIndex}].verbs.expire.publicIntent`,
+      code: "UDL3001",
+      message: "a system due action cannot declare a public action",
+      path: `$.instruments[${instrumentIndex}].actions.expire.publicAction`,
     });
   });
 
   test("requires computed time anchors to be immutable, positive, and dominant", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const policy = document.nouns.find((noun) => noun.id === "policy");
-    if (!policy?.verbs.bind || !policy.verbs.activate?.due) {
+    const policy = document.instruments.find(
+      (instrument) => instrument.id === "policy",
+    );
+    if (!policy?.actions.bind || !policy.actions.activate?.due) {
       throw new Error("policy timing fixture missing");
     }
-    const nounIndex = document.nouns.indexOf(policy);
+    const instrumentIndex = document.instruments.indexOf(policy);
     policy.fields.activationAt = {
       format: "hyperscale-date-time",
       type: "string",
     };
-    policy.verbs.bind.setsAt = { field: "activationAt", offset: "PT1H" };
-    policy.verbs.activate.due.field = "activationAt";
+    policy.actions.bind.setsAt = { field: "activationAt", offset: "PT1H" };
+    policy.actions.activate.due.field = "activationAt";
 
     expect(validateUdl(document).ok).toBe(true);
 
-    const createExample = policy.verbs.create?.examples?.[0];
+    const createExample = policy.actions.create?.examples?.[0];
     if (!createExample) throw new Error("policy create example missing");
     createExample.input.activationAt = "2026-07-23T12:00:00.000Z";
     const callerAuthoredAnchor = validateUdl(document);
@@ -834,19 +882,19 @@ describe("UDL grammar validation", () => {
     if (callerAuthoredAnchor.ok) throw new Error("expected invalid UDL");
     expect(callerAuthoredAnchor.issues).toContainEqual(
       expect.objectContaining({
-        path: `$.nouns[${nounIndex}].verbs.create.examples[0].input`,
+        path: `$.instruments[${instrumentIndex}].actions.create.examples[0].input`,
       }),
     );
     delete createExample.input.activationAt;
 
     policy.required.push("activationAt");
     policy.update = { fields: ["activationAt"], states: ["quoted"] };
-    policy.verbs.bind.setsAt.offset = "PT0S";
-    policy.verbs.preview!.setsAt = {
+    policy.actions.bind.setsAt.offset = "PT0S";
+    policy.actions.preview!.setsAt = {
       field: "activationAt",
       offset: "PT30M",
     };
-    policy.verbs.create!.setsAt = {
+    policy.actions.create!.setsAt = {
       field: "activationAt",
       offset: "PT15M",
     };
@@ -854,7 +902,7 @@ describe("UDL grammar validation", () => {
       from: ["quoted"],
       to: "bound",
     };
-    policy.verbs.bypass = {
+    policy.actions.bypass = {
       moves: [],
       steps: [],
       summary: "Bypass the writer",
@@ -867,37 +915,37 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toEqual(
       expect.arrayContaining([
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message: "setsAt target must be optional at create",
-          path: `$.nouns[${nounIndex}].verbs.bind.setsAt.field`,
+          path: `$.instruments[${instrumentIndex}].actions.bind.setsAt.field`,
         },
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message: "setsAt target cannot also be mutable",
-          path: `$.nouns[${nounIndex}].verbs.bind.setsAt.field`,
+          path: `$.instruments[${instrumentIndex}].actions.bind.setsAt.field`,
         },
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message: "setsAt.offset must be a positive fixed ISO-8601 duration",
-          path: `$.nouns[${nounIndex}].verbs.bind.setsAt.offset`,
+          path: `$.instruments[${instrumentIndex}].actions.bind.setsAt.offset`,
         },
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message:
-            "verb activate can read activationAt before writers bind or create or preview",
-          path: `$.nouns[${nounIndex}].verbs.activate`,
+            "action activate can read activationAt before writers bind or create or preview",
+          path: `$.instruments[${instrumentIndex}].actions.activate`,
         },
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message:
             "activationAt has multiple writers without one shared one-way destination",
-          path: `$.nouns[${nounIndex}].verbs.preview.setsAt.field`,
+          path: `$.instruments[${instrumentIndex}].actions.preview.setsAt.field`,
         },
         {
-          code: "invalid_semantics",
+          code: "UDL3001",
           message:
             "setsAt requires a lifecycle transition and cannot run on create",
-          path: `$.nouns[${nounIndex}].verbs.create.setsAt`,
+          path: `$.instruments[${instrumentIndex}].actions.create.setsAt`,
         },
       ]),
     );
@@ -907,15 +955,17 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const listing = document.nouns.find((noun) => noun.id === "listing");
-    if (!listing?.verbs.reserve) throw new Error("listing fixture missing");
-    listing.verbs.reserve.steps = [
+    const listing = document.instruments.find(
+      (instrument) => instrument.id === "listing",
+    );
+    if (!listing?.actions.reserve) throw new Error("listing fixture missing");
+    listing.actions.reserve.steps = [
       {
         operation: "account.freeze",
         bind: {
           accountId: { from: "const", value: "acct_live_0000000000000000" },
           amount: { from: "const", value: "100" },
-          reason: { from: "const", value: "Frozen by verb" },
+          reason: { from: "const", value: "Frozen by action" },
         },
       },
     ];
@@ -923,53 +973,173 @@ describe("UDL grammar validation", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(listing);
+    const instrumentIndex = document.instruments.indexOf(listing);
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL5008",
       message: "account.freeze must bind accountId from an instance path",
-      path: `$.nouns[${nounIndex}].verbs.reserve.steps[0].bind.accountId`,
+      path: `$.instruments[${instrumentIndex}].actions.reserve.steps[0].bind.accountId`,
     });
     expect(result.issues).toContainEqual({
-      code: "invalid_semantics",
+      code: "UDL5008",
       message: "account.freeze must not bind amount",
-      path: `$.nouns[${nounIndex}].verbs.reserve.steps[0].bind.amount`,
+      path: `$.instruments[${instrumentIndex}].actions.reserve.steps[0].bind.amount`,
     });
   });
 
-  test("rejects earnable on refund-shaped unwind verbs", async () => {
+  test("rejects earnable on both halves of a quote-commit pair", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    if (!escrow?.unwind) throw new Error("escrow_order fixture missing unwind");
-    // The release verb is legitimately earnable; the unwind confirm verb
-    // (refund) moves money BACK and must never fund a workspace earn rate.
-    escrow.verbs[escrow.unwind.confirm]!.earnable = true;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    if (!escrow?.actions.quote?.quote) {
+      throw new Error("escrow_order fixture missing quote");
+    }
+    // The release action is legitimately earnable; the committing action
+    // (refund) moves money BACK and must never fund a product earn rate.
+    escrow.actions.refund!.earnable = true;
     const result = validateUdl(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(escrow);
+    const instrumentIndex = document.instruments.indexOf(escrow);
     expect(result.issues).toEqual([
       {
-        code: "invalid_semantics",
+        code: "UDL5006",
         message:
-          "unwind confirm verb refund is refund-shaped and cannot be earnable",
-        path: `$.nouns[${nounIndex}].verbs.refund.earnable`,
+          "commit action refund spends a quoted refund and cannot be earnable",
+        path: `$.instruments[${instrumentIndex}].actions.refund.earnable`,
       },
     ]);
+
+    // The quoting half prices that same refund, so it is barred too.
+    delete escrow.actions.refund!.earnable;
+    escrow.actions.quote.earnable = true;
+    const quoting = validateUdl(document);
+    expect(quoting.ok).toBe(false);
+    if (quoting.ok) throw new Error("expected invalid UDL");
+    expect(quoting.issues).toContainEqual({
+      code: "UDL5006",
+      message: "quoting action quote prices a refund and cannot be earnable",
+      path: `$.instruments[${instrumentIndex}].actions.quote.earnable`,
+    });
   });
 
-  test("requires a stored date-time anchor for before-relative penalties", async () => {
+  test("refuses a freeze set missing the base or the net destination", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    if (!escrow?.unwind) throw new Error("escrow_order fixture missing unwind");
-    const nounIndex = document.nouns.indexOf(escrow);
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const quote = escrow?.actions.quote?.quote;
+    if (!escrow || !quote) {
+      throw new Error("escrow_order fixture missing quote");
+    }
+    const instrumentIndex = document.instruments.indexOf(escrow);
 
-    escrow.unwind.beforeField = "fundBy";
+    quote.fixes = ["buyerAccountId"];
+    const withoutBase = validateUdl(document);
+    expect(withoutBase.ok).toBe(false);
+    if (withoutBase.ok) throw new Error("expected invalid UDL");
+    expect(withoutBase.issues).toContainEqual({
+      code: "UDL5006",
+      message: "quoting action quote must freeze its base field amount",
+      path: `$.instruments[${instrumentIndex}].actions.quote.quote.baseField`,
+    });
+
+    quote.fixes = ["amount"];
+    const withoutDestination = validateUdl(document);
+    expect(withoutDestination.ok).toBe(false);
+    if (withoutDestination.ok) throw new Error("expected invalid UDL");
+    expect(withoutDestination.issues).toContainEqual({
+      code: "UDL5006",
+      message:
+        "quoting action quote must freeze its net destination field buyerAccountId",
+      path: `$.instruments[${instrumentIndex}].actions.quote.quote.netDestinationField`,
+    });
+
+    quote.fixes = ["amount", "buyerAccountId"];
+    expect(validateUdl(document).ok).toBe(true);
+  });
+
+  test("refuses a quoting action that writes a field it froze", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const quoting = escrow?.actions.quote;
+    if (!escrow || !quoting?.quote) {
+      throw new Error("escrow_order fixture missing quote");
+    }
+    const instrumentIndex = document.instruments.indexOf(escrow);
+
+    // `memo` is already an updatable field on this instrument, so the only new
+    // fact is that the quote froze it.
+    quoting.updates = ["memo"];
+    quoting.quote.fixes = [...quoting.quote.fixes, "memo"];
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual({
+      code: "UDL5006",
+      message:
+        "quoting action quote freezes memo and writes it in the same action",
+      path: `$.instruments[${instrumentIndex}].actions.quote.updates`,
+    });
+  });
+
+  test("refuses a charge ref that collides with the offer's own refs", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const quote = escrow?.actions.quote?.quote;
+    if (!escrow || !quote) {
+      throw new Error("escrow_order fixture missing quote");
+    }
+    const instrumentIndex = document.instruments.indexOf(escrow);
+
+    // The machinery seeds `<netRef>Frozen` and `<netRef>ExpiresAt`. An author
+    // who names the charge either one would have the fingerprint overwrite the
+    // penalty, and core would seed four keys where the grammar counted two.
+    quote.chargeRef = `${quote.netRef}Frozen`;
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual({
+      code: "UDL5006",
+      message:
+        "quote ref unwindRefundFrozen is seeded twice: quote charge and quote frozen fingerprint",
+      path: `$.instruments[${instrumentIndex}].actions.quote.quote.netRef`,
+    });
+  });
+
+  test("requires a stored date-time anchor for before-relative charges", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const quote = escrow?.actions.quote?.quote;
+    if (!escrow || !quote)
+      throw new Error("escrow_order fixture missing quote");
+    const instrumentIndex = document.instruments.indexOf(escrow);
+    const anchorPath = `$.instruments[${instrumentIndex}].actions.quote.quote.anchorField`;
+
+    quote.anchorField = "fundBy";
     escrow.required.push("fundBy");
+    // A required fundBy makes the existing due action an unconditional exit
+    // from created, so the contract no longer permits a caller-parked marker.
+    if (escrow.callerParkedStates) {
+      delete escrow.callerParkedStates.created;
+    }
     expect(validateUdl(document).ok).toBe(true);
 
     escrow.required = escrow.required.filter((field) => field !== "fundBy");
@@ -977,54 +1147,184 @@ describe("UDL grammar validation", () => {
     expect(optional.ok).toBe(false);
     if (optional.ok) throw new Error("expected invalid UDL");
     expect(optional.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "beforeField must be required",
-      path: `$.nouns[${nounIndex}].unwind.beforeField`,
+      code: "UDL5006",
+      message: "anchorField must be required",
+      path: anchorPath,
     });
 
     escrow.required.push("fundBy");
-    escrow.unwind.beforeField = "amount";
+    quote.anchorField = "amount";
     const money = validateUdl(document);
     expect(money.ok).toBe(false);
     if (money.ok) throw new Error("expected invalid UDL");
     expect(money.issues).toContainEqual({
-      code: "invalid_semantics",
-      message: "beforeField must be a date-time field",
-      path: `$.nouns[${nounIndex}].unwind.beforeField`,
+      code: "UDL5006",
+      message: "anchorField must be a date-time field",
+      path: anchorPath,
     });
   });
 
-  test("rejects unfixed unwind windows and unfunded refund bases", async () => {
+  test("holds the offer to a fixed life and one committing action", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const quote = escrow?.actions.quote?.quote;
+    if (!escrow || !quote)
+      throw new Error("escrow_order fixture missing quote");
+    const instrumentIndex = document.instruments.indexOf(escrow);
+    const quoteBase = `$.instruments[${instrumentIndex}].actions.quote.quote`;
+
+    // A month is not a fixed number of milliseconds, so an offer priced
+    // against it has no computable deadline.
+    quote.expires = { offset: "P1M" };
+    const calendar = validateUdl(document);
+    expect(calendar.ok).toBe(false);
+    if (calendar.ok) throw new Error("expected invalid UDL");
+    expect(calendar.issues).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("fixed ISO-8601 duration"),
+        path: `${quoteBase}.expires.offset`,
+      }),
+    );
+
+    // A stored deadline is the other admitted form, and it has to be a
+    // date-time the caller always supplies.
+    quote.expires = { field: "fundBy" };
+    const optionalDeadline = validateUdl(document);
+    expect(optionalDeadline.ok).toBe(false);
+    if (optionalDeadline.ok) throw new Error("expected invalid UDL");
+    expect(optionalDeadline.issues).toContainEqual({
+      code: "UDL5006",
+      message: "the offer's deadline field must be required",
+      path: `${quoteBase}.expires.field`,
+    });
+
+    escrow.required.push("fundBy");
+    if (escrow.callerParkedStates) delete escrow.callerParkedStates.created;
+    expect(validateUdl(document).ok).toBe(true);
+
+    // Two spenders would let the same offer be consumed twice.
+    escrow.lifecycle.transitions.refund_again = {
+      from: ["refund_quoted"],
+      to: "refunded",
+    };
+    escrow.actions.refund_again = structuredClone(escrow.actions.refund!);
+    escrow.actionOrder.splice(
+      escrow.actionOrder.indexOf("refund") + 1,
+      0,
+      "refund_again",
+    );
+    const twoCommits = validateUdl(document);
+    expect(twoCommits.ok).toBe(false);
+    if (twoCommits.ok) throw new Error("expected invalid UDL");
+    expect(twoCommits.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "quoting action quote must be committed by exactly one action, not 2",
+        path: quoteBase,
+      }),
+    );
+  });
+
+  test("rejects check kinds without a tenant-gateable evidence profile", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    if (!escrow) throw new Error("escrow_order fixture missing");
+    const instrumentIndex = document.instruments.indexOf(escrow);
+
+    escrow.actions.create!.requiresChecks = [
+      {
+        checkKind: "identity_verification",
+        family: "national_identity",
+        statuses: ["completed"],
+        subjectField: "listingId",
+      },
+    ];
+    Object.assign(escrow.actions.create!.requiresChecks[0]!, {
+      checkKind: "made_up",
+    });
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual({
+      code: "UDL1003",
+      message: "Invalid input",
+      path: `$.instruments[${instrumentIndex}].actions.create.requiresChecks[0]`,
+    });
+  });
+
+  test("rejects statuses outside the check evidence profile", async () => {
+    const document = structuredClone(
+      await parsedFixture("commerce-escrow.udl"),
+    );
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    if (!escrow) throw new Error("escrow_order fixture missing");
+    const instrumentIndex = document.instruments.indexOf(escrow);
+
+    escrow.actions.create!.requiresChecks = [
+      {
+        checkKind: "identity_verification",
+        family: "national_identity",
+        statuses: ["completed"],
+        subjectField: "listingId",
+      },
+    ];
+    Object.assign(escrow.actions.create!.requiresChecks[0]!, {
+      statuses: ["made_up"],
+    });
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual({
+      code: "UDL1003",
+      message: "Invalid input",
+      path: `$.instruments[${instrumentIndex}].actions.create.requiresChecks[0]`,
+    });
+  });
+
+  test("rejects unfixed charge windows and unfunded refund bases", async () => {
     const calendarDocument = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const calendarEscrow = calendarDocument.nouns.find(
-      (noun) => noun.id === "escrow_order",
+    const calendarEscrow = calendarDocument.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
     );
-    if (!calendarEscrow?.unwind) {
-      throw new Error("escrow_order fixture missing unwind");
+    const calendarQuote = calendarEscrow?.actions.quote?.quote;
+    if (!calendarQuote) {
+      throw new Error("escrow_order fixture missing quote");
     }
-    calendarEscrow.unwind.penalty = [{ bps: 2500, withinOffset: "P1M" }];
+    calendarQuote.charges = [{ bps: 2500, withinOffset: "P1M" }];
     const calendar = validateUdl(calendarDocument);
     expect(calendar.ok).toBe(false);
     if (calendar.ok) throw new Error("expected invalid UDL");
     expect(calendar.issues).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining("fixed ISO-8601 duration"),
-        path: expect.stringContaining("unwind.penalty[0].withinOffset"),
+        path: expect.stringContaining("quote.charges[0].withinOffset"),
       }),
     );
 
     const unfundedDocument = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const unfundedEscrow = unfundedDocument.nouns.find(
-      (noun) => noun.id === "escrow_order",
+    const unfundedEscrow = unfundedDocument.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
     );
-    if (!unfundedEscrow?.unwind || !unfundedEscrow.verbs.fund) {
+    if (!unfundedEscrow?.actions.quote?.quote || !unfundedEscrow.actions.fund) {
       throw new Error("escrow_order funding fixture missing");
     }
-    unfundedEscrow.verbs.fund.moves = [];
+    unfundedEscrow.actions.fund.moves = [];
     const unfunded = validateUdl(unfundedDocument);
     expect(unfunded.ok).toBe(false);
     if (unfunded.ok) throw new Error("expected invalid UDL");
@@ -1033,21 +1333,23 @@ describe("UDL grammar validation", () => {
         message: expect.stringContaining(
           "cannot refund fields.amount from refs.escrowAccountId",
         ),
-        path: expect.stringContaining("verbs.refund.moves[0]"),
+        path: expect.stringContaining("actions.refund.moves[0]"),
       }),
     );
 
     const misplacedSourceDocument = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const misplacedSourceEscrow = misplacedSourceDocument.nouns.find(
-      (noun) => noun.id === "escrow_order",
+    const misplacedSourceEscrow = misplacedSourceDocument.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
     );
-    if (!misplacedSourceEscrow?.unwind) {
-      throw new Error("escrow_order unwind fixture missing");
+    const committing = Object.values(misplacedSourceEscrow?.actions ?? {}).find(
+      (action) => action.commit,
+    );
+    if (!committing) {
+      throw new Error("escrow_order quote-commit fixture missing");
     }
-    const confirm =
-      misplacedSourceEscrow.verbs[misplacedSourceEscrow.unwind.confirm];
+    const confirm = committing;
     const refund = confirm?.moves.find(
       (move) => move.operation === "internal_transfer.create",
     );
@@ -1067,15 +1369,19 @@ describe("UDL grammar validation", () => {
     if (misplaced.ok) throw new Error("expected invalid UDL");
     expect(misplaced.issues).toContainEqual(
       expect.objectContaining({
-        message: expect.stringContaining("source comes from the noun instance"),
-        path: expect.stringContaining("verbs.refund.moves"),
+        message: expect.stringContaining(
+          "source comes from the instrument instance",
+        ),
+        path: expect.stringContaining("actions.refund.moves"),
       }),
     );
   });
 
   test("rejects lifecycle states unreachable from create", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const claim = document.nouns.find((noun) => noun.id === "claim");
+    const claim = document.instruments.find(
+      (instrument) => instrument.id === "claim",
+    );
     if (!claim) throw new Error("claim fixture missing");
     claim.lifecycle.transitions.assess!.from = ["paid"];
     const result = validateUdl(document);
@@ -1086,22 +1392,24 @@ describe("UDL grammar validation", () => {
       expect.arrayContaining([
         expect.objectContaining({
           message: "lifecycle state assessed is unreachable from filed",
-          path: "$.nouns[1].lifecycle.states[1]",
+          path: "$.instruments[1].lifecycle.states[1]",
         }),
       ]),
     );
   });
 
-  test("rejects a noun-owned account debit reachable before funding", async () => {
+  test("rejects a instrument-owned account debit reachable before funding", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release?.moves[0];
-    if (!escrow?.verbs.cancel || !release) {
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release?.moves[0];
+    if (!escrow?.actions.cancel || !release) {
       throw new Error("escrow_order cancel or release fixture missing");
     }
-    escrow.verbs.cancel.moves = [
+    escrow.actions.cancel.moves = [
       {
         ...structuredClone(release),
         bind: {
@@ -1118,12 +1426,12 @@ describe("UDL grammar validation", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
-    const nounIndex = document.nouns.indexOf(escrow);
+    const instrumentIndex = document.instruments.indexOf(escrow);
     expect(result.issues).toContainEqual(
       expect.objectContaining({
-        code: "invalid_semantics",
-        message: "verb cancel can debit unfunded refs.escrowAccountId",
-        path: `$.nouns[${nounIndex}].verbs.cancel.moves[0].bind.sourceAccountId`,
+        code: "UDL4001",
+        message: "action cancel can debit unfunded refs.escrowAccountId",
+        path: `$.instruments[${instrumentIndex}].actions.cancel.moves[0].bind.sourceAccountId`,
       }),
     );
   });
@@ -1132,13 +1440,15 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
     if (!escrow) throw new Error("escrow_order fixture missing");
     escrow.lifecycle.transitions.skip_fund = {
       from: ["created"],
       to: "funded",
     };
-    escrow.verbs.skip_fund = {
+    escrow.actions.skip_fund = {
       moves: [],
       summary: "Enter the funded state without moving money.",
       steps: [],
@@ -1151,10 +1461,10 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining(
-          "verb release can debit unfunded refs.escrowAccountId",
+          "action release can debit unfunded refs.escrowAccountId",
         ),
         path: expect.stringContaining(
-          "verbs.release.moves[0].bind.sourceAccountId",
+          "actions.release.moves[0].bind.sourceAccountId",
         ),
       }),
     );
@@ -1164,15 +1474,17 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release;
     if (!escrow || !release) throw new Error("escrow_order release missing");
     escrow.lifecycle.states.push("released_again");
     escrow.lifecycle.transitions.release_again = {
       from: ["released"],
       to: "released_again",
     };
-    escrow.verbs.release_again = structuredClone(release);
+    escrow.actions.release_again = structuredClone(release);
 
     const result = validateUdl(document);
 
@@ -1181,10 +1493,10 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining(
-          "verb release_again can debit unfunded refs.escrowAccountId",
+          "action release_again can debit unfunded refs.escrowAccountId",
         ),
         path: expect.stringContaining(
-          "verbs.release_again.moves[0].bind.sourceAccountId",
+          "actions.release_again.moves[0].bind.sourceAccountId",
         ),
       }),
     );
@@ -1194,8 +1506,10 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release;
     if (!escrow || !release) throw new Error("escrow_order release missing");
     release.moves = [];
     delete release.earnable;
@@ -1217,14 +1531,16 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
     if (!escrow) throw new Error("escrow_order fixture missing");
     escrow.lifecycle.states.push("drained");
     escrow.lifecycle.transitions.drain = {
       from: ["penalty_collected"],
       to: "drained",
     };
-    escrow.verbs.drain = {
+    escrow.actions.drain = {
       summary: "Drain the emptied escrow account.",
       steps: [],
       moves: [
@@ -1253,33 +1569,33 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining(
-          "verb drain can debit unfunded refs.escrowAccountId",
+          "action drain can debit unfunded refs.escrowAccountId",
         ),
         path: expect.stringContaining(
-          "verbs.drain.moves[0].bind.sourceAccountId",
+          "actions.drain.moves[0].bind.sourceAccountId",
         ),
       }),
     );
   });
 
   test("accepts partitioned escrow funding drained piece by piece on every exit", () => {
-    const issues = analyzeNounFinance(partitionedEscrowNoun());
+    const issues = analyzeInstrumentFinance(partitionedEscrowInstrument());
 
     expect(issues).toEqual([]);
   });
 
   test("rejects a partitioned escrow exit that strands one funded piece", () => {
-    const noun = partitionedEscrowNoun();
-    const verbs = { ...noun.verbs };
-    delete (verbs as Record<string, unknown>).keep_piece_b;
-    const transitions = { ...noun.lifecycle.transitions };
+    const instrument = partitionedEscrowInstrument();
+    const actions = { ...instrument.actions };
+    delete (actions as Record<string, unknown>).keep_piece_b;
+    const transitions = { ...instrument.lifecycle.transitions };
     delete (transitions as Record<string, unknown>).keep_piece_b;
     transitions.refund_piece_a = { from: ["cancel_started"], to: "canceled" };
 
-    const issues = analyzeNounFinance({
-      ...noun,
-      lifecycle: { ...noun.lifecycle, transitions },
-      verbs,
+    const issues = analyzeInstrumentFinance({
+      ...instrument,
+      lifecycle: { ...instrument.lifecycle, transitions },
+      actions,
     });
 
     expect(issues).toContainEqual(
@@ -1292,7 +1608,7 @@ describe("UDL grammar validation", () => {
   });
 
   test("stops financial graph exploration at the path-variant budget", () => {
-    const issues = analyzeNounFinance(twoAccountBranchingNoun(7));
+    const issues = analyzeInstrumentFinance(twoAccountBranchingInstrument(7));
 
     expect(issues).toContainEqual({
       message: "financial analysis exceeds 256 distinct path variants",
@@ -1301,11 +1617,11 @@ describe("UDL grammar validation", () => {
   });
 
   test("rejects financial graphs over the lifecycle-state budget", () => {
-    const noun = minimalFinancialNoun();
-    const issues = analyzeNounFinance({
-      ...noun,
+    const instrument = minimalFinancialInstrument();
+    const issues = analyzeInstrumentFinance({
+      ...instrument,
       lifecycle: {
-        ...noun.lifecycle,
+        ...instrument.lifecycle,
         states: Array.from({ length: 33 }, (_, index) => `state_${index}`),
       },
     });
@@ -1318,8 +1634,8 @@ describe("UDL grammar validation", () => {
     ]);
   });
 
-  test("charges every financial effect to one noun-wide work budget", () => {
-    const issues = analyzeNounFinance(twoAccountWorkBudgetNoun());
+  test("charges every financial effect to one instrument-wide work budget", () => {
+    const issues = analyzeInstrumentFinance(twoAccountWorkBudgetInstrument());
 
     expect(issues).toContainEqual({
       message: "financial analysis exceeds 4096 deterministic work units",
@@ -1328,7 +1644,7 @@ describe("UDL grammar validation", () => {
   });
 
   test("pins every static finance graph budget at N and N+1", () => {
-    const base = minimalFinancialNoun();
+    const base = minimalFinancialInstrument();
     const step = { operation: "account.freeze", bind: {} } as const;
     const cases = [
       {
@@ -1363,7 +1679,7 @@ describe("UDL grammar validation", () => {
               Array.from(
                 { length: UDL_LIMITS.financeTransitions },
                 (_, index) => [
-                  `verb_${index}`,
+                  `action_${index}`,
                   { from: ["state"], to: "state" },
                 ],
               ),
@@ -1378,7 +1694,7 @@ describe("UDL grammar validation", () => {
               Array.from(
                 { length: UDL_LIMITS.financeTransitions + 1 },
                 (_, index) => [
-                  `verb_${index}`,
+                  `action_${index}`,
                   { from: ["state"], to: "state" },
                 ],
               ),
@@ -1423,28 +1739,28 @@ describe("UDL grammar validation", () => {
       {
         exact: {
           ...base,
-          verbs: Object.fromEntries(
-            Array.from({ length: UDL_LIMITS.financeVerbs }, (_, index) => [
-              `verb_${index}`,
+          actions: Object.fromEntries(
+            Array.from({ length: UDL_LIMITS.financeActions }, (_, index) => [
+              `action_${index}`,
               { steps: [] },
             ]),
           ),
         },
         over: {
           ...base,
-          verbs: Object.fromEntries(
-            Array.from({ length: UDL_LIMITS.financeVerbs + 1 }, (_, index) => [
-              `verb_${index}`,
-              { steps: [] },
-            ]),
+          actions: Object.fromEntries(
+            Array.from(
+              { length: UDL_LIMITS.financeActions + 1 },
+              (_, index) => [`action_${index}`, { steps: [] }],
+            ),
           ),
         },
-        message: `financial analysis exceeds ${UDL_LIMITS.financeVerbs} verbs`,
+        message: `financial analysis exceeds ${UDL_LIMITS.financeActions} actions`,
       },
       {
         exact: {
           ...base,
-          verbs: {
+          actions: {
             create: {
               steps: Array.from(
                 { length: UDL_LIMITS.financeEffects },
@@ -1455,7 +1771,7 @@ describe("UDL grammar validation", () => {
         },
         over: {
           ...base,
-          verbs: {
+          actions: {
             create: {
               steps: Array.from(
                 { length: UDL_LIMITS.financeEffects + 1 },
@@ -1474,20 +1790,22 @@ describe("UDL grammar validation", () => {
     }
 
     expect(
-      analyzeNounFinance(trackedAccountsNoun(UDL_LIMITS.financeAccounts)).some(
-        (issue) => issue.message.includes("tracked accounts"),
-      ),
+      analyzeInstrumentFinance(
+        trackedAccountsInstrument(UDL_LIMITS.financeAccounts),
+      ).some((issue) => issue.message.includes("tracked accounts")),
     ).toBe(false);
     expect(
-      analyzeNounFinance(trackedAccountsNoun(UDL_LIMITS.financeAccounts + 1)),
+      analyzeInstrumentFinance(
+        trackedAccountsInstrument(UDL_LIMITS.financeAccounts + 1),
+      ),
     ).toContainEqual({
       message: `financial analysis exceeds ${UDL_LIMITS.financeAccounts} tracked accounts`,
-      path: ["verbs"],
+      path: ["actions"],
     });
   });
 
   test("leaves caller-sized balance limits to runtime balance checks", () => {
-    const issues = analyzeNounFinance({
+    const issues = analyzeInstrumentFinance({
       lifecycle: {
         initial: "created",
         states: ["created", "active", "closed"],
@@ -1498,12 +1816,12 @@ describe("UDL grammar validation", () => {
           close: { from: ["active"], to: "closed" },
         },
       },
-      verbs: {
+      actions: {
         create: {
           steps: [
             {
               operation: "account.escrow.provision",
-              bind: { role: { from: "const", value: "workspace_escrow" } },
+              bind: { role: { from: "const", value: "product_escrow" } },
               capture: { balanceAccountId: "accountId" },
             },
           ],
@@ -1560,8 +1878,10 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release;
     if (!escrow || !release) throw new Error("escrow_order release missing");
     release.steps = [];
     release.moves = [
@@ -1593,24 +1913,26 @@ describe("UDL grammar validation", () => {
           "cannot reserve const:1 from refs.escrowAccountId",
         ),
         path: expect.stringContaining(
-          "verbs.release.moves[0].bind.sourceAccountId",
+          "actions.release.moves[0].bind.sourceAccountId",
         ),
       }),
     );
   });
 
-  test("rejects a second refundable-base credit before unwind", async () => {
+  test("rejects a second refundable-base credit before a commit", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const fund = escrow?.verbs.fund;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const fund = escrow?.actions.fund;
     if (!escrow || !fund) throw new Error("escrow_order fund missing");
     escrow.lifecycle.transitions.fund_again = {
       from: ["funded"],
       to: "funded",
     };
-    escrow.verbs.fund_again = structuredClone(fund);
+    escrow.actions.fund_again = structuredClone(fund);
 
     const result = validateUdl(document);
 
@@ -1619,10 +1941,10 @@ describe("UDL grammar validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: expect.stringContaining(
-          "unwind funding must establish exactly one refundable balance",
+          "quoted funding must establish exactly one refundable balance",
         ),
         path: expect.stringContaining(
-          "verbs.fund_again.moves[0].bind.destinationAccountId",
+          "actions.fund_again.moves[0].bind.destinationAccountId",
         ),
       }),
     );
@@ -1630,7 +1952,9 @@ describe("UDL grammar validation", () => {
 
   test("checks subject policies, update fields, and aggregate references", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const policy = document.nouns.find((noun) => noun.id === "policy");
+    const policy = document.instruments.find(
+      (instrument) => instrument.id === "policy",
+    );
     if (!policy?.subject || !policy.aggregateInvariants?.[0]) {
       throw new Error("policy fixture missing subject or aggregate");
     }
@@ -1642,18 +1966,22 @@ describe("UDL grammar validation", () => {
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining([
-        "$.nouns[0].subject.kinds[0]",
-        "$.nouns[0].aggregateInvariants[0].childRefField",
+        "$.instruments[0].subject.kinds[0]",
+        "$.instruments[0].aggregateInvariants[0].childRefField",
       ]),
     );
   });
 
   test("checks aggregate money fields, consuming statuses, and immutability", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    const policy = document.nouns.find((noun) => noun.id === "policy");
-    const claim = document.nouns.find((noun) => noun.id === "claim");
+    const policy = document.instruments.find(
+      (instrument) => instrument.id === "policy",
+    );
+    const claim = document.instruments.find(
+      (instrument) => instrument.id === "claim",
+    );
     if (!policy?.aggregateInvariants?.[0] || !claim) {
-      throw new Error("protection fixture missing aggregate nouns");
+      throw new Error("protection fixture missing aggregate instruments");
     }
     policy.fields.coverageLimit = { type: "string" };
     claim.fields.claimAmount = { type: "string" };
@@ -1669,10 +1997,10 @@ describe("UDL grammar validation", () => {
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining([
-        "$.nouns[0].aggregateInvariants[0].parentField",
-        "$.nouns[0].aggregateInvariants[0].childField",
-        "$.nouns[0].aggregateInvariants[0].childStatuses[1]",
-        "$.nouns[0].aggregateInvariants[0].childStatuses[2]",
+        "$.instruments[0].aggregateInvariants[0].parentField",
+        "$.instruments[0].aggregateInvariants[0].childField",
+        "$.instruments[0].aggregateInvariants[0].childStatuses[1]",
+        "$.instruments[0].aggregateInvariants[0].childStatuses[2]",
       ]),
     );
   });
@@ -1681,9 +2009,12 @@ describe("UDL grammar validation", () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
     );
-    const listing = document.nouns.find((noun) => noun.id === "listing");
-    if (!listing?.verbs.create) throw new Error("listing create verb missing");
-    listing.verbs.create.examples = [
+    const listing = document.instruments.find(
+      (instrument) => instrument.id === "listing",
+    );
+    if (!listing?.actions.create)
+      throw new Error("listing create action missing");
+    listing.actions.create.examples = [
       { input: { askingPrice: -1 }, name: "invalid_listing" },
     ];
     const result = validateUdl(document);
@@ -1692,31 +2023,34 @@ describe("UDL grammar validation", () => {
     if (result.ok) throw new Error("expected invalid UDL");
     expect(
       result.issues.filter(
-        (issue) => issue.path === "$.nouns[0].verbs.create.examples[0].input",
+        (issue) =>
+          issue.path === "$.instruments[0].actions.create.examples[0].input",
       ).length,
     ).toBeGreaterThanOrEqual(2);
   });
 
-  test("rejects envelope fields, unknown required fields, and duplicate noun ids", async () => {
+  test("rejects envelope fields, unknown required fields, and duplicate instrument ids", async () => {
     const document = structuredClone(await parsedFixture("protection.udl"));
-    document.nouns[0]!.fields.status = { type: "string" };
-    document.nouns[0]!.required.push("missing");
-    document.nouns[1]!.id = document.nouns[0]!.id;
+    document.instruments[0]!.fields.status = { type: "string" };
+    document.instruments[0]!.required.push("missing");
+    document.instruments[1]!.id = document.instruments[0]!.id;
     const result = validateUdl(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining([
-        "$.nouns[0].fields.status",
-        "$.nouns[0].required[8]",
-        "$.nouns[1]",
+        "$.instruments[0].fields.status",
+        "$.instruments[0].required[8]",
+        "$.instruments[1]",
       ]),
     );
   });
 });
 
-function partitionedEscrowNoun(): Parameters<typeof analyzeNounFinance>[0] {
+function partitionedEscrowInstrument(): Parameters<
+  typeof analyzeInstrumentFinance
+>[0] {
   const transfer = (amountField: string, source: string, destination: string) =>
     ({
       steps: [],
@@ -1756,12 +2090,12 @@ function partitionedEscrowNoun(): Parameters<typeof analyzeNounFinance>[0] {
         keep_piece_b: { from: ["piece_a_refunded"], to: "canceled" },
       },
     },
-    verbs: {
+    actions: {
       create: {
         steps: [
           {
             operation: "account.escrow.provision",
-            bind: { role: { from: "const", value: "workspace_escrow" } },
+            bind: { role: { from: "const", value: "product_escrow" } },
             capture: { escrowAccountId: "accountId" },
           },
         ],
@@ -1801,33 +2135,35 @@ function partitionedEscrowNoun(): Parameters<typeof analyzeNounFinance>[0] {
   };
 }
 
-function minimalFinancialNoun(): Parameters<typeof analyzeNounFinance>[0] {
+function minimalFinancialInstrument(): Parameters<
+  typeof analyzeInstrumentFinance
+>[0] {
   return {
     lifecycle: {
       initial: "state",
       states: ["state"],
       transitions: {},
     },
-    verbs: {
+    actions: {
       create: { steps: [] },
     },
   };
 }
 
-function trackedAccountsNoun(
+function trackedAccountsInstrument(
   count: number,
-): Parameters<typeof analyzeNounFinance>[0] {
+): Parameters<typeof analyzeInstrumentFinance>[0] {
   return {
     lifecycle: {
       initial: "state",
       states: ["state"],
       transitions: {},
     },
-    verbs: {
+    actions: {
       create: {
         steps: Array.from({ length: count }, (_, index) => ({
           operation: "account.escrow.provision",
-          bind: { role: { from: "const" as const, value: "workspace_escrow" } },
+          bind: { role: { from: "const" as const, value: "product_escrow" } },
           capture: { [`escrow${index}`]: "accountId" },
         })),
         moves: Array.from({ length: count }, (_, index) => ({
@@ -1853,9 +2189,9 @@ function trackedAccountsNoun(
   };
 }
 
-function twoAccountBranchingNoun(
+function twoAccountBranchingInstrument(
   layers: number,
-): Parameters<typeof analyzeNounFinance>[0] {
+): Parameters<typeof analyzeInstrumentFinance>[0] {
   const states = Array.from(
     { length: layers + 1 },
     (_, index) => `state_${index}`,
@@ -1864,17 +2200,17 @@ function twoAccountBranchingNoun(
     string,
     { readonly from: readonly string[]; readonly to: string }
   > = {};
-  const verbs: Record<string, unknown> = {
+  const actions: Record<string, unknown> = {
     create: {
       steps: [
         {
           operation: "account.escrow.provision",
-          bind: { role: { from: "const", value: "workspace_escrow" } },
+          bind: { role: { from: "const", value: "product_escrow" } },
           capture: { escrowA: "accountId" },
         },
         {
           operation: "account.escrow.provision",
-          bind: { role: { from: "const", value: "workspace_escrow" } },
+          bind: { role: { from: "const", value: "product_escrow" } },
           capture: { escrowB: "accountId" },
         },
       ],
@@ -1917,8 +2253,8 @@ function twoAccountBranchingNoun(
     const to = states[index + 1] as string;
     transitions[`skip_${index}`] = { from: [from], to };
     transitions[`add_${index}`] = { from: [from], to };
-    verbs[`skip_${index}`] = { steps: [], moves: [] };
-    verbs[`add_${index}`] = {
+    actions[`skip_${index}`] = { steps: [], moves: [] };
+    actions[`add_${index}`] = {
       steps: [],
       moves: [
         {
@@ -1957,14 +2293,16 @@ function twoAccountBranchingNoun(
 
   return {
     lifecycle: { initial: states[0] as string, states, transitions },
-    verbs,
-  } as Parameters<typeof analyzeNounFinance>[0];
+    actions,
+  } as Parameters<typeof analyzeInstrumentFinance>[0];
 }
 
-function twoAccountWorkBudgetNoun(): Parameters<typeof analyzeNounFinance>[0] {
-  const base = twoAccountBranchingNoun(5);
+function twoAccountWorkBudgetInstrument(): Parameters<
+  typeof analyzeInstrumentFinance
+>[0] {
+  const base = twoAccountBranchingInstrument(5);
   const transitions = { ...base.lifecycle.transitions };
-  const verbs = { ...base.verbs };
+  const actions = { ...base.actions };
   const heavyMoves = Array.from({ length: 110 }, (_, index) => ({
     key: `heavy_${index}`,
     operation: "internal_transfer.create" as const,
@@ -1984,7 +2322,7 @@ function twoAccountWorkBudgetNoun(): Parameters<typeof analyzeNounFinance>[0] {
     },
   }));
   transitions.heavy = { from: ["state_5"], to: "finished" };
-  verbs.heavy = { steps: [], moves: heavyMoves };
+  actions.heavy = { steps: [], moves: heavyMoves };
 
   return {
     lifecycle: {
@@ -1992,8 +2330,8 @@ function twoAccountWorkBudgetNoun(): Parameters<typeof analyzeNounFinance>[0] {
       states: [...base.lifecycle.states, "finished"],
       transitions,
     },
-    verbs,
-  } as Parameters<typeof analyzeNounFinance>[0];
+    actions,
+  } as Parameters<typeof analyzeInstrumentFinance>[0];
 }
 
 function capturedError(run: () => unknown): UdlError {
@@ -2008,8 +2346,9 @@ function capturedError(run: () => unknown): UdlError {
 
 function payoutSettlementDocument(): UdlDocument {
   return {
-    nouns: [
+    instruments: [
       {
+        actionOrder: ["acknowledge", "create", "instruct", "reconcile"],
         fields: {
           amount: {
             pattern: "^[1-9][0-9]{0,17}$",
@@ -2029,6 +2368,7 @@ function payoutSettlementDocument(): UdlDocument {
             pattern: "^ben_(sandbox|live)_[a-z0-9]{8,64}$",
             type: "string",
           },
+          settleBy: { format: "hyperscale-date-time", type: "string" },
           sourceAccountId: {
             pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
             type: "string",
@@ -2054,11 +2394,12 @@ function payoutSettlementDocument(): UdlDocument {
           "currency",
           "destinationPartyAccountId",
           "payoutBeneficiaryId",
+          "settleBy",
           "sourceAccountId",
         ],
         summary: "One payout batch with evidence-backed settlement.",
         title: "Payout batch",
-        verbs: {
+        actions: {
           acknowledge: {
             moves: [],
             steps: [],
@@ -2080,13 +2421,59 @@ function payoutSettlementDocument(): UdlDocument {
             summary: "Create the payout instruction.",
           },
           reconcile: {
+            due: { field: "settleBy" },
             moves: [],
-            requiresSettlement: {
-              capture: "settlementEvidenceId",
-              payoutRef: "payoutId",
-            },
+            reconcile: [
+              {
+                amount: "fields.amount",
+                capture: "settlementEvidenceId",
+                counterpartyRef: "payoutId",
+                currencyField: "currency",
+                direction: "debit",
+                evidence: "statement_line",
+                exception: {
+                  amountField: "amount",
+                  childInstrumentId: "payout_break",
+                  maxOpen: 1,
+                  reasonField: "breakReason",
+                  refField: "payoutBatchId",
+                },
+                match: { law: "exact" },
+                within: { field: "settleBy" },
+              },
+            ],
             steps: [],
-            summary: "Record matched settlement evidence.",
+            summary: "Match durable evidence that the payout settled.",
+          },
+        },
+      },
+      {
+        actionOrder: ["create"],
+        fields: {
+          amount: { pattern: "^[1-9][0-9]{0,17}$", type: "string" },
+          breakReason: { type: "string" },
+          currency: {
+            maxLength: 3,
+            minLength: 3,
+            pattern: "^[A-Z]{3}$",
+            type: "string",
+          },
+          payoutBatchId: {
+            pattern: "^pbat_(sandbox|live)_[a-z0-9]{8,64}$",
+            type: "string",
+          },
+        },
+        id: "payout_break",
+        idPrefix: "pbrk",
+        lifecycle: { initial: "open", states: ["open"], transitions: {} },
+        required: ["amount", "breakReason", "currency", "payoutBatchId"],
+        summary: "One unmatched expectation carried off the batch.",
+        title: "Payout break",
+        actions: {
+          create: {
+            moves: [],
+            steps: [],
+            summary: "Carry an unmatched expectation off the batch.",
           },
         },
       },
@@ -2100,15 +2487,15 @@ function payoutSettlementDocument(): UdlDocument {
 }
 
 describe("payout settlement evidence", () => {
-  test("admits a payout intent followed by a system-only settlement gate", () => {
+  test("admits a payout intent followed by a system-only reconcile", () => {
     const result = validateUdl(payoutSettlementDocument());
     expect(result).toEqual(expect.objectContaining({ ok: true }));
   });
 
   test("checks payout value shapes and the shared ref namespace", () => {
     const document = payoutSettlementDocument();
-    const noun = document.nouns[0]!;
-    const instruct = noun.verbs.instruct!;
+    const instrument = document.instruments[0]!;
+    const instruct = instrument.actions.instruct!;
     if (!instruct.payout) throw new Error("fixture payout missing");
     instruct.payout.amount = "refs.unknownAmount";
     instruct.payout.beneficiaryField = "amount";
@@ -2125,14 +2512,14 @@ describe("payout settlement evidence", () => {
         "payout beneficiaryField amount must name a beneficiary-id field",
         "payout currencyField amount must name a currency field",
         "payout sourceAccountField amount must name an account-id field",
-        "settlement capture settlementEvidenceId collides with an existing noun ref key",
+        "reconcile capture settlementEvidenceId collides with an existing instrument ref key",
       ]),
     );
   });
 
   test("binds a payout beneficiary to the declared destination party", () => {
     const withoutParty = payoutSettlementDocument();
-    delete withoutParty.nouns[0]!.parties;
+    delete withoutParty.instruments[0]!.parties;
 
     const missingResult = validateUdl(withoutParty);
     expect(missingResult.ok).toBe(false);
@@ -2141,15 +2528,15 @@ describe("payout settlement evidence", () => {
       expect.objectContaining({
         message:
           "payout requires parties.beneficiary to bind its destination party",
-        path: "$.nouns[0].verbs.instruct.payout.beneficiaryPartyField",
+        path: "$.instruments[0].actions.instruct.payout.beneficiaryPartyField",
       }),
     );
 
     const mismatchedParty = payoutSettlementDocument();
-    const noun = mismatchedParty.nouns[0]!;
-    const payout = noun.verbs.instruct!.payout;
+    const instrument = mismatchedParty.instruments[0]!;
+    const payout = instrument.actions.instruct!.payout;
     if (!payout) throw new Error("fixture payout missing");
-    noun.fields.otherPartyAccountId = {
+    instrument.fields.otherPartyAccountId = {
       pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
       type: "string",
     };
@@ -2162,18 +2549,18 @@ describe("payout settlement evidence", () => {
       expect.objectContaining({
         message:
           "payout beneficiaryPartyField otherPartyAccountId must equal parties.beneficiary destinationPartyAccountId",
-        path: "$.nouns[0].verbs.instruct.payout.beneficiaryPartyField",
+        path: "$.instruments[0].actions.instruct.payout.beneficiaryPartyField",
       }),
     );
   });
 
   test("rejects a payout intent on create to match core admission", () => {
     const document = payoutSettlementDocument();
-    const noun = document.nouns[0]!;
-    const payout = noun.verbs.instruct!.payout;
+    const instrument = document.instruments[0]!;
+    const payout = instrument.actions.instruct!.payout;
     if (!payout) throw new Error("fixture payout missing");
-    noun.verbs.create!.payout = payout;
-    delete noun.verbs.instruct!.payout;
+    instrument.actions.create!.payout = payout;
+    delete instrument.actions.instruct!.payout;
 
     const result = validateUdl(document);
 
@@ -2182,14 +2569,14 @@ describe("payout settlement evidence", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: "create cannot declare a payout intent",
-        path: "$.nouns[0].verbs.create.payout",
+        path: "$.instruments[0].actions.create.payout",
       }),
     );
   });
 
   test("rejects a payout intent combined with kernel steps or moves", () => {
     const document = payoutSettlementDocument();
-    const instruct = document.nouns[0]!.verbs.instruct!;
+    const instruct = document.instruments[0]!.actions.instruct!;
     instruct.steps.push({
       bind: {
         accountId: {
@@ -2207,17 +2594,17 @@ describe("payout settlement evidence", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message:
-          "verb instruct payout intent cannot combine with kernel steps or moves",
-        path: "$.nouns[0].verbs.instruct.payout",
+          "action instruct payout intent cannot combine with kernel steps or moves",
+        path: "$.instruments[0].actions.instruct.payout",
       }),
     );
   });
 
   test("rejects a ref-backed payout before its signed-sum writer", () => {
     const document = payoutSettlementDocument();
-    const noun = document.nouns[0]!;
-    const instruct = noun.verbs.instruct!;
-    const acknowledge = noun.verbs.acknowledge!;
+    const instrument = document.instruments[0]!;
+    const instruct = instrument.actions.instruct!;
+    const acknowledge = instrument.actions.acknowledge!;
     if (!instruct.payout) throw new Error("fixture payout missing");
     instruct.payout.amount = "refs.payoutAmount";
     acknowledge.signedSum = {
@@ -2227,7 +2614,7 @@ describe("payout settlement evidence", () => {
       sources: [
         {
           amountField: "amount",
-          nounId: "payout_item",
+          instrumentId: "payout_item",
           refField: "payoutBatchId",
           sign: "add",
           statuses: ["ready"],
@@ -2235,7 +2622,8 @@ describe("payout settlement evidence", () => {
         },
       ],
     };
-    document.nouns.push({
+    document.instruments.push({
+      actionOrder: ["create"],
       fields: {
         amount: {
           pattern: "^[1-9][0-9]{0,17}$",
@@ -2262,7 +2650,7 @@ describe("payout settlement evidence", () => {
       required: ["amount", "currency", "payoutBatchId"],
       summary: "One amount contributing to a payout batch.",
       title: "Payout item",
-      verbs: {
+      actions: {
         create: { moves: [], steps: [], summary: "Create the item." },
       },
     });
@@ -2275,14 +2663,14 @@ describe("payout settlement evidence", () => {
       expect.objectContaining({
         message:
           "payout amount refs.payoutAmount can be read before money writers acknowledge",
-        path: "$.nouns[0].verbs.instruct.payout.amount",
+        path: "$.instruments[0].actions.instruct.payout.amount",
       }),
     );
   });
 
-  test("requires exactly one settlement gate for a payout-owning noun", () => {
+  test("requires exactly one reconciling action for a payout-owning instrument", () => {
     const withoutGate = payoutSettlementDocument();
-    delete withoutGate.nouns[0]!.verbs.reconcile!.requiresSettlement;
+    delete withoutGate.instruments[0]!.actions.reconcile!.reconcile;
 
     const missingResult = validateUdl(withoutGate);
     expect(missingResult.ok).toBe(false);
@@ -2290,16 +2678,20 @@ describe("payout settlement evidence", () => {
     expect(missingResult.issues).toContainEqual(
       expect.objectContaining({
         message:
-          "payout-owning noun must declare exactly one settlement gate; found 0",
-        path: "$.nouns[0].verbs",
+          "payout-owning instrument must declare exactly one reconciling action; found 0",
+        path: "$.instruments[0].actions",
       }),
     );
 
     const withTwoGates = payoutSettlementDocument();
-    withTwoGates.nouns[0]!.verbs.acknowledge!.requiresSettlement = {
-      capture: "acknowledgementEvidenceId",
-      payoutRef: "payoutId",
-    };
+    const acknowledge = withTwoGates.instruments[0]!.actions.acknowledge!;
+    acknowledge.due = { field: "settleBy" };
+    acknowledge.reconcile = [
+      {
+        ...withTwoGates.instruments[0]!.actions.reconcile!.reconcile![0]!,
+        capture: "acknowledgementEvidenceId",
+      },
+    ];
 
     const duplicateResult = validateUdl(withTwoGates);
     expect(duplicateResult.ok).toBe(false);
@@ -2307,18 +2699,18 @@ describe("payout settlement evidence", () => {
     expect(duplicateResult.issues).toContainEqual(
       expect.objectContaining({
         message:
-          "payout-owning noun must declare exactly one settlement gate; found 2",
-        path: "$.nouns[0].verbs",
+          "payout-owning instrument must declare exactly one reconciling action; found 2",
+        path: "$.instruments[0].actions",
       }),
     );
 
     const uncoveredPayout = payoutSettlementDocument();
     const secondPayout = structuredClone(
-      uncoveredPayout.nouns[0]!.verbs.instruct!.payout,
+      uncoveredPayout.instruments[0]!.actions.instruct!.payout,
     );
     if (!secondPayout) throw new Error("fixture payout missing");
     secondPayout.capture = "secondPayoutId";
-    uncoveredPayout.nouns[0]!.verbs.acknowledge!.payout = secondPayout;
+    uncoveredPayout.instruments[0]!.actions.acknowledge!.payout = secondPayout;
 
     const uncoveredResult = validateUdl(uncoveredPayout);
     expect(uncoveredResult.ok).toBe(false);
@@ -2326,47 +2718,230 @@ describe("payout settlement evidence", () => {
     expect(uncoveredResult.issues).toContainEqual(
       expect.objectContaining({
         message:
-          "verb acknowledge payout capture secondPayoutId is not covered by settlement payoutRef payoutId",
-        path: "$.nouns[0].verbs.acknowledge.payout.capture",
+          "action acknowledge payout capture secondPayoutId is expected by no reconcile",
+        path: "$.instruments[0].actions.acknowledge.payout.capture",
       }),
     );
   });
 
-  test("refuses a settlement gate without a dominating payout capture", () => {
+  test("refuses a reconcile without a dominating payout capture", () => {
     const document = payoutSettlementDocument();
-    const noun = document.nouns[0]!;
-    const reconcile = noun.verbs.reconcile!;
-    if (!reconcile.requiresSettlement) {
-      throw new Error("fixture settlement gate missing");
-    }
-    reconcile.requiresSettlement.payoutRef = "missingPayout";
-    noun.lifecycle.transitions.reconcile!.from = ["approved"];
+    const instrument = document.instruments[0]!;
+    const expectation = instrument.actions.reconcile!.reconcile?.[0];
+    if (!expectation) throw new Error("fixture reconcile missing");
+    expectation.counterpartyRef = "missingPayout";
+    instrument.lifecycle.transitions.reconcile!.from = ["approved"];
 
     const result = validateUdl(document);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues.map((issue) => issue.message)).toContain(
-      "requiresSettlement payoutRef missingPayout is not captured by a payout intent",
+      "reconcile counterpartyRef missingPayout is not captured by a payout intent",
     );
 
-    reconcile.requiresSettlement.payoutRef = "payoutId";
+    expectation.counterpartyRef = "payoutId";
     const early = validateUdl(document);
     expect(early.ok).toBe(false);
     if (early.ok) throw new Error("expected invalid UDL");
     expect(early.issues.map((issue) => issue.message)).toContain(
-      "requiresSettlement can read payoutId before payout writers instruct",
+      "reconcile can read payoutId before payout writers instruct",
     );
   });
 
-  test("keeps settlement-gated transitions private and effect-free", () => {
+  test("refuses a payout reconcile that is not a debit statement line", () => {
+    const confirmed = payoutSettlementDocument();
+    confirmed.instruments[0]!.actions.reconcile!.reconcile![0]!.evidence =
+      "provider_confirmation";
+
+    const confirmedResult = validateUdl(confirmed);
+    expect(confirmedResult.ok).toBe(false);
+    if (confirmedResult.ok) throw new Error("expected invalid UDL");
+    expect(confirmedResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "payout-owning instrument payout_batch action reconcile must reconcile against a debit statement_line; found debit provider_confirmation",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].evidence",
+      }),
+    );
+
+    const credited = payoutSettlementDocument();
+    credited.instruments[0]!.actions.reconcile!.reconcile![0]!.direction =
+      "credit";
+
+    const creditedResult = validateUdl(credited);
+    expect(creditedResult.ok).toBe(false);
+    if (creditedResult.ok) throw new Error("expected invalid UDL");
+    expect(creditedResult.issues.map((issue) => issue.message)).toContain(
+      "payout-owning instrument payout_batch action reconcile must reconcile against a debit statement_line; found credit statement_line",
+    );
+
+    // The match law stays the author's call: a tolerance on a debit statement
+    // line is still a legal payout reconcile.
+    const forgiving = payoutSettlementDocument();
+    forgiving.instruments[0]!.actions.reconcile!.reconcile![0]!.match = {
+      dial: "settlement_tolerance",
+      law: "tolerance",
+      minorUnits: 5,
+    };
+    forgiving.instruments[0]!.dials = [
+      ...(forgiving.instruments[0]!.dials ?? []),
+      {
+        key: "settlement_tolerance",
+        kind: "reconcile_tolerance",
+        maxMinorUnits: 500,
+        summary: "Minor units the settlement match may forgive.",
+        title: "Settlement tolerance",
+      },
+    ];
+    expect(validateUdl(forgiving).ok).toBe(true);
+  });
+
+  test("refuses a reconcile whose expectation the instrument cannot describe", () => {
+    const unknownAmount = payoutSettlementDocument();
+    unknownAmount.instruments[0]!.actions.reconcile!.reconcile![0]!.amount =
+      "fields.settleBy";
+
+    const amountResult = validateUdl(unknownAmount);
+    expect(amountResult.ok).toBe(false);
+    if (amountResult.ok) throw new Error("expected invalid UDL");
+    expect(amountResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "reconcile amount fields.settleBy must name a declared money field or money ref",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].amount",
+      }),
+    );
+
+    const unknownChild = payoutSettlementDocument();
+    unknownChild.instruments[0]!.actions.reconcile!.reconcile![0]!.exception.childInstrumentId =
+      "payout_ghost";
+
+    const childResult = validateUdl(unknownChild);
+    expect(childResult.ok).toBe(false);
+    if (childResult.ok) throw new Error("expected invalid UDL");
+    expect(childResult.issues).toContainEqual(
+      expect.objectContaining({
+        message: "reconcile raises unknown exception instrument payout_ghost",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].exception.childInstrumentId",
+      }),
+    );
+  });
+
+  test("refuses a reconcile window that no due condition closes", () => {
+    const unswept = payoutSettlementDocument();
+    delete unswept.instruments[0]!.actions.reconcile!.due;
+
+    const unsweptResult = validateUdl(unswept);
+    expect(unsweptResult.ok).toBe(false);
+    if (unsweptResult.ok) throw new Error("expected invalid UDL");
+    expect(unsweptResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "reconcile window settleBy is closed by no due condition on reconcile",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].within.field",
+      }),
+    );
+
+    const drifting = payoutSettlementDocument();
+    drifting.instruments[0]!.actions.reconcile!.reconcile![0]!.within = {
+      offset: "P30D",
+    };
+
+    const driftResult = validateUdl(drifting);
+    expect(driftResult.ok).toBe(false);
+    if (driftResult.ok) throw new Error("expected invalid UDL");
+    expect(driftResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "reconcile window P30D is closed by no due condition on reconcile",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].within.offset",
+      }),
+    );
+  });
+
+  test("refuses a tolerance above the ceiling its dial declares", () => {
     const document = payoutSettlementDocument();
-    const reconcile = document.nouns[0]!.verbs.reconcile!;
+    const instrument = document.instruments[0]!;
+    instrument.dials = [
+      {
+        key: "settlement_tolerance",
+        kind: "reconcile_tolerance",
+        maxMinorUnits: 100,
+        summary: "How far a settled amount may drift before it is a break.",
+        title: "Settlement tolerance",
+      },
+    ];
+    const expectation = instrument.actions.reconcile!.reconcile![0]!;
+    expectation.match = {
+      dial: "settlement_tolerance",
+      law: "tolerance",
+      minorUnits: 100,
+    };
+    expect(validateUdl(document)).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+
+    expectation.match = {
+      dial: "settlement_tolerance",
+      law: "tolerance",
+      minorUnits: 101,
+    };
+    const overResult = validateUdl(document);
+    expect(overResult.ok).toBe(false);
+    if (overResult.ok) throw new Error("expected invalid UDL");
+    expect(overResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "reconcile tolerance 101 exceeds dial settlement_tolerance ceiling 100",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].match.minorUnits",
+      }),
+    );
+
+    expectation.match = {
+      dial: "no_such_dial",
+      law: "tolerance",
+      minorUnits: 1,
+    };
+    const unknownResult = validateUdl(document);
+    expect(unknownResult.ok).toBe(false);
+    if (unknownResult.ok) throw new Error("expected invalid UDL");
+    expect(unknownResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "reconcile tolerance names no reconcile_tolerance dial no_such_dial",
+        path: "$.instruments[0].actions.reconcile.reconcile[0].match.dial",
+      }),
+    );
+  });
+
+  test("refuses two expectations over the same counterparty row", () => {
+    const document = payoutSettlementDocument();
+    const expectations = document.instruments[0]!.actions.reconcile!.reconcile!;
+    expectations.push({
+      ...expectations[0]!,
+      capture: "secondEvidenceId",
+    });
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "action reconcile expects payoutId twice; one counterparty row answers one reconcile",
+        path: "$.instruments[0].actions.reconcile.reconcile[1].counterpartyRef",
+      }),
+    );
+  });
+
+  test("keeps reconciling transitions private and effect-free", () => {
+    const document = payoutSettlementDocument();
+    const reconcile = document.instruments[0]!.actions.reconcile!;
     reconcile.input = { properties: {}, type: "object" };
     reconcile.captureInput = { callerClaim: "claim" };
-    reconcile.publicIntent = "reconcilePayout";
+    reconcile.publicAction = "reconcilePayout";
     reconcile.port = { allowedParties: ["payer"] };
-    reconcile.due = { field: "currency" };
-    reconcile.deadline = { field: "currency" };
+    reconcile.deadline = { field: "settleBy" };
     reconcile.steps.push({
       bind: { accountId: { from: "instance", path: "fields.sourceAccountId" } },
       operation: "account.freeze",
@@ -2393,61 +2968,67 @@ describe("payout settlement evidence", () => {
     for (const facet of [
       "input",
       "captureInput",
-      "publicIntent",
+      "publicAction",
       "port",
-      "due",
       "deadline",
     ]) {
       expect(result.issues.map((issue) => issue.message)).toContain(
-        `requiresSettlement is system-only and cannot declare ${facet}`,
+        `a reconciling action is system-only and cannot declare ${facet}`,
       );
     }
     expect(result.issues.map((issue) => issue.message)).toEqual(
       expect.arrayContaining([
-        "requiresSettlement cannot add kernel steps",
-        "requiresSettlement cannot move money",
+        "a reconciling action cannot add kernel steps",
+        "a reconciling action cannot move money",
       ]),
     );
   });
 
   test("freezes payout and settlement clauses in evolution snapshots", () => {
-    const previous = snapshotUdlNoun(payoutSettlementDocument().nouns[0]!);
+    const previous = snapshotUdlInstrument(
+      payoutSettlementDocument().instruments[0]!,
+    );
     const next = structuredClone(previous);
-    const instruct = next.verbs.instruct!;
-    const reconcile = next.verbs.reconcile!;
+    const instruct = next.actions.instruct!;
+    const reconcile = next.actions.reconcile!;
     (instruct as { payout?: unknown }).payout = {
       ...(instruct.payout as Record<string, unknown>),
       speed: "changed",
     };
-    (reconcile as { requiresSettlement?: unknown }).requiresSettlement = {
-      ...(reconcile.requiresSettlement as Record<string, unknown>),
-      payoutRef: "changedPayout",
-    };
+    (reconcile as { reconcile?: unknown }).reconcile = [
+      {
+        ...((reconcile.reconcile as readonly Record<string, unknown>[])[0] ??
+          {}),
+        counterpartyRef: "changedPayout",
+      },
+    ];
 
-    expect(diffNounEvolution(previous, next)).toEqual(
+    expect(diffInstrumentEvolution(previous, next)).toEqual(
       expect.arrayContaining([
-        "payout_batch: verb instruct changed its payout intent",
-        "payout_batch: verb reconcile changed its settlement evidence gate",
+        "payout_batch: action instruct changed its payout intent",
+        "payout_batch: action reconcile changed its reconcile expectations",
       ]),
     );
   });
 
-  test("classifies a payout on a newly added verb as breaking", () => {
-    const previous = snapshotUdlNoun(payoutSettlementDocument().nouns[0]!);
+  test("classifies a payout on a newly added action as breaking", () => {
+    const previous = snapshotUdlInstrument(
+      payoutSettlementDocument().instruments[0]!,
+    );
     const next = structuredClone(previous);
-    (next.verbs as Record<string, EvolutionVerbSnapshot>).disburse = {
-      ...structuredClone(next.verbs.instruct!),
+    (next.actions as Record<string, EvolutionActionSnapshot>).disburse = {
+      ...structuredClone(next.actions.instruct!),
       eventName: "payout_batch.disbursed",
     };
 
-    expect(diffNounEvolution(previous, next)).toContain(
-      "payout_batch: verb disburse added a payout intent; external money movement is frozen once live",
+    expect(diffInstrumentEvolution(previous, next)).toContain(
+      "payout_batch: action disburse added a payout intent; external money movement is frozen once live",
     );
 
     const legacyPrevious = structuredClone(previous);
-    delete (legacyPrevious.verbs.instruct as { payout?: unknown }).payout;
-    expect(diffNounEvolution(legacyPrevious, next)).toContain(
-      "payout_batch: verb instruct changed its payout intent",
+    delete (legacyPrevious.actions.instruct as { payout?: unknown }).payout;
+    expect(diffInstrumentEvolution(legacyPrevious, next)).toContain(
+      "payout_batch: action instruct changed its payout intent",
     );
   });
 });
@@ -2455,8 +3036,10 @@ describe("payout settlement evidence", () => {
 describe("signed sum validation", () => {
   test("rejects an amount ref that collides with captured input", async () => {
     const document = await signedSumDocument();
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release;
     if (!release) throw new Error("escrow_order release missing");
     release.input = {
       properties: { claimedAmount: { type: "string" } },
@@ -2472,20 +3055,22 @@ describe("signed sum validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message:
-          "signed sum ref releaseAmount collides with an existing noun ref key",
-        path: "$.nouns[2].verbs.release.signedSum.amountRef",
+          "signed sum ref releaseAmount collides with an existing instrument ref key",
+        path: "$.instruments[2].actions.release.signedSum.amountRef",
       }),
     );
   });
 
   test("rejects overlapping status sets for the same signed source", async () => {
     const document = await signedSumDocument();
-    const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-    const release = escrow?.verbs.release;
+    const escrow = document.instruments.find(
+      (instrument) => instrument.id === "escrow_order",
+    );
+    const release = escrow?.actions.release;
     if (!release?.signedSum) throw new Error("release signed sum missing");
     release.signedSum.sources.push({
       amountField: "askingPrice",
-      nounId: "listing",
+      instrumentId: "listing",
       refField: "escrowOrderId",
       sign: "add",
       statuses: ["active", "reserved"],
@@ -2499,7 +3084,7 @@ describe("signed sum validation", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         message: "signed sum source overlaps source 0 on statuses reserved",
-        path: "$.nouns[2].verbs.release.signedSum.sources[1].statuses",
+        path: "$.instruments[2].actions.release.signedSum.sources[1].statuses",
       }),
     );
   });
@@ -2507,8 +3092,10 @@ describe("signed sum validation", () => {
 
 async function signedSumDocument(): Promise<UdlDocument> {
   const document = structuredClone(await parsedFixture("commerce-escrow.udl"));
-  const escrow = document.nouns.find((noun) => noun.id === "escrow_order");
-  const release = escrow?.verbs.release;
+  const escrow = document.instruments.find(
+    (instrument) => instrument.id === "escrow_order",
+  );
+  const release = escrow?.actions.release;
   const payout = release?.moves[0];
   if (!release || !payout) throw new Error("escrow_order release missing");
   release.signedSum = {
@@ -2518,7 +3105,7 @@ async function signedSumDocument(): Promise<UdlDocument> {
     sources: [
       {
         amountField: "askingPrice",
-        nounId: "listing",
+        instrumentId: "listing",
         refField: "escrowOrderId",
         sign: "add",
         statuses: ["reserved"],
@@ -2558,25 +3145,27 @@ describe("evolution", () => {
     properties: Record<string, unknown>;
     required?: string[];
   } {
-    const transaction = document.nouns.find(
-      (noun) => noun.id === "card_transaction",
+    const transaction = document.instruments.find(
+      (instrument) => instrument.id === "card_transaction",
     );
-    const input = transaction?.verbs.refund?.input;
+    const input = transaction?.actions.refund?.input;
     if (!input) throw new Error("cards refund input fixture missing");
     return input as ReturnType<typeof refundInput>;
   }
 
-  async function policySnapshot(): Promise<NounEvolutionSnapshot> {
+  async function policySnapshot(): Promise<InstrumentEvolutionSnapshot> {
     const document = await fixture();
-    const policy = document.nouns.find((noun) => noun.id === "policy");
+    const policy = document.instruments.find(
+      (instrument) => instrument.id === "policy",
+    );
     if (!policy) throw new Error("policy fixture missing");
-    return snapshotUdlNoun(policy);
+    return snapshotUdlInstrument(policy);
   }
 
   function changed(
-    snapshot: NounEvolutionSnapshot,
-    patch: Partial<NounEvolutionSnapshot>,
-  ): NounEvolutionSnapshot {
+    snapshot: InstrumentEvolutionSnapshot,
+    patch: Partial<InstrumentEvolutionSnapshot>,
+  ): InstrumentEvolutionSnapshot {
     return { ...snapshot, ...patch };
   }
 
@@ -2585,12 +3174,12 @@ describe("evolution", () => {
   // that reaches this far must still stop at a resource_limit issue rather than
   // a RangeError out of the call stack.
   describe("evolution admission", () => {
-    /** The protection fixture with one noun's field map pointing at itself. */
+    /** The protection fixture with one instrument's field map pointing at itself. */
     async function cyclic(): Promise<UdlDocument> {
       const document = await fixture();
-      const noun = document.nouns[0];
-      if (!noun) throw new Error("protection fixture has no nouns");
-      (noun.fields as Record<string, unknown>).loop = noun.fields;
+      const instrument = document.instruments[0];
+      if (!instrument) throw new Error("protection fixture has no instruments");
+      (instrument.fields as Record<string, unknown>).loop = instrument.fields;
       return document;
     }
 
@@ -2599,17 +3188,20 @@ describe("evolution", () => {
       const error = capturedError(() =>
         diffValidatedUdlEvolution(live, broken),
       );
-      expect(error.issues[0]?.code).toBe("resource_limit");
+      expect(error.issues[0]?.code).toBe("UDL1004");
       expect(error.issues[0]?.message).toContain("nesting exceeds");
     });
 
-    test("bounds a snapshot handed straight to diffNounEvolution", async () => {
-      const noun = (await cyclic()).nouns[0];
-      if (!noun) throw new Error("protection fixture has no nouns");
+    test("bounds a snapshot handed straight to diffInstrumentEvolution", async () => {
+      const instrument = (await cyclic()).instruments[0];
+      if (!instrument) throw new Error("protection fixture has no instruments");
       const error = capturedError(() =>
-        diffNounEvolution(snapshotUdlNoun(noun), snapshotUdlNoun(noun)),
+        diffInstrumentEvolution(
+          snapshotUdlInstrument(instrument),
+          snapshotUdlInstrument(instrument),
+        ),
       );
-      expect(error.issues[0]?.code).toBe("resource_limit");
+      expect(error.issues[0]?.code).toBe("UDL1004");
     });
   });
 
@@ -2621,7 +3213,9 @@ describe("evolution", () => {
       ).toEqual([]);
 
       const evolvedProduct = await evolved((document) => {
-        const claim = document.nouns.find((noun) => noun.id === "claim");
+        const claim = document.instruments.find(
+          (instrument) => instrument.id === "claim",
+        );
         if (!claim) throw new Error("claim fixture missing");
         claim.fields.note = { type: "string" };
         claim.lifecycle.states.push("closed");
@@ -2629,7 +3223,7 @@ describe("evolution", () => {
           from: ["paid", "denied"],
           to: "closed",
         };
-        claim.verbs.close = {
+        claim.actions.close = {
           moves: [],
           steps: [],
           summary: "Close the resolved claim.",
@@ -2642,14 +3236,36 @@ describe("evolution", () => {
 
     test("requires a product version increase for any semantic change", async () => {
       const { next, previous } = await evolved((document) => {
-        document.nouns[1]!.fields.note = { type: "string" };
+        document.instruments[1]!.fields.note = { type: "string" };
       }, 1);
       expect(diffValidatedUdlEvolution(previous, next)).toContain(
         "product definition changed without increasing version 1",
       );
     });
 
-    test("freezes product identity, live nouns, and subject definitions", async () => {
+    test("reports an effect-only action change", async () => {
+      const previous = await fixture();
+      const action = previous.instruments[0]?.actions.create;
+      if (!action) throw new Error("protection fixture has no create action");
+      action.effects = {
+        reads: [
+          {
+            signature: "reads.requires_refs",
+            source: "requiresRefs",
+          },
+        ],
+      };
+      const next = structuredClone(previous);
+      next.version += 1;
+      next.instruments[0]!.actions.create!.effects!.reads![0]!.source =
+        "forged";
+
+      expect(diffValidatedUdlEvolution(previous, next)).toContain(
+        `${next.instruments[0]!.id}: action create changed its derived effects`,
+      );
+    });
+
+    test("freezes product identity, live instruments, and subject definitions", async () => {
       const { next, previous } = await evolved((document) => {
         document.product = "renamed_product";
         const policyRisk = document.subjects.find(
@@ -2657,23 +3273,25 @@ describe("evolution", () => {
         );
         if (!policyRisk) throw new Error("policy_risk subject fixture missing");
         policyRisk.version += 1;
-        document.nouns = document.nouns.filter((noun) => noun.id !== "claim");
+        document.instruments = document.instruments.filter(
+          (instrument) => instrument.id !== "claim",
+        );
       });
-      // Dropping a noun other nouns still reference leaves a document
+      // Dropping a instrument other instruments still reference leaves a document
       // `validateUdl` refuses outright; the evolution law is what is under
       // test here, not admission.
       expect(diffValidatedUdlEvolution(previous, next)).toEqual(
         expect.arrayContaining([
           "product id changed from protection to renamed_product",
           "subject kind policy_risk changed after becoming live",
-          "claim: live noun was removed from the product",
+          "claim: live instrument was removed from the product",
         ]),
       );
     });
   });
 
-  describe("append-only verb input evolution", () => {
-    test("rejects removing a live verb input field", async () => {
+  describe("append-only action input evolution", () => {
+    test("rejects removing a live action input field", async () => {
       const { next, previous } = await evolved(
         (document) => {
           const input = refundInput(document);
@@ -2686,7 +3304,7 @@ describe("evolution", () => {
       // A move still binds the deleted input field, so `validateUdl` refuses
       // this document before the evolution law gets a word in.
       expect(diffValidatedUdlEvolution(previous, next)).toContain(
-        "card_transaction: verb refund input field reason was removed or renamed",
+        "card_transaction: action refund input field reason was removed or renamed",
       );
     });
 
@@ -2699,20 +3317,20 @@ describe("evolution", () => {
         "cards",
       );
       expect(diffValidatedUdlEvolution(previous, next)).toContain(
-        "card_transaction: verb refund changed its input schema beyond declared fields; a live verb input is frozen",
+        "card_transaction: action refund changed its input schema beyond declared fields; a live action input is frozen",
       );
     });
 
-    test("accepts an added optional input field and a verb's first input", async () => {
+    test("accepts an added optional input field and a action's first input", async () => {
       const { next, previous } = await evolved(
         (document) => {
           refundInput(document).properties.note = { type: "string" };
-          const dispute = document.nouns.find(
-            (noun) => noun.id === "card_dispute",
+          const dispute = document.instruments.find(
+            (instrument) => instrument.id === "card_dispute",
           );
-          if (!dispute?.verbs.review)
+          if (!dispute?.actions.review)
             throw new Error("dispute fixture missing");
-          dispute.verbs.review.input = {
+          dispute.actions.review.input = {
             additionalProperties: false,
             properties: { note: { type: "string" } },
             type: "object",
@@ -2725,7 +3343,7 @@ describe("evolution", () => {
     });
   });
 
-  describe("append-only UDL noun evolution", () => {
+  describe("append-only UDL instrument evolution", () => {
     test("freezes instance identity and lifecycle", async () => {
       const previous = await policySnapshot();
       const next = changed(previous, {
@@ -2737,18 +3355,18 @@ describe("evolution", () => {
           activate: { from: [], to: "expired" },
         },
       });
-      expect(diffNounEvolution(previous, next)).toEqual(
+      expect(diffInstrumentEvolution(previous, next)).toEqual(
         expect.arrayContaining([
           "policy: instance id prefix changed from pol to cover",
           "policy: initial lifecycle state changed from quoted to bound",
           "policy: lifecycle state expired was removed or renamed",
-          "policy: transition for verb activate changed its target state from active to expired",
-          "policy: transition for verb activate no longer fires from state bound",
+          "policy: transition for action activate changed its target state from active to expired",
+          "policy: transition for action activate no longer fires from state bound",
         ]),
       );
     });
 
-    test("allows only optional noun fields to be added", async () => {
+    test("allows only optional instrument fields to be added", async () => {
       const previous = await policySnapshot();
       const next = changed(previous, {
         fields: {
@@ -2762,7 +3380,7 @@ describe("evolution", () => {
         },
       });
       delete (next.fields as Record<string, unknown>).currency;
-      expect(diffNounEvolution(previous, next)).toEqual(
+      expect(diffInstrumentEvolution(previous, next)).toEqual(
         expect.arrayContaining([
           "policy: field currency was removed or renamed",
           "policy: field termsSummary became required, tightening the schema",
@@ -2772,13 +3390,13 @@ describe("evolution", () => {
       );
     });
 
-    test("freezes live verbs, steps, inputs, gates, and execution facets", async () => {
+    test("freezes live actions, steps, inputs, gates, and execution facets", async () => {
       const previous = await policySnapshot();
-      const bind = previous.verbs.bind!;
-      const activate = previous.verbs.activate!;
+      const bind = previous.actions.bind!;
+      const activate = previous.actions.activate!;
       const next = changed(previous, {
-        verbs: {
-          ...previous.verbs,
+        actions: {
+          ...previous.actions,
           bind: {
             ...bind,
             decision: { ...record(bind.decision), deadlineMs: 1 },
@@ -2800,30 +3418,30 @@ describe("evolution", () => {
           },
         },
       });
-      delete (next.verbs as Record<string, unknown>).withdraw;
-      expect(diffNounEvolution(previous, next)).toEqual(
+      delete (next.actions as Record<string, unknown>).withdraw;
+      expect(diffInstrumentEvolution(previous, next)).toEqual(
         expect.arrayContaining([
-          "policy: verb withdraw was removed or renamed",
-          "policy: verb bind changed move transfer at index 0; money movement is frozen once live",
-          "policy: verb bind input field approvalCode was added as required, tightening the verb input",
-          "policy: verb bind changed its cross-noun gates",
-          "policy: verb bind changed its event name",
-          "policy: verb bind changed its provider decision",
-          "policy: verb bind changed its computed timestamp",
-          "policy: verb activate changed its earnable flag",
-          "policy: verb activate changed its due condition",
-          "policy: verb activate changed its admission deadline",
+          "policy: action withdraw was removed or renamed",
+          "policy: action bind changed move transfer at index 0; money movement is frozen once live",
+          "policy: action bind input field approvalCode was added as required, tightening the action input",
+          "policy: action bind changed its cross-instrument gates",
+          "policy: action bind changed its event name",
+          "policy: action bind changed its provider decision",
+          "policy: action bind changed its computed timestamp",
+          "policy: action activate changed its earnable flag",
+          "policy: action activate changed its due condition",
+          "policy: action activate changed its admission deadline",
         ]),
       );
     });
 
     test("a gate's optional marker is part of its frozen identity", async () => {
       const previous = await policySnapshot();
-      const bind = previous.verbs.bind!;
+      const bind = previous.actions.bind!;
       const gated = (optional: boolean) =>
         changed(previous, {
-          verbs: {
-            ...previous.verbs,
+          actions: {
+            ...previous.actions,
             bind: {
               ...bind,
               requiresRefs: [
@@ -2836,19 +3454,20 @@ describe("evolution", () => {
             },
           },
         });
-      const violation = "policy: verb bind changed its cross-noun gates";
-      expect(diffNounEvolution(gated(false), gated(true))).toEqual(
+      const violation =
+        "policy: action bind changed its cross-instrument gates";
+      expect(diffInstrumentEvolution(gated(false), gated(true))).toEqual(
         expect.arrayContaining([violation]),
       );
-      expect(diffNounEvolution(gated(true), gated(false))).toEqual(
+      expect(diffInstrumentEvolution(gated(true), gated(false))).toEqual(
         expect.arrayContaining([violation]),
       );
-      expect(diffNounEvolution(gated(true), gated(true))).toEqual([]);
+      expect(diffInstrumentEvolution(gated(true), gated(true))).toEqual([]);
     });
 
     test("freezes the complete admission-gate algebra", async () => {
       const previous = await policySnapshot();
-      const bind = previous.verbs.bind!;
+      const bind = previous.actions.bind!;
       const gate = {
         bind: { policyholderAccountId: "fields.ownerAccountId" },
         field: "policyId",
@@ -2857,8 +3476,8 @@ describe("evolution", () => {
         unique: true as const,
       };
       const baseline = changed(previous, {
-        verbs: {
-          ...previous.verbs,
+        actions: {
+          ...previous.actions,
           bind: {
             ...bind,
             requiresAggregate: [
@@ -2876,68 +3495,73 @@ describe("evolution", () => {
       });
       const changeBind = (requiresRefs: unknown) =>
         changed(baseline, {
-          verbs: {
-            ...baseline.verbs,
-            bind: { ...baseline.verbs.bind!, requiresRefs },
+          actions: {
+            ...baseline.actions,
+            bind: { ...baseline.actions.bind!, requiresRefs },
           },
         });
-      const crossNounViolation =
-        "policy: verb bind changed its cross-noun gates";
+      const crossInstrumentViolation =
+        "policy: action bind changed its cross-instrument gates";
       expect(
-        diffNounEvolution(
+        diffInstrumentEvolution(
           baseline,
           changeBind([{ ...gate, bind: { changed: "fields.ownerAccountId" } }]),
         ),
-      ).toContain(crossNounViolation);
+      ).toContain(crossInstrumentViolation);
       expect(
-        diffNounEvolution(
+        diffInstrumentEvolution(
           baseline,
           changeBind([{ ...gate, match: { changed: "fields.currency" } }]),
         ),
-      ).toContain(crossNounViolation);
+      ).toContain(crossInstrumentViolation);
       expect(
-        diffNounEvolution(
+        diffInstrumentEvolution(
           baseline,
           changeBind([{ ...gate, unique: undefined }]),
         ),
-      ).toContain(crossNounViolation);
+      ).toContain(crossInstrumentViolation);
 
       const relaxed = changed(baseline, {
-        verbs: {
-          ...baseline.verbs,
+        actions: {
+          ...baseline.actions,
           bind: {
-            ...baseline.verbs.bind!,
+            ...baseline.actions.bind!,
             requiresAggregate: [],
             requiresDrainedAccount: null,
           },
         },
       });
-      expect(diffNounEvolution(baseline, relaxed)).toEqual(
+      expect(diffInstrumentEvolution(baseline, relaxed)).toEqual(
         expect.arrayContaining([
-          "policy: verb bind changed its aggregate admission gates",
-          "policy: verb bind changed its drained-account gate",
+          "policy: action bind changed its aggregate admission gates",
+          "policy: action bind changed its drained-account gate",
         ]),
       );
     });
 
-    test("freezes parties, aggregates, unwind, subjects, and update permissions", async () => {
+    test("freezes parties, aggregates, quotes, subjects, and update permissions", async () => {
       const previous = await policySnapshot();
       const next = changed(previous, {
         aggregateInvariants: [],
         parties: { payer: "insurerAccountId" },
         subjects: [],
-        unwind: { ...record(previous.unwind), confirm: "withdraw" },
+        quotes: {
+          preview: {
+            ...record(record(previous.quotes).preview),
+            netDestinationField: "insurerAccountId",
+          },
+        },
         updateFields: previous.updateFields.filter(
           (field) => field !== "termsSummary",
         ),
         updateStates: [],
       });
-      expect(diffNounEvolution(previous, next)).toEqual(
+      expect(diffInstrumentEvolution(previous, next)).toEqual(
         expect.arrayContaining([
           "policy: party role payer moved from field policyholderAccountId to insurerAccountId",
           "policy: party role beneficiary was removed or renamed",
           expect.stringContaining("policy: aggregate invariant ["),
-          "policy: unwind policy changed; the penalty schedule and refund destination are frozen once live",
+          "policy: quote policy changed; the charge schedule, the frozen fields, and the refund destination are frozen once live",
           "policy: subject kind policy_risk was removed, rejecting linked instances",
           "policy: update policy no longer permits field termsSummary",
           "policy: update policy no longer permits state quoted",
@@ -2945,7 +3569,7 @@ describe("evolution", () => {
       );
     });
 
-    test("freezes a derived amount percentage after the noun becomes live", async () => {
+    test("freezes a derived amount percentage after the instrument becomes live", async () => {
       const snapshot = await policySnapshot();
       const previous = changed(snapshot, {
         derivedAmounts: ["serviceAmount=floor(premiumAmount*250/10000)"],
@@ -2954,17 +3578,89 @@ describe("evolution", () => {
         derivedAmounts: ["serviceAmount=floor(premiumAmount*9900/10000)"],
       });
 
-      expect(diffNounEvolution(previous, next)).toContain(
+      expect(diffInstrumentEvolution(previous, next)).toContain(
         "policy: derived amount rules changed; derived money arithmetic is frozen once live",
       );
     });
 
-    test("freezes every weighted distribution selector after the verb becomes live", async () => {
+    test("freezes fee basis points after the instrument becomes live", async () => {
+      const snapshot = await policySnapshot();
+      const previous = changed(snapshot, {
+        feeRules: [
+          {
+            amountField: "serviceFee",
+            baseField: "premiumAmount",
+            bearerField: "policyholderAccountId",
+            position: "on_top",
+            rule: { bps: 250, kind: "bps" },
+          },
+        ],
+      });
+      const next = changed(snapshot, {
+        feeRules: [
+          {
+            amountField: "serviceFee",
+            baseField: "premiumAmount",
+            bearerField: "policyholderAccountId",
+            position: "on_top",
+            rule: { bps: 300, kind: "bps" },
+          },
+        ],
+      });
+
+      expect(diffInstrumentEvolution(previous, next)).toContain(
+        "policy: feeRules changed; fee calculation and settlement funding are frozen once live",
+      );
+    });
+
+    test("freezes fee tier thresholds after the instrument becomes live", async () => {
+      const snapshot = await policySnapshot();
+      const feeRule = {
+        amountField: "serviceFee",
+        baseField: "premiumAmount",
+        bearerField: "policyholderAccountId",
+        position: "on_top",
+        rule: {
+          kind: "tiered",
+          tiers: [
+            {
+              fromInclusive: "0",
+              rule: { bps: 250, kind: "bps" },
+              toExclusive: "10000",
+            },
+            {
+              fromInclusive: "10000",
+              rule: { bps: 150, kind: "bps" },
+            },
+          ],
+        },
+      };
+      const previous = changed(snapshot, { feeRules: [feeRule] });
+      const next = changed(snapshot, {
+        feeRules: [
+          {
+            ...feeRule,
+            rule: {
+              ...feeRule.rule,
+              tiers: feeRule.rule.tiers.map((tier, index) =>
+                index === 0 ? { ...tier, toExclusive: "20000" } : tier,
+              ),
+            },
+          },
+        ],
+      });
+
+      expect(diffInstrumentEvolution(previous, next)).toContain(
+        "policy: feeRules changed; fee calculation and settlement funding are frozen once live",
+      );
+    });
+
+    test("freezes every weighted distribution selector after the action becomes live", async () => {
       const previous = await policySnapshot();
-      const bind = previous.verbs.bind!;
+      const bind = previous.actions.bind!;
       const baseline = changed(previous, {
-        verbs: {
-          ...previous.verbs,
+        actions: {
+          ...previous.actions,
           bind: {
             ...bind,
             distribute: {
@@ -2979,41 +3675,41 @@ describe("evolution", () => {
         },
       });
       const violation =
-        "policy: verb bind changed its distribution rule; money distribution is frozen once live";
+        "policy: action bind changed its distribution rule; money distribution is frozen once live";
       const changedDistributions = [
         {
-          ...record(baseline.verbs.bind!.distribute),
+          ...record(baseline.actions.bind!.distribute),
           pool: { from: "parent", path: "refs.replacementPool" },
         },
         {
-          ...record(baseline.verbs.bind!.distribute),
+          ...record(baseline.actions.bind!.distribute),
           weightField: "replacementWeight",
         },
         {
-          ...record(baseline.verbs.bind!.distribute),
+          ...record(baseline.actions.bind!.distribute),
           statuses: ["approved"],
         },
       ];
 
       for (const distribute of changedDistributions) {
         const next = changed(baseline, {
-          verbs: {
-            ...baseline.verbs,
-            bind: { ...baseline.verbs.bind!, distribute },
+          actions: {
+            ...baseline.actions,
+            bind: { ...baseline.actions.bind!, distribute },
           },
         });
-        expect(diffNounEvolution(baseline, next)).toContain(violation);
+        expect(diffInstrumentEvolution(baseline, next)).toContain(violation);
       }
     });
 
-    test("rejects an aggregate added to an already-live noun", async () => {
+    test("rejects an aggregate added to an already-live instrument", async () => {
       const previous = await policySnapshot();
       const key =
         "claim.claimAmount within coverageLimit via policyId while approved";
       const next = changed(previous, {
         aggregateInvariants: [...previous.aggregateInvariants, key],
       });
-      expect(diffNounEvolution(previous, next)).toContain(
+      expect(diffInstrumentEvolution(previous, next)).toContain(
         `policy: aggregate invariant [${key}] was added, which can reject existing instances`,
       );
     });

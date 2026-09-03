@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL4001",
+      "path": "$.instruments[0].actions.settle.remainder.inputKey"
+    }
+  ],
+  "summary": "Refuses remainder inputKey partial is not declared by action input.",
+  "verdict": "invalid"
+}

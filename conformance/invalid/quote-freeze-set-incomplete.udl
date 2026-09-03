@@ -1,0 +1,261 @@
+{
+  "instruments": [
+    {
+      "actionOrder": [
+        "create",
+        "fund",
+        "dispute",
+        "quote",
+        "refund"
+      ],
+      "actions": {
+        "create": {
+          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The amount, currency, and seller are derived from the locked listing -- never caller-supplied -- so escrow economics are the listing's by construction.",
+          "moves": [],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "escrowAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Create an escrow order"
+        },
+        "dispute": {
+          "description": "Freezes the fully funded escrow before either milestone releases, preserving the entire balance while the parties decide what happens next.",
+          "moves": [],
+          "steps": [],
+          "summary": "Dispute an escrow order"
+        },
+        "fund": {
+          "description": "Moves the full purchase amount from the buyer account into the dedicated escrow account while the listing remains active.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.amount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                }
+              },
+              "capture": {
+                "fundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "sandboxFailurePoint": "funding",
+          "steps": [],
+          "summary": "Fund an escrow order"
+        },
+        "quote": {
+          "description": "Calculates the full buyer refund while disputed and parks the escrow for explicit confirmation. No money moves at quote time.",
+          "moves": [],
+          "quote": {
+            "baseField": "amount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "buyerAccountId"
+            ],
+            "netDestinationField": "buyerAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Quote an escrow refund"
+        },
+        "refund": {
+          "commit": "quote",
+          "description": "Confirms the quoted retreat and returns the full held amount from escrow to the buyer.",
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.buyerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.escrowAccountId"
+                }
+              },
+              "capture": {
+                "refundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Refund an escrow order"
+        }
+      },
+      "callerParkedStates": {
+        "created": "expire fires only when fundBy is set; without a funding deadline the escrow waits on the buyer to fund or cancel",
+        "disputed": "dispute resolution is a human judgment; the parties resume the escrow or quote a refund",
+        "funded": "releasing or disputing held value is a party decision; escrow deliberately holds until the parties act",
+        "refund_quoted": "a quoted refund moves money only when the caller confirms it"
+      },
+      "description": "An escrow order holds the full purchase amount and releases it to the seller exactly once. Before release, a dispute freezes the full balance until work resumes or a quoted refund is confirmed.",
+      "fields": {
+        "amount": {
+          "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "buyerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        },
+        "currency": {
+          "description": "ISO 4217 currency code",
+          "maxLength": 3,
+          "minLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "fundBy": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "memo": {
+          "maxLength": 180,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sellerAccountId": {
+          "description": "Hyperscale account ID",
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string",
+          "x-hyperscale-reference-filter": {
+            "column": "role",
+            "values": [
+              "customer_balance"
+            ]
+          }
+        }
+      },
+      "id": "escrow_order",
+      "idPrefix": "eord",
+      "lifecycle": {
+        "initial": "created",
+        "states": [
+          "created",
+          "funded",
+          "disputed",
+          "refunded",
+          "refund_quoted"
+        ],
+        "transitions": {
+          "dispute": {
+            "from": [
+              "funded"
+            ],
+            "to": "disputed"
+          },
+          "fund": {
+            "from": [
+              "created"
+            ],
+            "to": "funded"
+          },
+          "quote": {
+            "from": [
+              "disputed"
+            ],
+            "to": "refund_quoted"
+          },
+          "refund": {
+            "from": [
+              "refund_quoted"
+            ],
+            "to": "refunded"
+          }
+        }
+      },
+      "parties": {
+        "beneficiary": "sellerAccountId",
+        "payer": "buyerAccountId"
+      },
+      "required": [
+        "buyerAccountId",
+        "sellerAccountId",
+        "amount",
+        "currency"
+      ],
+      "summary": "An escrow order whose refund quote omits its own base field.",
+      "templateId": "escrow",
+      "title": "Escrow order"
+    }
+  ],
+  "product": "quote_freeze_set",
+  "subjects": [],
+  "title": "Quote freeze set",
+  "udl": 1,
+  "version": 1
+}

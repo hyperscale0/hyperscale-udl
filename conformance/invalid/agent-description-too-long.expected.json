@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL1003",
+      "path": "$.instruments[0].actions.create.agentDescription"
+    }
+  ],
+  "summary": "Agent-facing prose is capped at 400 characters so a tool list stays inside a client's pick budget.",
+  "verdict": "invalid"
+}

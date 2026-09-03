@@ -1,7 +1,7 @@
 {
   "issues": [
     {
-      "code": "invalid_json",
+      "code": "UDL1002",
       "path": "$"
     }
   ],

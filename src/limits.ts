@@ -5,7 +5,7 @@ export const UDL_LIMITS = Object.freeze({
   financeStates: 32,
   financeTransitionEdges: 128,
   financeTransitions: 64,
-  financeVerbs: 64,
+  financeActions: 64,
   financeWork: 4_096,
   maxDepth: 24,
   maxKeyLength: 128,
@@ -23,10 +23,11 @@ export const UDL_LIMITS = Object.freeze({
   /**
    * Reference-shape classifications one `ReferenceShapeBudget` may buy. Each
    * one compiles a JSON Schema validator, and a document controls both factors
-   * of the nouns x gate-fields product that asks for them.
+   * of the instruments x gate-fields product that asks for them.
    */
   maxSchemaProbes: 2_048,
-  maxSourceBytes: 256 * 1_024,
+  // The complete 2026-09-01 platform catalog serializes to 402,126 bytes.
+  maxSourceBytes: 512 * 1_024,
   maxStringLength: 2_048,
   maxTotalStringLength: 256 * 1_024,
 });

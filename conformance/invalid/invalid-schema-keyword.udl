@@ -1,0 +1,220 @@
+{
+  "instruments": [
+    {
+      "actionOrder": [
+        "create",
+        "revise",
+        "settle"
+      ],
+      "actions": {
+        "create": {
+          "moves": [],
+          "steps": [],
+          "summary": "Open the agreement"
+        },
+        "revise": {
+          "examples": [
+            {
+              "input": {
+                "agreementId": "agr_sandbox_agreement01",
+                "note": "Updated terms",
+                "tenantId": "ten_sandbox_example001"
+              },
+              "name": "revise_terms"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "note"
+            ],
+            "type": "object"
+          },
+          "moves": [],
+          "principal": "user_session",
+          "steps": [],
+          "summary": "Revise the note",
+          "updates": [
+            "note"
+          ]
+        },
+        "settle": {
+          "deadline": {
+            "field": "closesAt"
+          },
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.remainingAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.destinationAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.sourceAccountId"
+                }
+              },
+              "key": "settlement",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "remainder": {
+            "amountRef": "remainingAmount",
+            "onZero": "refuse",
+            "totalPath": "fields.amount"
+          },
+          "requiresChecks": [
+            {
+              "checkKind": "identity_verification",
+              "family": "national_identity",
+              "maxAge": "P30D",
+              "statuses": [
+                "completed"
+              ],
+              "subjectField": "subjectId"
+            }
+          ],
+          "sandboxFailurePoint": "release",
+          "steps": [],
+          "summary": "Settle the agreement"
+        }
+      },
+      "callerParkedStates": {
+        "open": "The owner may revise or settle the agreement."
+      },
+      "dials": [
+        {
+          "field": "closesAt",
+          "key": "settlement_window",
+          "kind": "window",
+          "maxOffset": "P30D",
+          "minOffset": "PT0S",
+          "summary": "The settlement deadline offset.",
+          "title": "Settlement window"
+        }
+      ],
+      "fields": {
+        "amount": {
+          "pattern": "^[1-9][0-9]{0,17}$",
+          "type": "string"
+        },
+        "closesAt": {
+          "format": "hyperscale-date-time",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "destinationAccountId": {
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "sourceAccountId": {
+          "pattern": "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+          "type": "string"
+        },
+        "subjectId": {
+          "type": "string"
+        }
+      },
+      "id": "agreement",
+      "idPrefix": "agr",
+      "lifecycle": {
+        "initial": "open",
+        "states": [
+          "open",
+          "closed"
+        ],
+        "transitions": {
+          "revise": {
+            "from": [
+              "open"
+            ],
+            "to": "open"
+          },
+          "settle": {
+            "from": [
+              "open"
+            ],
+            "to": "closed"
+          }
+        }
+      },
+      "nav": [
+        "Agreements"
+      ],
+      "required": [
+        "amount",
+        "closesAt",
+        "currency",
+        "destinationAccountId",
+        "sourceAccountId",
+        "subjectId"
+      ],
+      "subject": {
+        "extensible": false,
+        "kinds": [
+          "asset"
+        ]
+      },
+      "summary": "One agreement with a computed final settlement.",
+      "surfaceVisibility": "public",
+      "templateId": "agreement",
+      "title": "Agreement",
+      "update": {
+        "examples": [
+          {
+            "input": {
+              "agreementId": "agr_sandbox_agreement01",
+              "note": "Updated terms",
+              "tenantId": "ten_sandbox_example001"
+            },
+            "name": "revise_terms"
+          }
+        ],
+        "fields": [
+          "note"
+        ],
+        "states": [
+          "open"
+        ]
+      }
+    }
+  ],
+  "product": "complete_contract",
+  "subjects": [
+    {
+      "declaredValue": "none",
+      "kind": "asset",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object",
+        "oneOf": []
+      },
+      "title": "Asset",
+      "version": 1
+    }
+  ],
+  "title": "Complete contract",
+  "udl": 1,
+  "version": 1
+}
+

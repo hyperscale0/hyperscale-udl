@@ -1,7 +1,7 @@
 /**
  * Pack-time entry-point rewrite (prepack applies, postpack restores).
  *
- * The workspace package.json keeps main/module/types/exports on src/index.ts:
+ * The product package.json keeps main/module/types/exports on src/index.ts:
  * vite-plus resolves this package with node-like conditions, so any
  * dist-pointing mapping visible to the monorepo would read the untracked
  * (gate-cleaned, potentially stale) dist/ build during `vp test`. The

@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5009",
+      "path": "$.instruments[4].actions.reconcile.reconcile[0].exception.amountField"
+    }
+  ],
+  "summary": "Refuses reconcile exception references unknown child amount field missing.",
+  "verdict": "invalid"
+}

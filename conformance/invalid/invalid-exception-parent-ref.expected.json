@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5007",
+      "path": "$.instruments[4].actions.reconcile.reconcile[0].exception.refField"
+    }
+  ],
+  "summary": "Refuses seller_payout_debit_adjustment.amount must reference seller_payout to carry its breaks.",
+  "verdict": "invalid"
+}

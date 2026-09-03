@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL3001",
+      "path": "$.instruments[0].actions"
+    }
+  ],
+  "summary": "Every instrument declares create: nothing else can bring an instance into being.",
+  "verdict": "invalid"
+}

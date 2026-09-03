@@ -1,7 +1,7 @@
 {
   "issues": [
     {
-      "code": "resource_limit",
+      "code": "UDL1004",
       "path": "$.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested.nested"
     }
   ],

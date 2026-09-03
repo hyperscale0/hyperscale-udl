@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL5001",
+      "path": "$.instruments[2].actions.create.requiresRefs[0].field"
+    }
+  ],
+  "summary": "Refuses gate references unknown field missing.",
+  "verdict": "invalid"
+}

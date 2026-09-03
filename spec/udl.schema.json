@@ -5,12 +5,54 @@
   "description": "Generated from the Zod grammar in src/schema.ts by scripts/emit-spec.ts. Edits belong in the grammar. This schema pins document shape only; the semantic laws it cannot express are pinned by conformance/.",
   "type": "object",
   "properties": {
-    "nouns": {
+    "dials": {
       "minItems": 1,
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          },
+          "kind": {
+            "type": "string",
+            "const": "confirmation_threshold"
+          },
+          "maxMinor": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000000000
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": ["key", "kind", "summary", "title"],
+        "additionalProperties": false
+      }
+    },
+    "instruments": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actionOrder": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+            }
+          },
+          "agentDescription": {
+            "type": "string",
+            "maxLength": 400
+          },
           "aggregateInvariants": {
             "minItems": 1,
             "type": "array",
@@ -19,7 +61,7 @@
                 {
                   "type": "object",
                   "properties": {
-                    "childNounId": {
+                    "childInstrumentId": {
                       "type": "string",
                       "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                     },
@@ -45,7 +87,7 @@
                     }
                   },
                   "required": [
-                    "childNounId",
+                    "childInstrumentId",
                     "childRefField",
                     "childStatuses",
                     "parentField",
@@ -56,7 +98,7 @@
                 {
                   "type": "object",
                   "properties": {
-                    "childNounId": {
+                    "childInstrumentId": {
                       "type": "string",
                       "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                     },
@@ -98,7 +140,7 @@
                     }
                   },
                   "required": [
-                    "childNounId",
+                    "childInstrumentId",
                     "childRefField",
                     "childStatuses",
                     "parentField",
@@ -109,16 +151,144 @@
               ]
             }
           },
-          "computedMoneyRefs": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
+          "callerParkedStates": {
+            "type": "object",
+            "propertyNames": {
               "type": "string",
-              "pattern": "^[a-z][A-Za-z0-9]*$"
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+            },
+            "additionalProperties": {
+              "type": "string"
             }
           },
           "description": {
             "type": "string"
+          },
+          "dials": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "window"
+                    },
+                    "maxOffset": {
+                      "type": "string"
+                    },
+                    "minOffset": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["field", "key", "kind", "summary", "title"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "decision_deadline_ms"
+                    },
+                    "maxMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 15000
+                    },
+                    "minMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 15000
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["action", "key", "kind", "summary", "title"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "reconcile_tolerance"
+                    },
+                    "maxMinorUnits": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000000
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "kind",
+                    "maxMinorUnits",
+                    "summary",
+                    "title"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "unwind_penalty"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key", "kind", "summary", "title"],
+                  "additionalProperties": false
+                }
+              ]
+            }
           },
           "distinctParties": {
             "type": "boolean",
@@ -161,6 +331,153 @@
                 }
               },
               "required": ["field", "rounding", "rule", "sourceField"],
+              "additionalProperties": false
+            }
+          },
+          "feeRules": {
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "amountField": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "baseField": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "bearerField": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "position": {
+                  "type": "string",
+                  "enum": ["carved", "on_top"]
+                },
+                "rule": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "bps": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9999
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "bps"
+                        }
+                      },
+                      "required": ["bps", "kind"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "currencyField": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "field": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "exact"
+                        }
+                      },
+                      "required": ["currencyField", "field", "kind"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "tiered"
+                        },
+                        "tiers": {
+                          "minItems": 1,
+                          "maxItems": 16,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "fromInclusive": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$"
+                              },
+                              "rule": {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "bps": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 9999
+                                      },
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "bps"
+                                      }
+                                    },
+                                    "required": ["bps", "kind"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "currencyField": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                                      },
+                                      "field": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                                      },
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "exact"
+                                      }
+                                    },
+                                    "required": [
+                                      "currencyField",
+                                      "field",
+                                      "kind"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              "toExclusive": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$"
+                              }
+                            },
+                            "required": ["fromInclusive", "rule"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["kind", "tiers"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "amountField",
+                "baseField",
+                "bearerField",
+                "position",
+                "rule"
+              ],
               "additionalProperties": false
             }
           },
@@ -233,6 +550,13 @@
             "required": ["initial", "states", "transitions"],
             "additionalProperties": false
           },
+          "nav": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "parties": {
             "type": "object",
             "properties": {
@@ -284,6 +608,9 @@
           "subject": {
             "type": "object",
             "properties": {
+              "extensible": {
+                "type": "boolean"
+              },
               "kinds": {
                 "minItems": 1,
                 "type": "array",
@@ -299,64 +626,45 @@
           "summary": {
             "type": "string"
           },
+          "surfaceVisibility": {
+            "type": "string",
+            "enum": ["internal", "public", "system"]
+          },
+          "templateId": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+          },
           "title": {
             "type": "string"
-          },
-          "unwind": {
-            "type": "object",
-            "properties": {
-              "beforeField": {
-                "type": "string",
-                "pattern": "^[a-z][A-Za-z0-9]*$"
-              },
-              "confirm": {
-                "type": "string",
-                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
-              },
-              "penalty": {
-                "minItems": 1,
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "bps": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9999
-                    },
-                    "withinOffset": {
-                      "type": "string"
-                    }
-                  },
-                  "required": ["bps"],
-                  "additionalProperties": false
-                }
-              },
-              "quote": {
-                "type": "string",
-                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
-              },
-              "refundableField": {
-                "type": "string",
-                "pattern": "^[a-z][A-Za-z0-9]*$"
-              },
-              "refundDestinationField": {
-                "type": "string",
-                "pattern": "^[a-z][A-Za-z0-9]*$"
-              }
-            },
-            "required": [
-              "confirm",
-              "penalty",
-              "quote",
-              "refundableField",
-              "refundDestinationField"
-            ],
-            "additionalProperties": false
           },
           "update": {
             "type": "object",
             "properties": {
+              "examples": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "$ref": "#/$defs/jsonValue"
+                      }
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "output": {
+                      "$ref": "#/$defs/jsonValue"
+                    }
+                  },
+                  "required": ["input", "name"],
+                  "additionalProperties": false
+                }
+              },
               "fields": {
                 "minItems": 1,
                 "type": "array",
@@ -377,7 +685,7 @@
             "required": ["fields", "states"],
             "additionalProperties": false
           },
-          "verbs": {
+          "actions": {
             "type": "object",
             "propertyNames": {
               "type": "string",
@@ -386,6 +694,10 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "agentDescription": {
+                  "type": "string",
+                  "maxLength": 400
+                },
                 "captureInput": {
                   "type": "object",
                   "propertyNames": {
@@ -396,6 +708,29 @@
                     "type": "string",
                     "pattern": "^[a-z][A-Za-z0-9]*$"
                   }
+                },
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                },
+                "decidedAmount": {
+                  "type": "object",
+                  "properties": {
+                    "boundField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "remainderAction": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    }
+                  },
+                  "required": ["boundField", "field", "remainderAction"],
+                  "additionalProperties": false
                 },
                 "deadline": {
                   "type": "object",
@@ -416,12 +751,29 @@
                   "properties": {
                     "capability": {
                       "type": "string",
-                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      "enum": [
+                        "accounts_ledger_first_party",
+                        "identity_verification",
+                        "national_identity",
+                        "credit_bureau",
+                        "sanctions_screening",
+                        "enforcement_instrument",
+                        "credit_servicing",
+                        "collections_agency",
+                        "settlement_ingestion",
+                        "payouts",
+                        "banking_or_card_issuing",
+                        "insurance_carrier",
+                        "insurance_claims_adjuster",
+                        "air_carrier",
+                        "lodging_supplier",
+                        "email_or_notification"
+                      ]
                     },
                     "deadlineMs": {
                       "type": "integer",
                       "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
+                      "maximum": 15000
                     },
                     "onTimeout": {
                       "type": "string",
@@ -497,6 +849,14 @@
                           "type": "string",
                           "pattern": "^[a-z][A-Za-z0-9]*$"
                         },
+                        "delinquency": {
+                          "type": "string",
+                          "const": "parent_policy"
+                        },
+                        "drainAction": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        },
                         "period": {
                           "anyOf": [
                             {
@@ -509,16 +869,28 @@
                                   "type": "string",
                                   "enum": ["gregorian", "hijri"]
                                 },
+                                "monthEnd": {
+                                  "type": "string",
+                                  "const": "clamp_to_last_day"
+                                },
                                 "months": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0,
                                   "maximum": 9007199254740991
                                 }
                               },
-                              "required": ["calendar", "months"],
+                              "required": ["calendar", "monthEnd", "months"],
                               "additionalProperties": false
                             }
                           ]
+                        },
+                        "liability": {
+                          "type": "string",
+                          "const": "one_open"
+                        },
+                        "untilAction": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                         },
                         "untilField": {
                           "type": "string",
@@ -538,7 +910,7 @@
                     "whenParentStatus": {
                       "type": "object",
                       "properties": {
-                        "nounId": {
+                        "instrumentId": {
                           "type": "string",
                           "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                         },
@@ -555,7 +927,7 @@
                           }
                         }
                       },
-                      "required": ["nounId", "refField", "statuses"],
+                      "required": ["instrumentId", "refField", "statuses"],
                       "additionalProperties": false
                     }
                   },
@@ -564,6 +936,122 @@
                 },
                 "earnable": {
                   "type": "boolean"
+                },
+                "effects": {
+                  "type": "object",
+                  "properties": {
+                    "decides": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["signature", "source"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "holds": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["signature", "source"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "moves": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["signature", "source"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "notifies": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "role": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["channel", "role", "signature", "source"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "reads": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["signature", "source"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "schedules": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "signature": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["signature", "source"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
                 },
                 "eventName": {
                   "type": "string",
@@ -750,10 +1238,321 @@
                   "required": ["allowedParties"],
                   "additionalProperties": false
                 },
-                "publicIntent": {
-                  "description": "Author-approved public intent name; the containing verb key remains the lifecycle and execution identity",
+                "quote": {
+                  "type": "object",
+                  "properties": {
+                    "anchorField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "baseField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "chargeRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "charges": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "bps": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9999
+                          },
+                          "withinOffset": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["bps"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "expires": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string",
+                              "pattern": "^[a-z][A-Za-z0-9]*$"
+                            }
+                          },
+                          "required": ["field"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "offset": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["offset"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "fixes": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      }
+                    },
+                    "netDestinationField": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "netRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": [
+                    "baseField",
+                    "chargeRef",
+                    "charges",
+                    "expires",
+                    "fixes",
+                    "netDestinationField",
+                    "netRef"
+                  ],
+                  "additionalProperties": false
+                },
+                "publicAction": {
+                  "description": "Author-approved public action name; the containing action key remains the lifecycle and execution identity",
                   "type": "string",
                   "pattern": "^[a-z][A-Za-z0-9]*$"
+                },
+                "principal": {
+                  "type": "string",
+                  "const": "user_session"
+                },
+                "reconcile": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^(?:fields|refs)\\.[a-z][A-Za-z0-9]*$"
+                      },
+                      "capture": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "counterpartyRef": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "currencyField": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": ["credit", "debit"]
+                      },
+                      "evidence": {
+                        "type": "string",
+                        "enum": [
+                          "movement",
+                          "provider_confirmation",
+                          "statement_line"
+                        ]
+                      },
+                      "exception": {
+                        "type": "object",
+                        "properties": {
+                          "amountField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "childInstrumentId": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "maxOpen": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000
+                          },
+                          "reasonField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "refField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "amountField",
+                          "childInstrumentId",
+                          "maxOpen",
+                          "reasonField",
+                          "refField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "match": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "law": {
+                                "type": "string",
+                                "const": "exact"
+                              }
+                            },
+                            "required": ["law"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "dial": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                              },
+                              "law": {
+                                "type": "string",
+                                "const": "tolerance"
+                              },
+                              "minorUnits": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": ["dial", "law", "minorUnits"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "law": {
+                                "type": "string",
+                                "const": "window"
+                              }
+                            },
+                            "required": ["law"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "within": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              }
+                            },
+                            "required": ["field"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "offset": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["offset"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "capture",
+                      "counterpartyRef",
+                      "currencyField",
+                      "direction",
+                      "evidence",
+                      "exception",
+                      "match",
+                      "within"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "remainder": {
+                  "type": "object",
+                  "properties": {
+                    "accumulateRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "amountRef": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "collected": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "amountField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "instrumentId": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "const": "refs"
+                          },
+                          "refField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "amountField",
+                          "instrumentId",
+                          "refField",
+                          "statuses"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "inputKey": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "onZero": {
+                      "type": "string",
+                      "enum": ["refuse", "skip_steps"]
+                    },
+                    "totalPath": {
+                      "type": "string",
+                      "pattern": "^(?:fields|refs)\\.[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": ["amountRef", "onZero", "totalPath"],
+                  "additionalProperties": false
                 },
                 "requiresAggregate": {
                   "minItems": 1,
@@ -882,7 +1681,7 @@
                           }
                         ]
                       },
-                      "nounId": {
+                      "instrumentId": {
                         "type": "string",
                         "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                       },
@@ -905,6 +1704,281 @@
                     },
                     "required": ["check", "over", "refField", "statuses"],
                     "additionalProperties": false
+                  }
+                },
+                "requiresChecks": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "identity_verification"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "national_identity"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "requested",
+                                "waiting",
+                                "completed",
+                                "rejected",
+                                "expired",
+                                "error"
+                              ]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "contact_ownership_verification"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "national_identity"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["match", "no_match"]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "consumer_inquiry"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "credit_bureau"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "returned",
+                                "acknowledged",
+                                "correction_required"
+                              ]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "commercial_inquiry"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "credit_bureau"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "returned",
+                                "acknowledged",
+                                "correction_required"
+                              ]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "facility_report"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "credit_bureau"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "returned",
+                                "acknowledged",
+                                "correction_required"
+                              ]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "screen"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "sanctions_screening"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": ["clear", "hit", "manual_review"]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "checkKind": {
+                            "type": "string",
+                            "const": "note_request"
+                          },
+                          "family": {
+                            "type": "string",
+                            "const": "enforcement_instrument"
+                          },
+                          "maxAge": {
+                            "type": "string"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "debtor_approved",
+                                "debtor_rejected",
+                                "auto_cancelled"
+                              ]
+                            }
+                          },
+                          "subjectField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": [
+                          "checkKind",
+                          "family",
+                          "statuses",
+                          "subjectField"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
                   }
                 },
                 "requiresDrainedAccount": {
@@ -940,7 +2014,7 @@
                         "type": "boolean",
                         "const": true
                       },
-                      "childNounId": {
+                      "childInstrumentId": {
                         "type": "string",
                         "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                       },
@@ -957,7 +2031,7 @@
                       "amountField",
                       "anchorField",
                       "capField",
-                      "childNounId",
+                      "childInstrumentId",
                       "statuses"
                     ],
                     "additionalProperties": false
@@ -1016,20 +2090,9 @@
                     "additionalProperties": false
                   }
                 },
-                "requiresSettlement": {
-                  "type": "object",
-                  "properties": {
-                    "capture": {
-                      "type": "string",
-                      "pattern": "^[a-z][A-Za-z0-9]*$"
-                    },
-                    "payoutRef": {
-                      "type": "string",
-                      "pattern": "^[a-z][A-Za-z0-9]*$"
-                    }
-                  },
-                  "required": ["capture", "payoutRef"],
-                  "additionalProperties": false
+                "sandboxFailurePoint": {
+                  "type": "string",
+                  "enum": ["funding", "release"]
                 },
                 "setsAt": {
                   "type": "object",
@@ -1074,7 +2137,7 @@
                             "type": "string",
                             "pattern": "^[a-z][A-Za-z0-9]*$"
                           },
-                          "nounId": {
+                          "instrumentId": {
                             "type": "string",
                             "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                           },
@@ -1101,7 +2164,7 @@
                         },
                         "required": [
                           "amountField",
-                          "nounId",
+                          "instrumentId",
                           "refField",
                           "sign",
                           "statuses",
@@ -1198,6 +2261,14 @@
                 },
                 "summary": {
                   "type": "string"
+                },
+                "updates": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]*$"
+                  }
                 }
               },
               "required": ["steps", "summary"],
@@ -1206,6 +2277,7 @@
           }
         },
         "required": [
+          "actionOrder",
           "fields",
           "id",
           "idPrefix",
@@ -1213,7 +2285,7 @@
           "required",
           "summary",
           "title",
-          "verbs"
+          "actions"
         ],
         "additionalProperties": false
       }
@@ -1270,7 +2342,7 @@
       "maximum": 9007199254740991
     }
   },
-  "required": ["nouns", "product", "subjects", "title", "udl", "version"],
+  "required": ["instruments", "product", "subjects", "title", "udl", "version"],
   "additionalProperties": false,
   "$defs": {
     "jsonValue": {

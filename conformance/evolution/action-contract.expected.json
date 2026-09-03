@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL7001",
+      "path": "$.instruments[0].actions.close"
+    }
+  ],
+  "summary": "Evolution identifies the changed action beneath the previous instrument index.",
+  "verdict": "invalid"
+}

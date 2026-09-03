@@ -1,10 +1,478 @@
 {
-  "nouns": [
+  "instruments": [
     {
+      "actionOrder": [
+        "create",
+        "bind",
+        "activate",
+        "preview",
+        "cancel",
+        "withdraw",
+        "endorse",
+        "expire"
+      ],
+      "actions": {
+        "activate": {
+          "description": "Starts cover at the declared time and pays the held premium to the insurer under the machine principal.",
+          "due": {
+            "field": "startsAt"
+          },
+          "earnable": true,
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "activate_cover_at_start"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                }
+              },
+              "capture": {
+                "premiumTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Activate a policy"
+        },
+        "bind": {
+          "agentDescription": "Ask the carrier to accept the risk under a 15 second deadline, where a timeout declines, then move the full premium from the policyholder into the policy's premium reserve. Only a quoted policy binds. Cover is not live yet. Activation happens at startsAt. This moves the policyholder's money.",
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Asks the carrier to accept the risk, then moves the premium into its dedicated reserve until cover starts.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_carrier",
+                "source": "decision"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "eventName": "policy.bound",
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "bind_carrier_accepted_risk"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.premiumAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                }
+              },
+              "capture": {
+                "premiumFundingTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Bind a policy"
+        },
+        "cancel": {
+          "agentDescription": "Confirm the previewed cancellation and return the entire reserved premium to the policyholder. It requires preview first and only works before cover activates. This moves money and does not reverse. An active policy has no cancellation path and runs to its expiry.",
+          "commit": "preview",
+          "description": "Confirms the previewed cancellation and returns the entire reserved premium to the policyholder before cover starts.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "confirm_pre_activation_cancel"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "refs.unwindRefund"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.policyholderAccountId"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "refs.premiumReserveAccountId"
+                }
+              },
+              "capture": {
+                "premiumRefundTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.create"
+            }
+          ],
+          "steps": [],
+          "summary": "Cancel a policy"
+        },
+        "create": {
+          "agentDescription": "Open a quote against one declared-value subject with its premium, coverage limit, peril schedule, and term, and provision the premium reserve. No premium moves. A renewal may name the prior policy only while that prior term is active or already expired.",
+          "description": "Creates a quote against one declared-value risk and provisions the premium reserve. No premium moves until the carrier binds.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "policy.quoted",
+          "examples": [
+            {
+              "input": {
+                "coverageLimit": "200000",
+                "currency": "SAR",
+                "expiresAt": "2027-08-01T00:00:00.000Z",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "perilSchedule": [
+                  {
+                    "deductibleBps": 500,
+                    "limitAmount": "200000",
+                    "peril": "accidental_damage",
+                    "waitingPeriodDays": 0
+                  },
+                  {
+                    "deductibleBps": 250,
+                    "limitAmount": "200000",
+                    "peril": "theft",
+                    "waitingPeriodDays": 7
+                  }
+                ],
+                "policyholderAccountId": "acct_sandbox_holder00001",
+                "premiumAmount": "12500",
+                "productId": "prd_sandbox_protection01",
+                "startsAt": "2026-08-01T00:00:00.000Z",
+                "subject": "sbj_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01",
+                "termsSummary": "Annual cover for accidental damage and theft."
+              },
+              "name": "quote_asset_protection"
+            }
+          ],
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "renewalOfPolicyId",
+              "optional": true,
+              "statuses": [
+                "active",
+                "expired"
+              ]
+            }
+          ],
+          "steps": [
+            {
+              "bind": {
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "owner.id": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "owner.type": {
+                  "from": "const",
+                  "value": "product"
+                },
+                "productId": {
+                  "from": "instance",
+                  "path": "productId"
+                },
+                "role": {
+                  "from": "const",
+                  "value": "product_escrow"
+                }
+              },
+              "capture": {
+                "premiumReserveAccountId": "accountId"
+              },
+              "operation": "account.escrow.provision"
+            }
+          ],
+          "summary": "Quote a policy"
+        },
+        "endorse": {
+          "agentDescription": "Rewrite the peril schedule, terms summary, or expiry on active cover. The carrier approves under a 15 second deadline and a timeout declines. No premium moves, because mid-term repricing is not modeled. A change that should reprice the cover needs a new policy.",
+          "decision": {
+            "capability": "insurance_carrier",
+            "deadlineMs": 15000,
+            "onTimeout": "decline"
+          },
+          "description": "Applies a carrier-approved mid-term change to active cover: the peril schedule, terms summary, or expiry may be rewritten. No premium moves; mid-term premium adjustment is not modeled.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_carrier",
+                "source": "decision"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "expiresAt": "2027-11-01T00:00:00.000Z",
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01",
+                "termsSummary": "Extended cover incl. water damage."
+              },
+              "name": "endorse_extend_active_cover"
+            }
+          ],
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "expiresAt": {
+                "format": "hyperscale-date-time",
+                "type": "string"
+              },
+              "perilSchedule": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "deductibleBps": {
+                      "maximum": 10000,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "limitAmount": {
+                      "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
+                      "pattern": "^[1-9][0-9]{0,17}$",
+                      "type": "string"
+                    },
+                    "peril": {
+                      "pattern": "^[a-z][a-z0-9_]{1,79}$",
+                      "type": "string"
+                    },
+                    "waitingPeriodDays": {
+                      "maximum": 3650,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "peril",
+                    "limitAmount",
+                    "deductibleBps",
+                    "waitingPeriodDays"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "minItems": 1,
+                "type": "array"
+              },
+              "termsSummary": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "moves": [],
+          "steps": [],
+          "summary": "Endorse a policy",
+          "updates": [
+            "perilSchedule",
+            "termsSummary",
+            "expiresAt"
+          ]
+        },
+        "expire": {
+          "description": "Ends active cover at term under the machine principal. Earned premium remains with the insurer.",
+          "due": {
+            "field": "expiresAt"
+          },
+          "effects": {
+            "schedules": [
+              {
+                "signature": "schedules.due",
+                "source": "due"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "expire_cover_at_term"
+            }
+          ],
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Expire a policy"
+        },
+        "preview": {
+          "agentDescription": "Price the cancellation refund while the policy is bound and cover has not started. No money moves. Under the declared schedule the refund is the whole premium. Required before cancel, which is the call that actually returns the money.",
+          "description": "Quotes the full premium refund while cover is bound but not active. No money moves until cancellation is confirmed.",
+          "effects": {
+            "holds": [
+              {
+                "signature": "holds.quote",
+                "source": "quote"
+              }
+            ],
+            "schedules": [
+              {
+                "signature": "schedules.expiry",
+                "source": "quote"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "preview_pre_activation_cancel"
+            }
+          ],
+          "moves": [],
+          "quote": {
+            "baseField": "premiumAmount",
+            "chargeRef": "unwindPenalty",
+            "charges": [
+              {
+                "bps": 0
+              }
+            ],
+            "expires": {
+              "offset": "PT15M"
+            },
+            "fixes": [
+              "policyholderAccountId",
+              "premiumAmount"
+            ],
+            "netDestinationField": "policyholderAccountId",
+            "netRef": "unwindRefund"
+          },
+          "steps": [],
+          "summary": "Preview policy cancellation"
+        },
+        "withdraw": {
+          "agentDescription": "Drop a quote the carrier never bound. Only a quoted policy withdraws, no premium has moved, and the premium reserve must be empty. No preview is needed because there is nothing to refund.",
+          "description": "Closes an unbound quote. No premium moved, so no cancellation preview is required.",
+          "eventName": "policy.withdrawn",
+          "examples": [
+            {
+              "input": {
+                "policyId": "pol_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "withdraw_unbound_quote"
+            }
+          ],
+          "moves": [],
+          "requiresDrainedAccount": {
+            "path": "refs.premiumReserveAccountId"
+          },
+          "steps": [],
+          "summary": "Withdraw a policy quote"
+        }
+      },
+      "agentDescription": "Reach for policy when the caller quotes carrier-backed cover over one declared-value subject and drives it through bind, endorsement, and expiry. Between bind and activation the premium sits in a per-policy reserve and is fully refundable. Once cover activates the premium is the insurer's. Claims are a separate instrument.",
       "aggregateInvariants": [
         {
           "childField": "claimAmount",
-          "childNounId": "claim",
+          "childInstrumentId": "claim",
           "childRefField": "policyId",
           "childStatuses": [
             "filed",
@@ -15,6 +483,10 @@
           "parentField": "coverageLimit"
         }
       ],
+      "callerParkedStates": {
+        "cancel_quoted": "a quoted cancellation moves money only when the caller confirms it",
+        "quoted": "binding or withdrawing a quote is the policyholder's decision"
+      },
       "description": "A policy quotes protection over one subject, binds after a carrier decision, activates at its declared start, and expires at term. Premium remains refundable while bound but not active; activation pays the insurer and opens the policy to claims.",
       "fields": {
         "coverageLimit": {
@@ -168,6 +640,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Policies"
+      ],
       "parties": {
         "beneficiary": "insurerAccountId",
         "payer": "policyholderAccountId"
@@ -188,25 +664,40 @@
           "flight_itinerary",
           "lodging_stay",
           "vehicle",
+          "merchandise",
           "pet",
           "traveler_party",
           "employee_census"
         ]
       },
       "summary": "Carrier-backed protection over one declared-value subject.",
+      "templateId": "insurance",
       "title": "Policy",
-      "unwind": {
-        "confirm": "cancel",
-        "penalty": [
+      "update": {
+        "examples": [
           {
-            "bps": 0
+            "input": {
+              "perilSchedule": [
+                {
+                  "deductibleBps": 500,
+                  "limitAmount": "200000",
+                  "peril": "accidental_damage",
+                  "waitingPeriodDays": 0
+                },
+                {
+                  "deductibleBps": 250,
+                  "limitAmount": "200000",
+                  "peril": "theft",
+                  "waitingPeriodDays": 7
+                }
+              ],
+              "policyId": "pol_sandbox_protection001",
+              "tenantId": "ten_sandbox_protection01",
+              "termsSummary": "Covers accidental damage and theft."
+            },
+            "name": "refine_quoted_cover"
           }
         ],
-        "quote": "preview",
-        "refundDestinationField": "policyholderAccountId",
-        "refundableField": "premiumAmount"
-      },
-      "update": {
         "fields": [
           "startsAt",
           "expiresAt",
@@ -216,305 +707,322 @@
         "states": [
           "quoted"
         ]
-      },
-      "verbs": {
-        "activate": {
-          "description": "Starts cover at the declared time and pays the held premium to the insurer under the machine principal.",
-          "due": {
-            "field": "startsAt"
-          },
-          "earnable": true,
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.premiumAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Activate a policy"
-        },
-        "bind": {
+      }
+    },
+    {
+      "actionOrder": [
+        "create",
+        "assess",
+        "approve",
+        "attest",
+        "pay",
+        "deny",
+        "reverse"
+      ],
+      "actions": {
+        "approve": {
+          "agentDescription": "Ask the claims adjuster for a verdict and hold the claim amount from the insurer account for the claimant. Only an assessed claim can approve, and an adjuster that misses the deadline declines by default. The hold reserves money without settling it. Pay posts it, reverse voids it.",
           "decision": {
-            "capability": "insurance_carrier",
+            "capability": "insurance_claims_adjuster",
             "deadlineMs": 15000,
             "onTimeout": "decline"
           },
-          "description": "Asks the carrier to accept the risk, then moves the premium into its dedicated reserve until cover starts.",
-          "eventName": "policy.bound",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.premiumAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.policyholderAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumFundingTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Bind a policy"
-        },
-        "cancel": {
-          "description": "Confirms the previewed cancellation and returns the entire reserved premium to the policyholder before cover starts.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "refs.unwindRefund"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.policyholderAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "refs.premiumReserveAccountId"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumRefundTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.create"
-            }
-          ],
-          "steps": [],
-          "summary": "Cancel a policy"
-        },
-        "create": {
-          "description": "Creates a quote against one declared-value risk and provisions the premium reserve. No premium moves until the carrier binds.",
-          "eventName": "policy.quoted",
+          "description": "Asks the claims adjuster to approve the assessed demand, then holds the immutable claim amount from the insurer for the claimant. For a carrier that exposes an adjudication API: the verdict is the provider's, taken just in time under a deadline.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.insurance_claims_adjuster",
+                "source": "decision"
+              }
+            ],
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
           "examples": [
             {
               "input": {
-                "coverageLimit": "200000",
-                "currency": "SAR",
-                "expiresAt": "2027-08-01T00:00:00.000Z",
-                "insurerAccountId": "acct_sandbox_insurer0001",
-                "perilSchedule": [
-                  {
-                    "deductibleBps": 500,
-                    "limitAmount": "200000",
-                    "peril": "accidental_damage",
-                    "waitingPeriodDays": 0
-                  },
-                  {
-                    "deductibleBps": 250,
-                    "limitAmount": "200000",
-                    "peril": "theft",
-                    "waitingPeriodDays": 7
-                  }
-                ],
-                "policyholderAccountId": "acct_sandbox_holder00001",
-                "premiumAmount": "12500",
-                "startsAt": "2026-08-01T00:00:00.000Z",
-                "subject": "sbj_sandbox_protection001",
-                "termsSummary": "Annual cover for accidental damage and theft."
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
               },
-              "name": "quote_asset_protection"
+              "name": "approve_assessed_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "steps": [],
+          "summary": "Approve a claim"
+        },
+        "assess": {
+          "agentDescription": "Mark the filed evidence ready for an approval decision. Only a filed claim can assess and no money moves. A claim filed validly during cover stays alive even if the policy term later expires.",
+          "description": "Marks filed evidence ready for an approval decision. A claim validly filed during cover continues even if the policy term later expires.",
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "complete_claim_assessment"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "Assess a claim"
+        },
+        "attest": {
+          "agentDescription": "Record an approval the insurer already made outside the platform and hold the claim amount from the insurer for the claimant. Only an assessed claim can attest, and the caller must assert the insurer as the acting party. Use this where the carrier has no adjudication API. Where one exists, approve calls it.",
+          "description": "Records the insurer's own approval of the assessed demand, taken outside the platform, and holds the immutable claim amount from the insurer for the claimant. The insurer must be asserted as the acting party. Use this where the carrier exposes no adjudication API; where one exists, approve calls it instead.",
+          "effects": {
+            "decides": [
+              {
+                "signature": "decides.tenant_port",
+                "source": "port"
+              }
+            ],
+            "holds": [
+              {
+                "signature": "holds.reserve",
+                "source": "moves[0]"
+              }
+            ],
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "input": {
+                "actorAccountId": "acct_sandbox_insurer0001",
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "attest_insurer_approval"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "amount": {
+                  "from": "instance",
+                  "path": "fields.claimAmount"
+                },
+                "currency": {
+                  "from": "instance",
+                  "path": "fields.currency"
+                },
+                "destinationAccountId": {
+                  "from": "instance",
+                  "path": "fields.claimantAccountId"
+                },
+                "sourceAccountId": {
+                  "from": "instance",
+                  "path": "fields.insurerAccountId"
+                }
+              },
+              "capture": {
+                "claimTransferId": "transferId"
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.reserve"
+            }
+          ],
+          "port": {
+            "allowedParties": [
+              "payer"
+            ]
+          },
+          "steps": [],
+          "summary": "Attest an out-of-band claim approval"
+        },
+        "create": {
+          "agentDescription": "File a demand against a policy. The policy must be active, and the filed amount is reserved against its aggregate coverage limit. The caller supplies the peril, the moment it occurred, the claim amount, and both accounts. No money moves at filing.",
+          "description": "Records a demand against an active policy and reserves its filed amount against the policy's aggregate coverage limit.",
+          "effects": {
+            "reads": [
+              {
+                "signature": "reads.requires_refs",
+                "source": "requiresRefs"
+              }
+            ]
+          },
+          "eventName": "claim.filed",
+          "examples": [
+            {
+              "input": {
+                "claimAmount": "75000",
+                "claimantAccountId": "acct_sandbox_holder00001",
+                "currency": "SAR",
+                "evidenceSummary": "Covered equipment was damaged in an accidental fall.",
+                "insurerAccountId": "acct_sandbox_insurer0001",
+                "occurredAt": "2026-10-14T11:30:00.000Z",
+                "peril": "accidental_damage",
+                "policyId": "pol_sandbox_protection001",
+                "productId": "prd_sandbox_protection01",
+                "subject": "sbj_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "file_accidental_damage_claim"
             }
           ],
           "moves": [],
           "requiresRefs": [
             {
-              "field": "renewalOfPolicyId",
-              "optional": true,
+              "field": "policyId",
               "statuses": [
-                "active",
-                "expired"
+                "active"
               ]
             }
           ],
-          "steps": [
-            {
-              "bind": {
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "owner.id": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                },
-                "owner.type": {
-                  "from": "const",
-                  "value": "workspace"
-                },
-                "role": {
-                  "from": "const",
-                  "value": "workspace_escrow"
-                },
-                "workspaceId": {
-                  "from": "instance",
-                  "path": "workspaceId"
-                }
-              },
-              "capture": {
-                "premiumReserveAccountId": "accountId"
-              },
-              "operation": "account.escrow.provision"
-            }
-          ],
-          "summary": "Quote a policy"
+          "steps": [],
+          "summary": "File a claim"
         },
-        "endorse": {
-          "decision": {
-            "capability": "insurance_carrier",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Applies a carrier-approved mid-term change to active cover: the peril schedule, terms summary, or expiry may be rewritten. No premium moves; mid-term premium adjustment is not modeled.",
+        "deny": {
+          "agentDescription": "Close a filed or assessed demand with no payout. Only a claim with no hold behind it can deny, so an approved claim goes through reverse instead. No money moves.",
+          "description": "Closes a filed or assessed demand before any payout hold exists.",
+          "eventName": "claim.denied",
           "examples": [
             {
               "input": {
-                "expiresAt": "2027-11-01T00:00:00.000Z",
-                "termsSummary": "Extended cover incl. water damage."
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
               },
-              "name": "endorse_extend_active_cover"
+              "name": "deny_unapproved_claim"
             }
           ],
-          "input": {
-            "additionalProperties": false,
-            "properties": {
-              "expiresAt": {
-                "format": "hyperscale-date-time",
-                "type": "string"
-              },
-              "perilSchedule": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "deductibleBps": {
-                      "maximum": 10000,
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "limitAmount": {
-                      "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
-                      "pattern": "^[1-9][0-9]{0,17}$",
-                      "type": "string"
-                    },
-                    "peril": {
-                      "pattern": "^[a-z][a-z0-9_]{1,79}$",
-                      "type": "string"
-                    },
-                    "waitingPeriodDays": {
-                      "maximum": 3650,
-                      "minimum": 0,
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "peril",
-                    "limitAmount",
-                    "deductibleBps",
-                    "waitingPeriodDays"
-                  ],
-                  "type": "object"
-                },
-                "maxItems": 24,
-                "minItems": 1,
-                "type": "array"
-              },
-              "termsSummary": {
-                "maxLength": 1000,
-                "minLength": 1,
-                "type": "string"
+          "moves": [],
+          "steps": [],
+          "summary": "Deny a claim"
+        },
+        "pay": {
+          "agentDescription": "Post the approved hold so the claim amount settles into the claimant account. Only an approved claim can pay. This settles money and is terminal.",
+          "description": "Posts the approved hold and settles the claim amount into the claimant account.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
               }
-            },
-            "type": "object"
+            ]
           },
-          "moves": [],
+          "eventName": "claim.paid",
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "pay_approved_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.post"
+            }
+          ],
           "steps": [],
-          "summary": "Endorse a policy"
+          "summary": "Pay a claim"
         },
-        "expire": {
-          "description": "Ends active cover at term under the machine principal. Earned premium remains with the insurer.",
-          "due": {
-            "field": "expiresAt"
+        "reverse": {
+          "agentDescription": "Void an approved payout hold before payment and close the claim as denied. Only an approved claim can reverse. The insurer's held funds are released and no settled money is clawed back.",
+          "description": "Voids an approved payout hold before payment and closes the claim denied. No settled money is reversed.",
+          "effects": {
+            "moves": [
+              {
+                "signature": "moves.transfer.internal",
+                "source": "moves[0]"
+              }
+            ]
           },
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.premiumReserveAccountId"
-          },
+          "examples": [
+            {
+              "input": {
+                "claimId": "clm_sandbox_protection001",
+                "tenantId": "ten_sandbox_protection01"
+              },
+              "name": "reverse_approved_claim"
+            }
+          ],
+          "moves": [
+            {
+              "bind": {
+                "reason": {
+                  "from": "const",
+                  "value": "Claim approval reversed"
+                },
+                "transferId": {
+                  "from": "instance",
+                  "path": "refs.claimTransferId"
+                }
+              },
+              "key": "transfer",
+              "operation": "internal_transfer.void"
+            }
+          ],
           "steps": [],
-          "summary": "Expire a policy"
-        },
-        "preview": {
-          "description": "Quotes the full premium refund while cover is bound but not active. No money moves until cancellation is confirmed.",
-          "moves": [],
-          "steps": [],
-          "summary": "Preview policy cancellation"
-        },
-        "withdraw": {
-          "description": "Closes an unbound quote. No premium moved, so no cancellation preview is required.",
-          "eventName": "policy.withdrawn",
-          "moves": [],
-          "requiresDrainedAccount": {
-            "path": "refs.premiumReserveAccountId"
-          },
-          "steps": [],
-          "summary": "Withdraw a policy quote"
+          "summary": "Reverse claim approval"
         }
-      }
-    },
-    {
+      },
+      "agentDescription": "Reach for claim when a policyholder demands payment for a covered peril under an active policy. Filing reserves the amount against the policy's coverage limit. Use approve where the carrier exposes an adjudication API and attest where the insurer decides out of band. Premium collection and cover dates live on policy.",
+      "callerParkedStates": {
+        "approved": "paying or reversing an approved claim is the operator's deliberate money movement",
+        "assessed": "approval or denial is an adjuster's judgment, whether the adjuster answers over an API or out of band",
+        "filed": "assessment is an adjuster's judgment"
+      },
       "description": "A claim is filed against an active policy, assessed, approved or denied, and paid from the insurer account through a held transfer. Approval can be reversed before payment, releasing the insurer's hold without moving settled money.",
+      "dials": [
+        {
+          "action": "approve",
+          "key": "adjuster_decision_deadline_ms",
+          "kind": "decision_deadline_ms",
+          "minMs": 1000,
+          "summary": "How long approve waits for the claims adjuster's decision before the timeout default declines.",
+          "title": "Adjuster decision deadline"
+        }
+      ],
       "fields": {
         "claimAmount": {
           "description": "Positive minor-unit integer amount serialized as a string (at most 18 digits)",
@@ -620,6 +1128,10 @@
           }
         }
       },
+      "nav": [
+        "Blueprints",
+        "Claims"
+      ],
       "parties": {
         "beneficiary": "claimantAccountId",
         "payer": "insurerAccountId"
@@ -639,14 +1151,26 @@
           "flight_itinerary",
           "lodging_stay",
           "vehicle",
+          "merchandise",
           "pet",
           "traveler_party",
           "employee_census"
         ]
       },
       "summary": "Demand against active protection for one covered peril.",
+      "templateId": "insurance",
       "title": "Claim",
       "update": {
+        "examples": [
+          {
+            "input": {
+              "claimId": "clm_sandbox_protection001",
+              "evidenceSummary": "Damage assessment confirms the covered accidental event.",
+              "tenantId": "ten_sandbox_protection01"
+            },
+            "name": "add_claim_evidence_summary"
+          }
+        ],
         "fields": [
           "evidenceSummary"
         ],
@@ -654,165 +1178,6 @@
           "filed",
           "assessed"
         ]
-      },
-      "verbs": {
-        "approve": {
-          "decision": {
-            "capability": "insurance_claims_adjuster",
-            "deadlineMs": 15000,
-            "onTimeout": "decline"
-          },
-          "description": "Asks the claims adjuster to approve the assessed demand, then holds the immutable claim amount from the insurer for the claimant. For a carrier that exposes an adjudication API: the verdict is the provider's, taken just in time under a deadline.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.claimAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.claimantAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                }
-              },
-              "capture": {
-                "claimTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.reserve"
-            }
-          ],
-          "steps": [],
-          "summary": "Approve a claim"
-        },
-        "assess": {
-          "description": "Marks filed evidence ready for an approval decision. A claim validly filed during cover continues even if the policy term later expires.",
-          "moves": [],
-          "steps": [],
-          "summary": "Assess a claim"
-        },
-        "attest": {
-          "description": "Records the insurer's own approval of the assessed demand, taken outside the platform, and holds the immutable claim amount from the insurer for the claimant. The insurer must be asserted as the acting party. Use this where the carrier exposes no adjudication API; where one exists, approve calls it instead.",
-          "moves": [
-            {
-              "bind": {
-                "amount": {
-                  "from": "instance",
-                  "path": "fields.claimAmount"
-                },
-                "currency": {
-                  "from": "instance",
-                  "path": "fields.currency"
-                },
-                "destinationAccountId": {
-                  "from": "instance",
-                  "path": "fields.claimantAccountId"
-                },
-                "sourceAccountId": {
-                  "from": "instance",
-                  "path": "fields.insurerAccountId"
-                }
-              },
-              "capture": {
-                "claimTransferId": "transferId"
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.reserve"
-            }
-          ],
-          "port": {
-            "allowedParties": [
-              "payer"
-            ]
-          },
-          "steps": [],
-          "summary": "Attest an out-of-band claim approval"
-        },
-        "create": {
-          "description": "Records a demand against an active policy and reserves its filed amount against the policy's aggregate coverage limit.",
-          "eventName": "claim.filed",
-          "examples": [
-            {
-              "input": {
-                "claimAmount": "75000",
-                "claimantAccountId": "acct_sandbox_holder00001",
-                "currency": "SAR",
-                "evidenceSummary": "Covered equipment was damaged in an accidental fall.",
-                "insurerAccountId": "acct_sandbox_insurer0001",
-                "occurredAt": "2026-10-14T11:30:00.000Z",
-                "peril": "accidental_damage",
-                "policyId": "pol_sandbox_protection001",
-                "subject": "sbj_sandbox_protection001"
-              },
-              "name": "file_accidental_damage_claim"
-            }
-          ],
-          "moves": [],
-          "requiresRefs": [
-            {
-              "field": "policyId",
-              "statuses": [
-                "active"
-              ]
-            }
-          ],
-          "steps": [],
-          "summary": "File a claim"
-        },
-        "deny": {
-          "description": "Closes a filed or assessed demand before any payout hold exists.",
-          "eventName": "claim.denied",
-          "moves": [],
-          "steps": [],
-          "summary": "Deny a claim"
-        },
-        "pay": {
-          "description": "Posts the approved hold and settles the claim amount into the claimant account.",
-          "eventName": "claim.paid",
-          "moves": [
-            {
-              "bind": {
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.claimTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.post"
-            }
-          ],
-          "steps": [],
-          "summary": "Pay a claim"
-        },
-        "reverse": {
-          "description": "Voids an approved payout hold before payment and closes the claim denied. No settled money is reversed.",
-          "moves": [
-            {
-              "bind": {
-                "reason": {
-                  "from": "const",
-                  "value": "Claim approval reversed"
-                },
-                "transferId": {
-                  "from": "instance",
-                  "path": "refs.claimTransferId"
-                }
-              },
-              "key": "transfer",
-              "operation": "internal_transfer.void"
-            }
-          ],
-          "steps": [],
-          "summary": "Reverse claim approval"
-        }
       }
     }
   ],
@@ -859,6 +1224,56 @@
         "type": "object"
       },
       "title": "Vehicle",
+      "version": 1
+    },
+    {
+      "declaredValue": "required",
+      "kind": "merchandise",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "brand": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "category": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "condition": {
+            "enum": [
+              "new",
+              "excellent",
+              "good",
+              "fair",
+              "poor"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "serialNumber": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "yearOfManufacture": {
+            "pattern": "^\\d{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "condition"
+        ],
+        "type": "object"
+      },
+      "title": "Merchandise",
       "version": 1
     },
     {

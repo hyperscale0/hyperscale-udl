@@ -1,0 +1,50 @@
+{
+  "instruments": [
+    {
+      "actionOrder": ["create", "quote"],
+      "actions": {
+        "create": {
+          "moves": [],
+          "steps": [],
+          "summary": "File the note."
+        },
+        "quote": {
+          "moves": [],
+          "requiresRefs": [
+            {
+              "field": "reference",
+              "statuses": ["open"]
+            }
+          ],
+          "steps": [],
+          "summary": "Close the note."
+        }
+      },
+      "fields": {
+        "reference": {
+          "type": "string"
+        }
+      },
+      "id": "note",
+      "idPrefix": "note",
+      "lifecycle": {
+        "initial": "open",
+        "states": ["open", "closed"],
+        "transitions": {
+          "quote": {
+            "from": ["open"],
+            "to": "closed"
+          }
+        }
+      },
+      "required": ["reference"],
+      "summary": "A note a tenant files and later closes.",
+      "title": "Note"
+    }
+  ],
+  "product": "quote_named_reference_gate",
+  "subjects": [],
+  "title": "Quote named reference gate",
+  "udl": 1,
+  "version": 1
+}

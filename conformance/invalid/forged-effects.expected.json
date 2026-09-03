@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2005",
+      "path": "$.instruments[0].actions.close.effects.decides"
+    }
+  ],
+  "summary": "Authored effects must equal the rows derived from clauses.",
+  "verdict": "invalid"
+}

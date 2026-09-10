@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   analyzeInstrumentFinance as analyzeInstrumentFinanceRaw,
+  deriveUdlActionEffects,
+  movementClass,
   parseUdl,
   serializeUdl,
+  udlClauseVocabulary,
   UdlError,
   validateUdl as validateUdlRaw,
   validateUdlSchemaValue,
@@ -31,8 +34,8 @@ const compactIssue = <
   value: T,
 ) => ({ code: value.code, message: value.message, path: value.path });
 
-function validateUdl(value: unknown) {
-  const result = validateUdlRaw(value);
+function validateUdl(...args: Parameters<typeof validateUdlRaw>) {
+  const result = validateUdlRaw(...args);
   return result.ok
     ? result
     : { ...result, issues: result.issues.map(compactIssue) };
@@ -153,8 +156,9 @@ describe("UDL grammar validation", () => {
   });
 
   test("counts queued children before expanding another container", () => {
-    const value: unknown[] = Array.from({ length: 5_000 }, () => null);
-    value[0] = Array.from({ length: 5_000 }, () => null);
+    const half = UDL_LIMITS.maxNodes / 2;
+    const value: unknown[] = Array.from({ length: half }, () => null);
+    value[0] = Array.from({ length: half }, () => null);
 
     const result = validateUdl(value);
 
@@ -162,7 +166,7 @@ describe("UDL grammar validation", () => {
     if (result.ok) throw new Error("expected invalid UDL");
     expect(result.issues[0]).toEqual({
       code: "UDL1004",
-      message: "UDL contains more than 10000 values",
+      message: `UDL contains more than ${UDL_LIMITS.maxNodes} values`,
       path: "$[0]",
     });
   });
@@ -3031,6 +3035,23 @@ describe("payout settlement evidence", () => {
       "payout_batch: action instruct changed its payout intent",
     );
   });
+
+  test("treats a newly declared sandbox failure point as additive", () => {
+    const previous = snapshotUdlInstrument(
+      payoutSettlementDocument().instruments[0]!,
+    );
+    const next = structuredClone(previous);
+    (
+      next.actions.instruct as { sandboxFailurePoint?: string | null }
+    ).sandboxFailurePoint = "release";
+
+    expect(diffInstrumentEvolution(previous, next)).not.toContain(
+      "payout_batch: action instruct changed its sandbox failure point",
+    );
+    expect(diffInstrumentEvolution(next, previous)).toContain(
+      "payout_batch: action instruct changed its sandbox failure point",
+    );
+  });
 });
 
 describe("signed sum validation", () => {
@@ -3364,6 +3385,23 @@ describe("evolution", () => {
           "policy: transition for action activate no longer fires from state bound",
         ]),
       );
+    });
+
+    test("a reworded field description is prose, not a frozen schema", async () => {
+      const document = await fixture();
+      const policy = document.instruments.find(
+        (instrument) => instrument.id === "policy",
+      )!;
+      const reworded = structuredClone(policy);
+      (
+        reworded.fields as Record<string, { description?: string }>
+      ).premiumAmount!.description = "Premium, reworded for readers";
+      expect(
+        diffInstrumentEvolution(
+          snapshotUdlInstrument(policy),
+          snapshotUdlInstrument(reworded),
+        ),
+      ).toEqual([]);
     });
 
     test("allows only optional instrument fields to be added", async () => {
@@ -3720,4 +3758,1092 @@ describe("evolution", () => {
       ? (value as Record<string, unknown>)
       : {};
   }
+});
+
+describe("UDL action order", () => {
+  function orderedDocument(): UdlDocument {
+    return {
+      instruments: [
+        {
+          actionOrder: ["create", "zebra", "alpha"],
+          actions: {
+            alpha: { moves: [], steps: [], summary: "Finish second" },
+            create: { moves: [], steps: [], summary: "Create" },
+            zebra: { moves: [], steps: [], summary: "Finish first" },
+          },
+          fields: {},
+          id: "ordered_actions",
+          idPrefix: "ord",
+          lifecycle: {
+            initial: "open",
+            states: ["open", "first", "finished"],
+            transitions: {
+              alpha: { from: ["first"], to: "finished" },
+              zebra: { from: ["open"], to: "first" },
+            },
+          },
+          required: [],
+          summary: "Action order fixture",
+          title: "Ordered actions",
+        },
+      ],
+      product: "action_order_test",
+      subjects: [],
+      title: "Action order test",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  test("preserves the declared order across canonical serialization", () => {
+    const parsed = parseUdl(serializeUdl(orderedDocument()));
+    expect(parsed.instruments[0]?.actionOrder).toEqual([
+      "create",
+      "zebra",
+      "alpha",
+    ]);
+    expect(Object.keys(parsed.instruments[0]?.actions ?? {})).toEqual([
+      "alpha",
+      "create",
+      "zebra",
+    ]);
+  });
+
+  test("requires exact action membership without duplicates", () => {
+    const document = orderedDocument();
+    document.instruments[0]!.actionOrder = ["create", "zebra", "zebra", "gone"];
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "duplicate action id zebra; first declared at index 1",
+          path: "$.instruments[0].actionOrder[2]",
+        }),
+        expect.objectContaining({
+          message: "action order references unknown action gone",
+          path: "$.instruments[0].actionOrder[3]",
+        }),
+        expect.objectContaining({
+          message: "action alpha is missing from actionOrder",
+          path: "$.instruments[0].actions.alpha",
+        }),
+      ]),
+    );
+  });
+
+  test("freezes action order after publication", () => {
+    const previous = snapshotUdlInstrument(orderedDocument().instruments[0]!);
+    const next = {
+      ...previous,
+      actionOrder: ["create", "alpha", "zebra"],
+    };
+    expect(diffInstrumentEvolution(previous, next)).toContain(
+      "ordered_actions: instrument action order changed after becoming live",
+    );
+  });
+});
+
+describe("UDL computed amount reference validation", () => {
+  const moneyField = { pattern: "^[1-9][0-9]{0,17}$", type: "string" } as const;
+  const currencyField = {
+    maxLength: 3,
+    minLength: 3,
+    pattern: "^[A-Z]{3}$",
+    type: "string",
+  } as const;
+
+  function distributionDocument(): UdlDocument {
+    return {
+      instruments: [
+        {
+          actionOrder: ["create"],
+          fields: { currency: currencyField, poolAmount: moneyField },
+          id: "source_pool",
+          idPrefix: "spl",
+          lifecycle: { initial: "open", states: ["open"], transitions: {} },
+          required: ["poolAmount", "currency"],
+          summary: "Stored distribution pool",
+          title: "Source pool",
+          actions: {
+            create: { moves: [], steps: [], summary: "Create source pool" },
+          },
+        },
+        {
+          actionOrder: ["create", "payout"],
+          fields: {
+            currency: currencyField,
+            parentId: {
+              pattern: "^spl_(sandbox|live)_[a-z0-9]{8,64}$",
+              type: "string",
+            },
+            weight: moneyField,
+          },
+          id: "entitlement",
+          idPrefix: "ent",
+          lifecycle: {
+            initial: "recorded",
+            states: ["recorded", "paid"],
+            transitions: { payout: { from: ["recorded"], to: "paid" } },
+          },
+          required: ["parentId", "weight", "currency"],
+          summary: "Stored weighted entitlement",
+          title: "Entitlement",
+          actions: {
+            create: {
+              moves: [],
+              requiresRefs: [
+                {
+                  bind: { currency: "fields.currency" },
+                  field: "parentId",
+                  statuses: ["open"],
+                },
+              ],
+              steps: [],
+              summary: "Record entitlement",
+            },
+            payout: {
+              distribute: {
+                amountRef: "payoutShare",
+                onZero: "skip_steps",
+                pool: { from: "parent", path: "fields.poolAmount" },
+                refField: "parentId",
+                statuses: ["recorded", "paid"],
+                weightField: "weight",
+              },
+              moves: [],
+              steps: [],
+              summary: "Pay entitlement",
+            },
+          },
+        },
+      ],
+      product: "distribution_test",
+      subjects: [],
+      title: "Distribution test",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  function getMessages(value: unknown): readonly string[] {
+    const result = validateUdl(value);
+    expect(result.ok).toBe(false);
+    return result.ok ? [] : result.issues.map((issue) => issue.message);
+  }
+
+  test("rejects nonexistent and wrong-typed distribute references", () => {
+    expect(validateUdl(distributionDocument()).ok).toBe(true);
+
+    const missingParent = distributionDocument();
+    missingParent.instruments[1]!.actions.payout!.distribute!.refField =
+      "missingParentId";
+    expect(getMessages(missingParent)).toContain(
+      "distribute refField missingParentId must identify exactly one parent instrument",
+    );
+
+    const missingPool = distributionDocument();
+    missingPool.instruments[1]!.actions.payout!.distribute!.pool.path =
+      "fields.missingAmount";
+    expect(getMessages(missingPool)).toContain(
+      "distribute pool fields.missingAmount must be a declared money field or ref of source_pool",
+    );
+
+    const wrongWeightType = distributionDocument();
+    wrongWeightType.instruments[1]!.actions.payout!.distribute!.weightField =
+      "currency";
+    expect(getMessages(wrongWeightType)).toContain(
+      "distribute weightField currency must be a declared money field",
+    );
+  });
+
+  test("rejects nonexistent and wrong-typed derived amount references", () => {
+    const valid = distributionDocument();
+    valid.instruments[0]!.fields.derivedAmount = moneyField;
+    valid.instruments[0]!.derivedAmounts = [
+      {
+        field: "derivedAmount",
+        rounding: "floor",
+        rule: { bps: 250, kind: "percentage_of" },
+        sourceField: "poolAmount",
+      },
+    ];
+    expect(validateUdl(valid).ok).toBe(true);
+
+    const missingTarget = structuredClone(valid);
+    missingTarget.instruments[0]!.derivedAmounts![0]!.field = "missingAmount";
+    expect(getMessages(missingTarget)).toContain(
+      "derived amount target missingAmount must be a declared money field",
+    );
+
+    const wrongSourceType = structuredClone(valid);
+    wrongSourceType.instruments[0]!.derivedAmounts![0]!.sourceField =
+      "currency";
+    expect(getMessages(wrongSourceType)).toContain(
+      "derived amount source currency must be a declared money field",
+    );
+  });
+});
+
+describe("UDL completeness clauses", () => {
+  const money = { pattern: "^[1-9][0-9]{0,17}$", type: "string" } as const;
+  const account = {
+    pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+    type: "string",
+  } as const;
+
+  function completeDocument(): UdlDocument {
+    return {
+      instruments: [
+        {
+          actionOrder: ["create", "revise", "settle"],
+          actions: {
+            create: { moves: [], steps: [], summary: "Open the agreement" },
+            revise: {
+              examples: [
+                {
+                  input: {
+                    agreementId: "agr_sandbox_agreement01",
+                    note: "Updated terms",
+                    tenantId: "ten_sandbox_example001",
+                  },
+                  name: "revise_terms",
+                },
+              ],
+              input: {
+                additionalProperties: false,
+                properties: { note: { type: "string" } },
+                required: ["note"],
+                type: "object",
+              },
+              moves: [],
+              principal: "user_session",
+              steps: [],
+              summary: "Revise the note",
+              updates: ["note"],
+            },
+            settle: {
+              deadline: { field: "closesAt" },
+              moves: [
+                {
+                  bind: {
+                    amount: { from: "instance", path: "refs.remainingAmount" },
+                    currency: { from: "instance", path: "fields.currency" },
+                    destinationAccountId: {
+                      from: "instance",
+                      path: "fields.destinationAccountId",
+                    },
+                    sourceAccountId: {
+                      from: "instance",
+                      path: "fields.sourceAccountId",
+                    },
+                  },
+                  key: "settlement",
+                  operation: "internal_transfer.create",
+                },
+              ],
+              remainder: {
+                amountRef: "remainingAmount",
+                onZero: "refuse",
+                totalPath: "fields.amount",
+              },
+              requiresChecks: [
+                {
+                  checkKind: "identity_verification",
+                  family: "national_identity",
+                  maxAge: "P30D",
+                  statuses: ["completed"],
+                  subjectField: "subjectId",
+                },
+              ],
+              sandboxFailurePoint: "release",
+              steps: [],
+              summary: "Settle the agreement",
+            },
+          },
+          callerParkedStates: {
+            open: "The owner may revise or settle the agreement.",
+          },
+          dials: [
+            {
+              field: "closesAt",
+              key: "settlement_window",
+              kind: "window",
+              maxOffset: "P30D",
+              minOffset: "PT0S",
+              summary: "The settlement deadline offset.",
+              title: "Settlement window",
+            },
+          ],
+          fields: {
+            amount: money,
+            closesAt: { format: "hyperscale-date-time", type: "string" },
+            currency: { pattern: "^[A-Z]{3}$", type: "string" },
+            destinationAccountId: account,
+            note: { type: "string" },
+            sourceAccountId: account,
+            subjectId: { type: "string" },
+          },
+          id: "agreement",
+          idPrefix: "agr",
+          lifecycle: {
+            initial: "open",
+            states: ["open", "closed"],
+            transitions: {
+              revise: { from: ["open"], to: "open" },
+              settle: { from: ["open"], to: "closed" },
+            },
+          },
+          nav: ["Agreements"],
+          required: [
+            "amount",
+            "closesAt",
+            "currency",
+            "destinationAccountId",
+            "sourceAccountId",
+            "subjectId",
+          ],
+          subject: { extensible: false, kinds: ["asset"] },
+          summary: "One agreement with a computed final settlement.",
+          surfaceVisibility: "public",
+          templateId: "agreement",
+          title: "Agreement",
+          update: {
+            examples: [
+              {
+                input: {
+                  agreementId: "agr_sandbox_agreement01",
+                  note: "Updated terms",
+                  tenantId: "ten_sandbox_example001",
+                },
+                name: "revise_terms",
+              },
+            ],
+            fields: ["note"],
+            states: ["open"],
+          },
+        },
+      ],
+      product: "complete_contract",
+      subjects: [
+        {
+          declaredValue: "none",
+          kind: "asset",
+          schema: {
+            additionalProperties: false,
+            properties: {},
+            type: "object",
+          },
+          title: "Asset",
+          version: 1,
+        },
+      ],
+      title: "Complete contract",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  function getMessages(document: UdlDocument): readonly string[] {
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    return result.ok ? [] : result.issues.map((issue) => issue.message);
+  }
+
+  test("admits one document carrying every lifted clause family", () => {
+    expect(validateUdl(completeDocument())).toEqual({
+      ok: true,
+      value: completeDocument(),
+    });
+  });
+
+  test("refuses invalid remainder, check, update, dial, and parked-state clauses", () => {
+    const remainder = completeDocument();
+    remainder.instruments[0]!.actions.settle!.remainder!.inputKey = "partial";
+    expect(getMessages(remainder)).toContain(
+      "remainder inputKey partial is not declared by action input",
+    );
+
+    const check = completeDocument();
+    check.instruments[0]!.actions.settle!.requiresChecks![0]!.maxAge = "P1M";
+    expect(getMessages(check)).toContain(
+      "check maxAge must be a fixed ISO-8601 duration",
+    );
+
+    const update = completeDocument();
+    update.instruments[0]!.actions.revise!.updates = ["missing"];
+    expect(getMessages(update)).toContain(
+      "updated field missing is not declared by action input",
+    );
+
+    const dial = completeDocument();
+    const windowDial = dial.instruments[0]!.dials![0];
+    if (windowDial?.kind !== "window") throw new Error("window dial missing");
+    windowDial.field = "missing";
+    expect(getMessages(dial)).toContain(
+      "window dial field missing anchors no action deadline or due condition",
+    );
+
+    const parked = completeDocument();
+    parked.instruments[0]!.callerParkedStates = { missing: "Unknown state" };
+    expect(getMessages(parked)).toContain(
+      "callerParkedStates references unknown state missing",
+    );
+  });
+
+  test("freezes parked state keys but not presentation text", () => {
+    const previous = snapshotUdlInstrument(completeDocument().instruments[0]!);
+    const reasonEdit = completeDocument().instruments[0]!;
+    reasonEdit.callerParkedStates!.open = "A clearer operator reason.";
+    expect(
+      diffInstrumentEvolution(previous, snapshotUdlInstrument(reasonEdit)),
+    ).toEqual([]);
+
+    const removed = completeDocument().instruments[0]!;
+    removed.callerParkedStates = {};
+    expect(
+      diffInstrumentEvolution(previous, snapshotUdlInstrument(removed)),
+    ).toContain("agreement: caller-parked state annotations changed");
+  });
+});
+
+describe("UDL decided amount validation", () => {
+  const moneyField = {
+    pattern: "^[1-9][0-9]{0,17}$",
+    type: "string",
+  } as const;
+
+  const stringField = { type: "string" } as const;
+
+  const currencyField = {
+    pattern: "^[A-Z]{3}$",
+    type: "string",
+  } as const;
+
+  function decidedAmountDocument(): UdlDocument {
+    const drain = {
+      bind: {
+        transferId: { from: "instance" as const, path: "refs.reservationId" },
+      },
+      key: "cancel",
+      operation: "internal_transfer.void" as const,
+    };
+    return {
+      instruments: [
+        {
+          actionOrder: ["cancel", "create", "decide"],
+          actions: {
+            cancel: {
+              moves: [drain],
+              steps: [],
+              summary: "Cancel and release the reserved remainder",
+            },
+            create: {
+              moves: [
+                {
+                  bind: {
+                    amount: {
+                      from: "instance",
+                      path: "fields.authorizedAmount",
+                    },
+                    destinationAccountId: {
+                      from: "instance",
+                      path: "fields.destinationAccountId",
+                    },
+                    sourceAccountId: {
+                      from: "instance",
+                      path: "fields.sourceAccountId",
+                    },
+                  },
+                  capture: { reservationId: "transferId" },
+                  key: "reserve",
+                  operation: "internal_transfer.reserve",
+                },
+              ],
+              steps: [],
+              summary: "Reserve the authorized amount",
+            },
+            decide: {
+              decidedAmount: {
+                boundField: "authorizedAmount",
+                field: "settledAmount",
+                remainderAction: "cancel",
+              },
+              input: {
+                additionalProperties: false,
+                properties: { settledAmount: moneyField },
+                required: ["settledAmount"],
+                type: "object",
+              },
+              moves: [
+                {
+                  bind: {
+                    amount: { from: "input", path: "settledAmount" },
+                    currency: { from: "instance", path: "fields.currency" },
+                    postMode: { from: "const", value: "partial_only" },
+                    transferId: {
+                      from: "instance",
+                      path: "refs.reservationId",
+                    },
+                  },
+                  key: "decided",
+                  operation: "internal_transfer.post",
+                },
+                { ...structuredClone(drain), key: "remainder" },
+              ],
+              steps: [],
+              summary: "Settle the decided amount and release the remainder",
+            },
+          },
+          fields: {
+            authorizedAmount: moneyField,
+            currency: currencyField,
+            destinationAccountId: stringField,
+            sourceAccountId: stringField,
+          },
+          id: "decided_hold",
+          idPrefix: "dch",
+          lifecycle: {
+            initial: "held",
+            states: ["held", "settled", "cancelled"],
+            transitions: {
+              cancel: { from: ["held"], to: "cancelled" },
+              decide: { from: ["held"], to: "settled" },
+            },
+          },
+          required: [
+            "authorizedAmount",
+            "currency",
+            "destinationAccountId",
+            "sourceAccountId",
+          ],
+          summary: "A hold with a caller-decided settlement amount",
+          title: "Decided hold",
+        },
+      ],
+      product: "decided_amount_test",
+      subjects: [],
+      title: "Decided amount test",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  function issues(value: unknown) {
+    const result = validateUdl(value);
+    expect(result.ok).toBe(false);
+    return result.ok
+      ? []
+      : result.issues.map(({ code, message, path }) => ({
+          code,
+          message,
+          path,
+        }));
+  }
+
+  test("accepts one decided post followed by its cloned remainder drain", () => {
+    expect(validateUdl(decidedAmountDocument())).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+  });
+
+  test("rejects missing and non-money decided fields", () => {
+    const missing = decidedAmountDocument();
+    missing.instruments[0]!.actions.decide!.decidedAmount!.field =
+      "missingAmount";
+    expect(issues(missing)).toContainEqual({
+      code: "UDL4001",
+      message:
+        "decided amount field missingAmount must be a declared action input money field",
+      path: "$.instruments[0].actions.decide.decidedAmount.field",
+    });
+
+    const wrongType = decidedAmountDocument();
+    const properties = wrongType.instruments[0]!.actions.decide!.input!
+      .properties as Record<string, unknown>;
+    properties.settledAmount = stringField;
+    expect(issues(wrongType)).toContainEqual({
+      code: "UDL4001",
+      message:
+        "decided amount field settledAmount must be a declared action input money field",
+      path: "$.instruments[0].actions.decide.decidedAmount.field",
+    });
+  });
+
+  test("rejects a non-partition post or mismatched currency binding", () => {
+    const wrongPostMode = decidedAmountDocument();
+    wrongPostMode.instruments[0]!.actions.decide!.moves[0]!.bind.postMode = {
+      from: "const",
+      value: "full",
+    };
+    expect(issues(wrongPostMode)).toContainEqual({
+      code: "UDL5008",
+      message:
+        "decided amount post must use partial_only so the remainder stays reserved",
+      path: "$.instruments[0].actions.decide.moves[0].bind.postMode",
+    });
+
+    const wrongCurrency = decidedAmountDocument();
+    wrongCurrency.instruments[0]!.actions.decide!.moves[0]!.bind.currency = {
+      from: "const",
+      value: "USD",
+    };
+    expect(issues(wrongCurrency)).toContainEqual({
+      code: "UDL5008",
+      message: "decided amount post must bind the instrument currency",
+      path: "$.instruments[0].actions.decide.moves[0].bind.currency",
+    });
+  });
+
+  test("rejects a missing, wrong-typed, optional, or mutable bound", () => {
+    const missing = decidedAmountDocument();
+    missing.instruments[0]!.actions.decide!.decidedAmount!.boundField =
+      "missingAmount";
+    expect(issues(missing)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message:
+            "decided amount bound missingAmount must be a declared instrument money field",
+          path: "$.instruments[0].actions.decide.decidedAmount.boundField",
+        }),
+        expect.objectContaining({
+          message: "decided amount bound missingAmount must be required",
+          path: "$.instruments[0].actions.decide.decidedAmount.boundField",
+        }),
+      ]),
+    );
+  });
+
+  test("rejects cancellation that strands or duplicates the remainder", () => {
+    const missing = decidedAmountDocument();
+    missing.instruments[0]!.actions.cancel!.moves = [];
+    expect(issues(missing)).toContainEqual({
+      code: "UDL4001",
+      message:
+        "decided amount remainder action cancel must declare exactly one reservation drain; found 0",
+      path: "$.instruments[0].actions.cancel.moves",
+    });
+  });
+});
+
+describe("UDL action effects", () => {
+  test("classifies collection funding from its endpoint roles", () => {
+    expect(
+      movementClass({
+        bind: {
+          destinationAccountId: {
+            from: "instance",
+            path: "refs.escrowAccountId",
+          },
+          sourceAccountId: {
+            from: "instance",
+            path: "fields.buyerAccountId",
+          },
+        },
+        operation: "internal_transfer.create",
+      }),
+    ).toBe("collection.pay_in");
+    expect(
+      movementClass({
+        bind: {
+          destinationAccountId: {
+            from: "instance",
+            path: "fields.sellerAccountId",
+          },
+          sourceAccountId: {
+            from: "instance",
+            path: "fields.buyerAccountId",
+          },
+        },
+        operation: "internal_transfer.create",
+      }),
+    ).toBe("transfer.internal");
+  });
+
+  test("refuses an operation with no movement class", () => {
+    expect(() =>
+      movementClass({
+        bind: {
+          destinationAccountId: { from: "instance", path: "fields.a" },
+          sourceAccountId: { from: "instance", path: "fields.b" },
+        },
+        operation: "account.freeze" as any,
+      }),
+    ).toThrow();
+  });
+
+  test("derives quote, commit, and reconcile effect signatures", () => {
+    expect(
+      deriveUdlActionEffects(
+        {
+          commit: "quote_refund",
+          quote: { expires: { offset: "PT15M" } },
+          reconcile: [
+            { evidence: "debit_statement_line" },
+            { evidence: "debit_statement_line" },
+          ],
+        },
+        udlClauseVocabulary,
+      ),
+    ).toEqual({
+      holds: [{ signature: "holds.quote", source: "quote" }],
+      reads: [
+        { signature: "reads.reconcile", source: "reconcile[0]" },
+        { signature: "reads.reconcile", source: "reconcile[1]" },
+      ],
+      schedules: [{ signature: "schedules.expiry", source: "quote" }],
+    });
+  });
+});
+
+describe("UDL unified fee rules", () => {
+  const moneyField = {
+    pattern: "^[1-9][0-9]{0,17}$",
+    type: "string",
+  } as const;
+  const currencyField = {
+    maxLength: 3,
+    minLength: 3,
+    pattern: "^[A-Z]{3}$",
+    type: "string",
+  } as const;
+  const accountField = {
+    pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+    type: "string",
+  } as const;
+
+  function feeDocument(): UdlDocument {
+    return {
+      instruments: [
+        {
+          actionOrder: ["create"],
+          actions: {
+            create: { moves: [], steps: [], summary: "Create the charge" },
+          },
+          feeRules: [
+            {
+              amountField: "feeAmount",
+              baseField: "baseAmount",
+              bearerField: "payerAccountId",
+              position: "carved",
+              rule: { bps: 250, kind: "bps" },
+            },
+          ],
+          fields: {
+            baseAmount: moneyField,
+            currency: currencyField,
+            feeAmount: moneyField,
+            netAmount: moneyField,
+            payerAccountId: accountField,
+          },
+          id: "fee_charge",
+          idPrefix: "fch",
+          lifecycle: {
+            initial: "created",
+            states: ["created"],
+            transitions: {},
+          },
+          partitions: [
+            {
+              pieceFields: ["netAmount", "feeAmount"],
+              totalField: "baseAmount",
+            },
+          ],
+          required: ["baseAmount", "currency", "netAmount", "payerAccountId"],
+          summary: "A charge with one fee",
+          title: "Fee charge",
+        },
+      ],
+      product: "fee_test",
+      subjects: [],
+      title: "Fee test",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  function feeMessages(value: unknown): readonly string[] {
+    const result = validateUdl(value);
+    expect(result.ok).toBe(false);
+    return result.ok ? [] : result.issues.map((issue) => issue.message);
+  }
+
+  test("accepts carved bps, direct exact, and mixed tiered rules", () => {
+    expect(validateUdl(feeDocument()).ok).toBe(true);
+
+    const exact = feeDocument();
+    exact.instruments[0]!.feeRules![0] = {
+      amountField: "feeAmount",
+      baseField: "baseAmount",
+      bearerField: "payerAccountId",
+      position: "carved",
+      rule: { currencyField: "currency", field: "feeAmount", kind: "exact" },
+    };
+    exact.instruments[0]!.required.push("feeAmount");
+    expect(validateUdl(exact).ok).toBe(true);
+
+    const tiered = feeDocument();
+    tiered.instruments[0]!.feeRules![0] = {
+      amountField: "feeAmount",
+      baseField: "baseAmount",
+      bearerField: "payerAccountId",
+      position: "on_top",
+      rule: {
+        kind: "tiered",
+        tiers: [
+          {
+            fromInclusive: "0",
+            rule: { bps: 125, kind: "bps" },
+            toExclusive: "10000",
+          },
+          {
+            fromInclusive: "10000",
+            rule: {
+              currencyField: "currency",
+              field: "netAmount",
+              kind: "exact",
+            },
+          },
+        ],
+      },
+    };
+    delete tiered.instruments[0]!.partitions;
+    expect(validateUdl(tiered).ok).toBe(true);
+  });
+
+  test("refuses gaps, overlaps, and two open-ended tiers", () => {
+    const tiered = feeDocument();
+    tiered.instruments[0]!.feeRules![0]!.rule = {
+      kind: "tiered",
+      tiers: [
+        {
+          fromInclusive: "0",
+          rule: { bps: 100, kind: "bps" },
+          toExclusive: "100",
+        },
+        { fromInclusive: "101", rule: { bps: 200, kind: "bps" } },
+      ],
+    };
+    expect(feeMessages(tiered)).toContain("fee tiers have a gap before 101");
+  });
+
+  test("refuses wrong currency and mutable exact money", () => {
+    const exact = feeDocument();
+    exact.instruments[0]!.feeRules![0]!.rule = {
+      currencyField: "settlementCurrency",
+      field: "feeAmount",
+      kind: "exact",
+    };
+    exact.instruments[0]!.fields.settlementCurrency = currencyField;
+    exact.instruments[0]!.required.push("feeAmount", "settlementCurrency");
+    expect(feeMessages(exact)).toContain(
+      "exact fee currency settlementCurrency must equal the fee base currency field",
+    );
+  });
+
+  test("refuses a carved base-plus-fee exit", () => {
+    const invalid = feeDocument();
+    invalid.instruments[0]!.partitions = [
+      {
+        pieceFields: ["baseAmount", "feeAmount"],
+        totalField: "netAmount",
+      },
+    ];
+    expect(feeMessages(invalid)).toContain(
+      "carved fee feeAmount must form part of a partition of baseAmount",
+    );
+  });
+});
+
+describe("UDL open-ended schedule validation", () => {
+  const dateTimeField = {
+    format: "hyperscale-date-time",
+    type: "string",
+  } as const;
+
+  const accountField = {
+    pattern: "^acct_(sandbox|live)_[a-z0-9]{8,64}$",
+    type: "string",
+  } as const;
+
+  function scheduleDocument(): UdlDocument {
+    return {
+      instruments: [
+        {
+          actionOrder: ["cancel", "collect_period", "create", "open_period"],
+          actions: {
+            cancel: {
+              moves: [],
+              port: { allowedParties: ["payer"] },
+              requiresDrainedAccount: { path: "fields.payerAccountId" },
+              steps: [],
+              summary: "Cancel the collection and prove its account drained",
+            },
+            collect_period: {
+              moves: [],
+              steps: [],
+              summary: "Collect through an authored period action",
+            },
+            create: {
+              moves: [],
+              steps: [],
+              summary: "Create the recurring collection",
+            },
+            open_period: {
+              due: {
+                every: {
+                  delinquency: "parent_policy",
+                  drainAction: "cancel",
+                  liability: "one_open",
+                  period: {
+                    calendar: "gregorian",
+                    monthEnd: "clamp_to_last_day",
+                    months: 1,
+                  },
+                  untilAction: "cancel",
+                },
+                field: "firstDueAt",
+              },
+              moves: [],
+              steps: [],
+              summary: "Open one collection period",
+            },
+          },
+          fields: {
+            firstDueAt: dateTimeField,
+            payerAccountId: accountField,
+            terminationAt: dateTimeField,
+          },
+          id: "recurring_charge",
+          idPrefix: "rch",
+          lifecycle: {
+            initial: "active",
+            states: ["active", "period_open", "cancelled"],
+            transitions: {
+              cancel: { from: ["active", "period_open"], to: "cancelled" },
+              collect_period: { from: ["period_open"], to: "active" },
+              open_period: { from: ["active"], to: "period_open" },
+            },
+          },
+          parties: { payer: "payerAccountId" },
+          required: ["firstDueAt", "payerAccountId", "terminationAt"],
+          summary: "One open recurring collection period",
+          title: "Recurring charge",
+        },
+      ],
+      product: "schedule_test",
+      subjects: [],
+      title: "Schedule test",
+      udl: 1,
+      version: 1,
+    };
+  }
+
+  function scheduleMessages(value: unknown): readonly string[] {
+    const result = validateUdl(value);
+    expect(result.ok).toBe(false);
+    return result.ok ? [] : result.issues.map((issue) => issue.message);
+  }
+
+  test("new compilations require decision party bindings without rejecting frozen UDL", () => {
+    const document = scheduleDocument();
+    const instrument = document.instruments[0]!;
+    instrument.actions.cancel!.port = { allowedParties: ["inspector"] };
+    expect(validateUdl(document).ok).toBe(true);
+    const result = validateUdl(document, {
+      requireDecisionPartyBindings: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          code: "UDL5008",
+          message:
+            "decision port allows party role inspector, which the instrument does not declare",
+        }),
+      );
+    }
+    instrument.parties = { inspector: "payerAccountId" };
+    expect(
+      validateUdl(document, { requireDecisionPartyBindings: true }).ok,
+    ).toBe(true);
+  });
+
+  test("accepts a monthly series with an explicit anchor rule and port termination", () => {
+    expect(validateUdl(scheduleDocument()).ok).toBe(true);
+  });
+
+  test("refuses missing and ambiguous termination", () => {
+    const missing = scheduleDocument();
+    delete missing.instruments[0]!.actions.open_period!.due!.every!.untilAction;
+    expect(scheduleMessages(missing)).toContain(
+      "recurrence must declare a termination using countField, untilField, or untilAction",
+    );
+
+    const ambiguous = scheduleDocument();
+    ambiguous.instruments[0]!.actions.open_period!.due!.every!.untilField =
+      "terminationAt";
+    expect(scheduleMessages(ambiguous)).toContain(
+      "recurrence termination is ambiguous: untilField, untilAction",
+    );
+  });
+
+  test("refuses a calendar-month series without its month-end rule", () => {
+    const document = scheduleDocument() as unknown as {
+      instruments: Array<{
+        actions: Record<
+          string,
+          { due?: { every?: { period: Record<string, unknown> } } }
+        >;
+      }>;
+    };
+    delete document.instruments[0]!.actions.open_period!.due!.every!.period
+      .monthEnd;
+
+    const result = validateUdl(document);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid UDL");
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: "UDL1003",
+        path: "$.instruments[0].actions.open_period.due.every.period",
+      }),
+    );
+  });
+
+  test("refuses overlapping recurring period liabilities", () => {
+    const document = scheduleDocument();
+    const instrument = document.instruments[0]!;
+    instrument.actions.open_other = structuredClone(
+      instrument.actions.open_period!,
+    );
+    instrument.lifecycle.states.push("other_open");
+    instrument.lifecycle.transitions.open_other = {
+      from: ["active"],
+      to: "other_open",
+    };
+
+    expect(scheduleMessages(document)).toContain(
+      "recurring due actions open_period and open_other overlap period liability in states active",
+    );
+  });
+
+  test("requires the recurring collection parent delinquency policy", () => {
+    const document = scheduleDocument();
+    delete document.instruments[0]!.actions.open_period!.due!.every!
+      .delinquency;
+
+    expect(scheduleMessages(document)).toContain(
+      "one-open recurrence must reuse delinquency parent_policy",
+    );
+  });
+
+  test("refuses port and stored-date termination without a drain proof", () => {
+    const port = scheduleDocument();
+    delete port.instruments[0]!.actions.open_period!.due!.every!.drainAction;
+    expect(scheduleMessages(port)).toContain(
+      "open-ended recurrence must declare its drain action",
+    );
+  });
 });

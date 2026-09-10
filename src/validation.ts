@@ -54,7 +54,15 @@ export class UdlError extends Error {
   }
 }
 
-export function validateUdl(value: unknown): UdlValidationResult {
+export interface UdlValidationOptions {
+  /** New compilers enforce bindings without rejecting previously frozen UDL. */
+  readonly requireDecisionPartyBindings?: boolean;
+}
+
+export function validateUdl(
+  value: unknown,
+  options: UdlValidationOptions = {},
+): UdlValidationResult {
   const resourceIssue = structuralBudgetIssue(value);
   if (resourceIssue) return { issues: [resourceIssue], ok: false };
 
@@ -73,7 +81,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
   }
 
   const references = openReferenceShapeBudget();
-  const issues = semanticIssues(parsed.data, references);
+  const issues = semanticIssues(parsed.data, references, options);
   if (references.exhausted) {
     return {
       issues: [
@@ -254,6 +262,7 @@ const jsonSchemaKeywords = new Set([
   "required",
   "title",
   "type",
+  "x-hyperscale-currency",
   "x-hyperscale-fee-collection-port",
   "x-hyperscale-reference-filter",
 ]);
@@ -261,6 +270,7 @@ const jsonSchemaKeywords = new Set([
 function semanticIssues(
   document: UdlDocument,
   references: ReferenceShapeBudget,
+  options: UdlValidationOptions,
 ): UdlIssue[] {
   const issues: UdlIssue[] = [];
   const add: AddIssue = (path, message, code) => {
@@ -297,6 +307,7 @@ function semanticIssues(
   );
 
   validateCompositionDials(document, add);
+  validateInstrumentJourneys(document, add);
 
   const subjects = new Map(
     document.subjects.map((subject) => [subject.kind, subject] as const),
@@ -319,6 +330,27 @@ function semanticIssues(
 
   for (const [instrumentIndex, instrument] of document.instruments.entries()) {
     for (const [actionName, action] of Object.entries(instrument.actions)) {
+      if (options.requireDecisionPartyBindings) {
+        for (const [index, role] of (
+          action.port?.allowedParties ?? []
+        ).entries()) {
+          if (!Object.hasOwn(instrument.parties ?? {}, role)) {
+            add(
+              [
+                "instruments",
+                instrumentIndex,
+                "actions",
+                actionName,
+                "port",
+                "allowedParties",
+                index,
+              ],
+              `decision port allows party role ${role}, which the instrument does not declare`,
+              "UDL5008",
+            );
+          }
+        }
+      }
       if (!action.effects) continue;
       const expected = deriveUdlActionEffects(action, udlClauseVocabulary);
       for (const kind of udlEffectKinds) {
@@ -364,6 +396,162 @@ function semanticIssues(
     );
   }
   return issues;
+}
+
+const scopedIdPattern =
+  /^\^([a-z]{2,8})_\(sandbox\|live\)_\[a-z0-9\]\{8,64\}\$$/;
+
+function camel(value: string): string {
+  return value.replace(/_([a-z0-9])/g, (_match, character: string) =>
+    character.toUpperCase(),
+  );
+}
+
+function journeyReferenceFields(
+  instrument: UdlInstrument,
+  actionName: string,
+): ReadonlyMap<string, string> {
+  const action = instrument.actions[actionName];
+  if (!action) return new Map();
+  const fields = new Map<string, string>();
+  const addSchema = (name: string, schema: unknown) => {
+    const pattern = recordValue(schema).pattern;
+    if (typeof pattern !== "string") return;
+    const prefix = scopedIdPattern.exec(pattern)?.[1];
+    if (prefix) fields.set(name, prefix);
+  };
+  if (actionName === "create") {
+    const derivedFields = new Set(
+      (action.requiresRefs ?? []).flatMap((gate) =>
+        Object.keys(gate.bind ?? {}),
+      ),
+    );
+    for (const name of instrument.required) {
+      if (!derivedFields.has(name)) addSchema(name, instrument.fields[name]);
+    }
+  } else {
+    fields.set(`${camel(instrument.id)}Id`, instrument.idPrefix);
+  }
+  const input = recordValue(action.input);
+  const required = Array.isArray(input.required)
+    ? input.required.filter((name): name is string => typeof name === "string")
+    : [];
+  const properties = recordValue(input.properties);
+  for (const name of required) addSchema(name, properties[name]);
+  return fields;
+}
+
+/**
+ * Validate the part of authored journeys that canonical UDL can prove alone.
+ * A caller with the operation catalog validates root-operation examples and
+ * cross-kind bindings. UDL owns local examples, lifecycle order, and local
+ * reference completeness so raw UDL cannot bypass those laws.
+ */
+function validateInstrumentJourneys(
+  document: UdlDocument,
+  add: AddIssue,
+): void {
+  const instruments = new Map(
+    document.instruments.map(
+      (instrument) => [instrument.id, instrument] as const,
+    ),
+  );
+  for (const [instrumentIndex, owner] of document.instruments.entries()) {
+    for (const [journeyIndex, journey] of (owner.journeys ?? []).entries()) {
+      const base = [
+        "instruments",
+        instrumentIndex,
+        "journeys",
+        journeyIndex,
+      ] as const;
+      const seen = new Set<string>();
+      const createdKindByStep = new Map<string, string>();
+      const stateByStep = new Map<string, string>();
+      for (const [stepIndex, step] of journey.steps.entries()) {
+        const stepBase = [...base, "steps", stepIndex] as const;
+        if (step.id) {
+          if (seen.has(step.id)) {
+            add(
+              [...stepBase, "id"],
+              `journey ${journey.id} declares step id ${step.id} more than once`,
+              "journey_duplicate_step_id",
+            );
+          }
+        }
+        const [instrumentId, actionName] = step.operation.split(".");
+        const instrument = instrumentId
+          ? instruments.get(instrumentId)
+          : undefined;
+        const action =
+          instrument && actionName ? instrument.actions[actionName] : undefined;
+        if (!instrument) {
+          if (step.id) seen.add(step.id);
+          continue;
+        }
+        if (!action || !actionName) {
+          add(
+            [...stepBase, "operation"],
+            `journey ${journey.id} names unknown operation ${step.operation}`,
+            "journey_unknown_operation",
+          );
+          continue;
+        }
+        if (
+          !action.examples?.some((example) => example.name === step.example)
+        ) {
+          add(
+            [...stepBase, "example"],
+            `journey ${journey.id} names unknown example ${step.example} on ${step.operation}`,
+            "journey_unknown_example",
+          );
+        }
+        for (const [field, prefix] of journeyReferenceFields(
+          instrument,
+          actionName,
+        )) {
+          const producer = step.bind[field];
+          if (!producer || !seen.has(producer)) {
+            add(
+              [...stepBase, "bind", field],
+              `journey ${journey.id} must bind ${step.operation}.${field} to an earlier step`,
+              "journey_unbound_reference",
+            );
+            continue;
+          }
+          const producedPrefix = createdKindByStep.get(producer);
+          if (producedPrefix && producedPrefix !== prefix) {
+            add(
+              [...stepBase, "bind", field],
+              `journey ${journey.id} binds ${step.operation}.${field} to ${producer}, which creates ${producedPrefix} instead of ${prefix}`,
+              "journey_unbound_reference",
+            );
+          }
+        }
+        if (actionName === "create") {
+          if (step.id) {
+            createdKindByStep.set(step.id, instrument.idPrefix);
+            stateByStep.set(step.id, instrument.lifecycle.initial);
+            seen.add(step.id);
+          }
+          continue;
+        }
+        const transition = instrument.lifecycle.transitions[actionName];
+        if (!transition) continue;
+        const ownProducer = step.bind[`${camel(instrument.id)}Id`];
+        const state = ownProducer ? stateByStep.get(ownProducer) : undefined;
+        if (state && !transition.from.includes(state)) {
+          add(
+            [...stepBase, "operation"],
+            `journey ${journey.id} runs ${step.operation} from ${state}; allowed states are ${transition.from.join(", ")}`,
+            "journey_invalid_transition",
+          );
+        } else if (ownProducer) {
+          stateByStep.set(ownProducer, transition.to);
+        }
+        if (step.id) seen.add(step.id);
+      }
+    }
+  }
 }
 
 function structuralBudgetIssue(value: unknown): UdlIssue | undefined {
@@ -736,6 +924,18 @@ function validateJsonSchema(
         "UDL6001",
       );
     }
+  }
+  if (
+    Object.hasOwn(schema, "x-hyperscale-currency") &&
+    (schema.type !== "string" ||
+      typeof schema["x-hyperscale-currency"] !== "string" ||
+      !/^[A-Z]{3}$/.test(schema["x-hyperscale-currency"]))
+  ) {
+    add(
+      [...path, "x-hyperscale-currency"],
+      "x-hyperscale-currency must be a three-letter uppercase code on a string schema",
+      "UDL6001",
+    );
   }
   if (
     Object.hasOwn(schema, "x-hyperscale-fee-collection-port") &&
@@ -3702,6 +3902,47 @@ function validateGateShape(
       );
     }
   }
+  if (gate.dateComparison) {
+    const { localPath, referencedPath } = gate.dateComparison;
+    const localFieldName = localPath.startsWith("fields.")
+      ? localPath.slice("fields.".length)
+      : undefined;
+    const localField = localFieldName
+      ? instrument.fields[localFieldName]
+      : undefined;
+    const isLocalDate =
+      localField?.type === "string" &&
+      typeof localField.format === "string" &&
+      ["hyperscale-date-time", "hyperscale-date", "date-time", "date"].includes(
+        localField.format,
+      );
+    if (!isLocalDate) {
+      add(
+        [...base, "dateComparison", "localPath"],
+        `dateComparison localPath ${localPath} must target a declared date or date-time field`,
+        "UDL5001",
+      );
+    }
+    const referencedFieldName = referencedPath.startsWith("fields.")
+      ? referencedPath.slice("fields.".length)
+      : undefined;
+    const referencedField = referencedFieldName
+      ? target.fields[referencedFieldName]
+      : undefined;
+    const isReferencedDate =
+      referencedField?.type === "string" &&
+      typeof referencedField.format === "string" &&
+      ["hyperscale-date-time", "hyperscale-date", "date-time", "date"].includes(
+        referencedField.format,
+      );
+    if (!isReferencedDate) {
+      add(
+        [...base, "dateComparison", "referencedPath"],
+        `dateComparison referencedPath ${referencedPath} must target a declared date or date-time field on ${target.id}`,
+        "UDL5001",
+      );
+    }
+  }
 }
 
 /** Every `refs.<key>` a instrument's instances can legitimately carry. */
@@ -4130,13 +4371,20 @@ function validateAggregates(
     ] as const;
     const sum = "childField" in aggregate ? aggregate : undefined;
     const parentField = instrument.fields[aggregate.parentField];
+    const child = instruments.get(aggregate.childInstrumentId);
+    const childField = sum && child ? child.fields[sum.childField] : undefined;
+    const isIntegerSum =
+      sum !== undefined &&
+      parentField?.type === "integer" &&
+      instrument.required.includes(aggregate.parentField) &&
+      childField?.type === "integer";
     if (!parentField) {
       add(
         [...aggregateBase, "parentField"],
         `aggregate references unknown parent field ${aggregate.parentField}`,
         "UDL5004",
       );
-    } else if (sum && !isMoneySchema(parentField)) {
+    } else if (sum && !isMoneySchema(parentField) && !isIntegerSum) {
       add(
         [...aggregateBase, "parentField"],
         `${instrument.id}.${aggregate.parentField} must be a money field`,
@@ -4159,7 +4407,6 @@ function validateAggregates(
         "UDL5004",
       );
     }
-    const child = instruments.get(aggregate.childInstrumentId);
     if (!child) {
       add(
         [...aggregateBase, "childInstrumentId"],
@@ -4169,14 +4416,13 @@ function validateAggregates(
       return;
     }
     if (sum) {
-      const childField = child.fields[sum.childField];
       if (!childField) {
         add(
           [...aggregateBase, "childField"],
           `aggregate references unknown child field ${sum.childField}`,
           "UDL5004",
         );
-      } else if (!isMoneySchema(childField)) {
+      } else if (!isMoneySchema(childField) && !isIntegerSum) {
         add(
           [...aggregateBase, "childField"],
           `${child.id}.${sum.childField} must be a money field`,

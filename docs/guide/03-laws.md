@@ -15,4 +15,4 @@ The schema defines shape. These laws define meaning.
 
 A reconcile exception names the child fields that receive the unmatched amount and its reason. `exception.amountField` must be a required money field on the child. `exception.reasonField` must be a required plain text field. A plain text field has `type: "string"` and no `pattern`, `format`, or `enum`. Admission rejects a missing or optional field, the wrong type, or a child that does not belong to the declaring instrument.
 
-The [diagnostic reference](../reference/diagnostics.md) lists every stable `UDL####` refusal code. The [specification](../../spec/README.md) carries the normative prose for each law.
+The [diagnostic reference](../reference/diagnostics.md) lists every stable refusal code. The [specification](../../spec/README.md) carries the normative prose for each law.

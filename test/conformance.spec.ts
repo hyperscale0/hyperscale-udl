@@ -267,7 +267,11 @@ describe("diagnostic catalog", () => {
     for (const name of await readdir(sourceRoot)) {
       if (!name.endsWith(".ts") || name === "diagnostics.ts") continue;
       const source = await Bun.file(join(sourceRoot, name)).text();
-      for (const match of source.matchAll(/\bUDL\d{4}\b/g)) codes.add(match[0]);
+      for (const match of source.matchAll(
+        /\b(?:UDL\d{4}|journey_[a-z_]+)\b/g,
+      )) {
+        codes.add(match[0]);
+      }
     }
     expect([...codes].sort()).toEqual(
       udlDiagnostics.map((diagnostic) => diagnostic.code).sort(),

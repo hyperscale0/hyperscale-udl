@@ -157,7 +157,7 @@ export function snapshotUdlInstrument(
     fields: Object.fromEntries(
       Object.entries(instrument.fields).map(([field, schema]) => [
         field,
-        { required: required.has(field), schema },
+        { required: required.has(field), schema: withoutProse(schema) },
       ]),
     ),
     id: instrument.id,
@@ -575,9 +575,32 @@ function snapshotJsonSchemaFields(
   return Object.fromEntries(
     Object.entries(properties).map(([field, fieldSchema]) => [
       field,
-      { required: required.has(field), schema: fieldSchema },
+      { required: required.has(field), schema: withoutProse(fieldSchema) },
     ]),
   );
+}
+
+/**
+ * Descriptions are prose for readers, not shape: a wording fix in a std
+ * template must land on a live flow as an extension, never as a refusal.
+ */
+function withoutProse(value: unknown, depth = 1): unknown {
+  if (depth > UDL_LIMITS.maxDepth) throw nestingExceeded();
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutProse(item, depth + 1));
+  }
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "description")
+      .map(([key, entry]) => [key, withoutProse(entry, depth + 1)]),
+  );
+}
+
+function nestingExceeded(): UdlError {
+  return new UdlError([
+    issue("UDL1004", "$", `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`),
+  ]);
 }
 
 function snapshotJsonSchemaConstraints(
@@ -753,9 +776,12 @@ function diffActions(
     ) {
       violations.push(`action ${action} changed its check prerequisites`);
     }
+    // A failure point only adds a sandbox refusal for one documented amount, so
+    // declaring one on an action that had none is additive; changing or
+    // removing a declared one rewrites what a sandbox integration relies on.
     if (
-      (descriptor.sandboxFailurePoint ?? null) !==
-      (current.sandboxFailurePoint ?? null)
+      descriptor.sandboxFailurePoint &&
+      descriptor.sandboxFailurePoint !== (current.sandboxFailurePoint ?? null)
     ) {
       violations.push(`action ${action} changed its sandbox failure point`);
     }
@@ -937,15 +963,7 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
  * and lands here rather than exhausting the call stack.
  */
 function stableStringify(value: unknown, depth = 1): string {
-  if (depth > UDL_LIMITS.maxDepth) {
-    throw new UdlError([
-      issue(
-        "UDL1004",
-        "$",
-        `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
-      ),
-    ]);
-  }
+  if (depth > UDL_LIMITS.maxDepth) throw nestingExceeded();
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
   }

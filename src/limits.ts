@@ -9,7 +9,8 @@ export const UDL_LIMITS = Object.freeze({
   financeWork: 4_096,
   maxDepth: 24,
   maxKeyLength: 128,
-  maxNodes: 10_000,
+  // The 33-instrument catalog includes its executable authored journeys.
+  maxNodes: 20_000,
   maxPatternLength: 320,
   /**
    * Upper bound on the match attempts a document-authored `pattern` can force
@@ -26,8 +27,10 @@ export const UDL_LIMITS = Object.freeze({
    * of the instruments x gate-fields product that asks for them.
    */
   maxSchemaProbes: 2_048,
-  // The complete 2026-09-01 platform catalog serializes to 402,126 bytes.
-  maxSourceBytes: 512 * 1_024,
+  // The complete catalog now carries executable authored journeys beside the
+  // instrument mechanics, so its bounded source and string budgets include
+  // that contract-owned corpus.
+  maxSourceBytes: 1_024 * 1_024,
   maxStringLength: 2_048,
-  maxTotalStringLength: 256 * 1_024,
+  maxTotalStringLength: 512 * 1_024,
 });

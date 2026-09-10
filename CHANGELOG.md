@@ -4,15 +4,30 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this package
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Format version and package version are different numbers. Format 1 is unstable
-until the package reaches 1.0.0; any change to what format 1 accepts is listed
-here under the release that made it.
+Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-10
+
+Published in lockstep with HSX 2.0.0.
+
+### Added
+
+- Money field schemas may carry `x-hyperscale-currency`; `UDL6001` refuses any value that is not a three-letter uppercase code on a string schema.
+- `dateComparison` reference laws compare a local date field against a referenced instrument's date field with a matched-field guard.
+- Aggregate invariants sum integer supply fields, not only money fields, so share allocations cannot exceed an offering's supply.
+- `validateUdl` takes options, and the document schema gains `journey` and composition dial definitions.
+- Evolution comparison reports a changed `sandboxFailurePoint`.
+
+### Changed
+
+- Finance laws know the declared parties: distinct declared parties never alias, and terminal stranding applies only to `ref:` accounts.
+- Field descriptions are prose and no longer part of the frozen schema; the migration plan says recompose is refused when a frozen field changes.
+
 ## [1.0.0] - 2026-09-04
 
-This release is byte-identical to 1.0.0-rc.1. Later changes bump under the contract-diff tiers.
+This release is byte-identical to 1.0.0-rc.1.
 
 ## [1.0.0-rc.1] - 2026-09-02
 

@@ -841,7 +841,7 @@
         },
         "create": {
           "agentDescription": "Open escrow against an active listing and provision its dedicated escrow account. No money moves yet. The listing must be active, and its asking price, currency, and seller account are copied onto the escrow, so passing an amount is neither needed nor allowed.",
-          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The held amount is always the listing's askingPrice and is not caller supplied. For a security deposit use the standard library module security_deposit, and for a rental or booking fee use cancellable_booking. Both live under open/hsx/std/settlements.",
+          "description": "Opens escrow against an active listing and provisions its dedicated product escrow account. The held amount is always the listing's askingPrice and is not caller supplied. For a security deposit use the standard library module security_deposit, and for a rental or booking fee use cancellable_booking. Both live under open/hsx/std/money_flows.",
           "effects": {
             "reads": [
               {

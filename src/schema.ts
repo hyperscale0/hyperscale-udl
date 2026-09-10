@@ -33,6 +33,14 @@ export const udlInstrumentActionIdSchema = z
     "must name an instrument action as instrument_id.action_key",
   );
 
+const udlJourneyOperationNameSchema = z
+  .string()
+  .max(160)
+  .regex(
+    /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/,
+    "must name a dotted operation",
+  );
+
 const nonEmptyTextSchema = z
   .string()
   .refine((value) => value.trim().length > 0, "must not be blank");
@@ -93,6 +101,20 @@ const udlExampleSchema = z.strictObject({
   output: z.json().optional(),
 });
 
+const udlJourneyStepSchema = z.strictObject({
+  bind: z.record(fieldPathSchema, udlSnakeCaseSchema),
+  example: udlSnakeCaseSchema,
+  id: udlSnakeCaseSchema.optional(),
+  operation: udlJourneyOperationNameSchema,
+});
+
+export const udlJourneySchema = z.strictObject({
+  id: udlSnakeCaseSchema,
+  label: nonEmptyTextSchema,
+  steps: z.array(udlJourneyStepSchema).min(1),
+  summary: nonEmptyTextSchema,
+});
+
 const udlLifecycleTransitionSchema = z.strictObject({
   from: z.array(udlSnakeCaseSchema).min(1),
   to: udlSnakeCaseSchema,
@@ -110,9 +132,18 @@ const udlUpdatePolicySchema = z.strictObject({
   states: z.array(udlSnakeCaseSchema).min(1),
 });
 
+const udlDateComparisonOperatorSchema = z.enum([">=", ">", "<=", "<", "=="]);
+
+const udlDateComparisonSchema = z.strictObject({
+  localPath: fieldPathSchema,
+  operator: udlDateComparisonOperatorSchema,
+  referencedPath: fieldPathSchema,
+});
+
 const udlGateSchema = z.strictObject({
   /** Local field key <- referenced instance path; create actions only. */
   bind: z.record(udlFieldNameSchema, fieldPathSchema).optional(),
+  dateComparison: udlDateComparisonSchema.optional(),
   field: udlFieldNameSchema,
   /** Local instance path === referenced instance path at admission. */
   match: z.record(fieldPathSchema, fieldPathSchema).optional(),
@@ -329,10 +360,10 @@ const udlExposureRequirementSchema = z.strictObject({
 // The tenant-backend decision port: the action's caller asserts the acting
 // party, checked at admission against the instrument's party bindings for the
 // allowed roles.
+const udlPartyRoleSchema = z.string().regex(/^[a-z][A-Za-z0-9_]*$/);
+
 const udlPortSchema = z.strictObject({
-  allowedParties: z
-    .array(z.enum(["payer", "beneficiary", "subjectHolder"]))
-    .min(1),
+  allowedParties: z.array(udlPartyRoleSchema).min(1),
 });
 
 const udlPayoutSchema = z.strictObject({
@@ -686,14 +717,9 @@ const udlInstrumentShape = {
     .string()
     .regex(idPrefixPattern, "must contain 2 to 8 lowercase letters"),
   lifecycle: udlLifecycleSchema,
+  journeys: z.array(udlJourneySchema).min(1).optional(),
   nav: z.array(nonEmptyTextSchema).min(1).optional(),
-  parties: z
-    .strictObject({
-      beneficiary: udlFieldNameSchema.optional(),
-      payer: udlFieldNameSchema.optional(),
-      subjectHolder: udlFieldNameSchema.optional(),
-    })
-    .optional(),
+  parties: z.record(udlPartyRoleSchema, udlFieldNameSchema).optional(),
   partitions: z.array(udlPartitionSchema).min(1).optional(),
   required: z.array(udlFieldNameSchema),
   subject: udlInstrumentSubjectSchema.optional(),
@@ -1102,6 +1128,12 @@ export const udlClauseVocabulary = [
   {
     cardinality: "many",
     scope: "instrument",
+    spelling: "journeys",
+    target: "journeys",
+  },
+  {
+    cardinality: "many",
+    scope: "instrument",
     spelling: "nav",
     target: "nav",
   },
@@ -1330,6 +1362,10 @@ export type UdlDocument = z.infer<typeof udlDocumentSchema>;
 export type UdlDue = z.infer<typeof udlDueSchema>;
 export type UdlEffects = z.infer<typeof udlEffectsSchema>;
 export type UdlExample = z.infer<typeof udlExampleSchema>;
+export type UdlDateComparison = z.infer<typeof udlDateComparisonSchema>;
+export type UdlDateComparisonOperator = z.infer<
+  typeof udlDateComparisonOperatorSchema
+>;
 export type UdlGate = z.infer<typeof udlGateSchema>;
 export type UdlKernelOperation = z.infer<typeof udlKernelOperationSchema>;
 export type UdlLifecycle = z.infer<typeof udlLifecycleSchema>;
@@ -1338,6 +1374,8 @@ export type UdlLifecycleTransition = z.infer<
 >;
 export type UdlInstrument = z.infer<typeof udlInstrumentSchema>;
 export type UdlInstrumentSubject = z.infer<typeof udlInstrumentSubjectSchema>;
+export type UdlJourney = z.infer<typeof udlJourneySchema>;
+export type UdlJourneyStep = z.infer<typeof udlJourneyStepSchema>;
 export type UdlMove = z.infer<typeof udlMoveSchema>;
 export type UdlPayout = z.infer<typeof udlPayoutSchema>;
 export type UdlQuote = z.infer<typeof udlQuoteSchema>;

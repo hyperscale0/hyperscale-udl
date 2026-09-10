@@ -152,21 +152,13 @@ that exists.
 **Package version** is the semver of `@hyperscale0/udl`, declared in
 `package.json`.
 
-They move independently, under one rule: **format 1 freezes when the package
-reaches 1.0.0.** The release candidate may still change what format 1 accepts,
-and every change appears in `../CHANGELOG.md`.
+They move independently. In development mode, contract and schema shapes change
+without deprecation paths or frozen compatibility promises.
 
-After 1.0.0, an incompatible grammar change uses a new format literal. Readers
-keep an explicit decoder and validator for each supported old literal. A
-stored format 1 document remains readable under the format 1 rules. It does
-not acquire new required fields from the current package. Passing an old
-document to an evolution comparison can raise the matching `UDL7xxx` removal,
-tightening, lifecycle, or executable-change code, but a package upgrade alone
-does not rewrite its bytes. A product migration must validate and store its new
-document as a separate version before switching instances to it.
-
-The evolution codes are explicit. `UDL7001` protects stored identities,
-subjects, instruments, fields, lifecycles, actions, money clauses, gates, and
-policy. `UDL7002` requires a version increase for a semantic change.
+The evolution diff API (`diffValidatedUdlEvolution` and `diffInstrumentEvolution`)
+evaluates append-only rules between two admitted documents. The evolution codes
+are explicit. `UDL7001` protects stored identities, subjects, instruments, fields,
+lifecycles, actions, money clauses, gates, and policy against removal, renaming,
+or tightening. `UDL7002` requires a version increase for a semantic change.
 Evolution comparison admits the previous document first. A stored document
 that fails admission is `invalid_previous`, not an evolution issue.

@@ -207,6 +207,7 @@ export function analyzeInstrumentFinance(
       return issues;
     }
     const initial = applyEffects(
+      instrument,
       account,
       "create",
       { balance: EMPTY, holds: {} },
@@ -243,6 +244,7 @@ export function analyzeInstrumentFinance(
             return issues;
           }
           const targetState = applyEffects(
+            instrument,
             account,
             action,
             sourceState,
@@ -274,19 +276,21 @@ export function analyzeInstrumentFinance(
         (transition) => transition.from,
       ),
     );
-    for (const [state, variants] of states) {
-      if (nonterminalStates.has(state)) continue;
-      for (const variant of variants.values()) {
-        if (
-          variant.balance.kind === "empty" &&
-          Object.keys(variant.holds).length === 0
-        ) {
-          continue;
+    if (account.startsWith("ref:")) {
+      for (const [state, variants] of states) {
+        if (nonterminalStates.has(state)) continue;
+        for (const variant of variants.values()) {
+          if (
+            variant.balance.kind === "empty" &&
+            Object.keys(variant.holds).length === 0
+          ) {
+            continue;
+          }
+          add(
+            ["lifecycle", "states", instrument.lifecycle.states.indexOf(state)],
+            `terminal state ${state} can strand value in ${formatAccount(account)}`,
+          );
         }
-        add(
-          ["lifecycle", "states", instrument.lifecycle.states.indexOf(state)],
-          `terminal state ${state} can strand value in ${formatAccount(account)}`,
-        );
       }
     }
   }
@@ -434,7 +438,7 @@ function effectsByAction(
             instrument,
             step.bind.sourceAccountId,
           );
-          if (source && accountsMayAlias(source, account)) {
+          if (source && accountsMayAlias(instrument, source, account)) {
             const committed = quoteByCommit.get(actionName);
             const amountPath =
               step.bind.amount?.from === "instance"
@@ -474,7 +478,7 @@ function effectsByAction(
             instrument,
             step.bind.sourceAccountId,
           );
-          if (source && accountsMayAlias(source, account)) {
+          if (source && accountsMayAlias(instrument, source, account)) {
             effects.push({
               amount: amountIdentity(step.bind.amount),
               kind: "outgoing_reserve",
@@ -504,7 +508,7 @@ function effectsByAction(
           const reserved = reservations.get(reservation);
           if (
             !reserved ||
-            (!(reserved.source && accountsMayAlias(reserved.source, account)) &&
+            (!(reserved.source && accountsMayAlias(instrument, reserved.source, account)) &&
               reserved.destination !== account)
           ) {
             return [];
@@ -526,6 +530,7 @@ function effectsByAction(
 }
 
 function applyEffects(
+  instrument: FinancialInstrument,
   account: string,
   action: string,
   input: AccountState,
@@ -582,7 +587,7 @@ function applyEffects(
       const reservation = reservations.get(key);
       if (
         reservation?.source &&
-        accountsMayAlias(reservation.source, account)
+        accountsMayAlias(instrument, reservation.source, account)
       ) {
         const held = holds[key];
         delete holds[key];
@@ -784,7 +789,7 @@ function validateChargePayout(
     source !== undefined &&
     source === refundSource &&
     destination !== undefined &&
-    !accountsMayAlias(source, destination);
+    !accountsMayAlias(instrument, source, destination);
   if (!valid) {
     add(
       ["actions", use.actionName, "moves", use.stepIndex, "bind", use.target],
@@ -812,9 +817,34 @@ function canonicalAccount(
   return undefined;
 }
 
-function accountsMayAlias(left: string, right: string): boolean {
-  if (left.startsWith("field:") && right.startsWith("field:")) return true;
-  return left === right;
+function accountsMayAlias(
+  instrument: FinancialInstrument,
+  left: string,
+  right: string,
+): boolean {
+  if (left === right) return true;
+  if (left.startsWith("field:") && right.startsWith("field:")) {
+    const leftField = left.slice("field:".length);
+    const rightField = right.slice("field:".length);
+    if (leftField === rightField) return true;
+    if (instrument.parties) {
+      const leftParty = Object.entries(instrument.parties).find(
+        ([, field]) => field === leftField,
+      )?.[0];
+      const rightParty = Object.entries(instrument.parties).find(
+        ([, field]) => field === rightField,
+      )?.[0];
+      if (
+        leftParty !== undefined &&
+        rightParty !== undefined &&
+        leftParty !== rightParty
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
 }
 
 function amountIdentity(binding: UdlBinding | undefined): string {

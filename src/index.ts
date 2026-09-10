@@ -48,6 +48,7 @@ export {
   udlClauseVocabulary,
   udlDocumentSchema,
   udlInstrumentActionIdSchema,
+  udlJourneySchema,
   udlKernelOperationSchema,
   udlProviderFamilyIdSchema,
   udlPublicActionSchema,
@@ -64,12 +65,16 @@ export type {
   UdlDue,
   UdlEffects,
   UdlExample,
+  UdlDateComparison,
+  UdlDateComparisonOperator,
   UdlGate,
   UdlKernelOperation,
   UdlLifecycle,
   UdlLifecycleTransition,
   UdlInstrument,
   UdlInstrumentSubject,
+  UdlJourney,
+  UdlJourneyStep,
   UdlPayout,
   UdlQuote,
   UdlProviderFamilyId,
@@ -95,5 +100,6 @@ export {
 } from "./validation.js";
 export type {
   ReferenceShapeBudget,
+  UdlValidationOptions,
   UdlValidationResult,
 } from "./validation.js";

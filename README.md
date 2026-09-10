@@ -1,10 +1,8 @@
+![UDL: The contract between a product and its engine.](docs/assets/udl.svg)
+
 # UDL
 
-UDL is the Universal Domain Language, the canonical JSON contract for a financial product. One `.udl` file declares subjects, instruments, lifecycles, actions, and money movement. An engine can admit that document without reading the source language that produced it.
-
-UDL keeps provider machinery below the format. It has no file drops, polling loops, cutoff jobs, scheme messages, or provider statement schemas. The `reconcile` clause names settlement evidence against a declared provider-side row. It does not model the provider file or transport.
-
-This package contains the parser, semantic validator, canonical serializer, append-only evolution diff, JSON Schema, and conformance corpus.
+UDL is the Universal Domain Language, the canonical JSON contract for a financial product. One `.udl` file declares subjects, instruments, lifecycles, actions, and money movement. An engine admits that document without reading the source language that produced it. UDL keeps provider machinery below the format: it has no file drops, polling loops, cutoff jobs, scheme messages, or provider statement schemas. The `reconcile` clause names settlement evidence against a declared provider-side row; it does not model provider transport or matching machinery.
 
 ## Install
 
@@ -12,11 +10,11 @@ This package contains the parser, semantic validator, canonical serializer, appe
 npm install @hyperscale0/udl
 ```
 
-`1.0.0` freezes format 1. Pin version 1.0.0 while testing another implementation.
+This package contains the parser, semantic validator, canonical serializer, append-only evolution diff, JSON Schema, and conformance corpus.
 
-## Thirty seconds
+## First document
 
-`note.udl` is the smallest admitted document.
+Save this document as `note.udl`:
 
 ```json
 {
@@ -48,6 +46,18 @@ npm install @hyperscale0/udl
 }
 ```
 
+Check the document with the CLI:
+
+```bash
+npx udl validate note.udl
+npx udl fmt note.udl --write
+npx udl canon note.udl --digest
+```
+
+Exit code `0` means success. Exit code `1` means the validator refused the document. Exit code `2` means the invocation or file read failed.
+
+In TypeScript, parse, validate, and compare documents directly:
+
 ```ts
 import { readFile, writeFile } from "node:fs/promises";
 import {
@@ -69,26 +79,7 @@ const previous = parseUdl(await readFile("note.previous.udl"));
 const violations = diffValidatedUdlEvolution(previous, document);
 ```
 
-Every issue has a stable `UDL####` code, a category, a JSON path, a message, and a fix. Messages may become clearer. Codes do not change once published.
-
-`parseUdl` accepts a string or `Uint8Array` and rejects malformed UTF-8. `serializeUdl` validates before writing. It sorts object keys by UTF-16 code unit, keeps array order, uses two-space indentation, and writes one final line feed. `canonicalDigest` hashes those UTF-8 bytes with SHA-256 and returns a promise for the lowercase hexadecimal digest.
-
-The seven kernel operations are `internal_transfer.create`, `internal_transfer.reserve`, `internal_transfer.post`, `internal_transfer.void`, `account.escrow.provision`, `account.freeze`, and `account.unfreeze`. A `payout` is an execution intent, not another kernel operation.
-
-The compiler derives action `effects` from clauses. The validator rejects a supplied effects object unless every row and its order match. Derived effects do not consume the authored node budget.
-
-## Command line
-
-```bash
-udl validate product.udl
-udl fmt product.udl --write
-udl canon product.udl
-udl canon product.udl --digest
-udl diff frozen.udl product.udl
-udl explain UDL5001
-```
-
-Exit code `0` means success. Exit code `1` means the validator or evolution law refused the document. Exit code `2` means the invocation or file read failed.
+The evolution diff API (`diffValidatedUdlEvolution`, `diffInstrumentEvolution`, and `npx udl diff`) verifies that changes between two product versions are append-only. Adding optional fields, states, transitions, and actions is permitted; removing, renaming, or tightening existing structures returns `UDL7xxx` violation issues.
 
 ## Documentation
 
@@ -96,15 +87,12 @@ Exit code `0` means success. Exit code `1` means the validator or evolution law 
 - [Format specification](spec/README.md)
 - [Canonical bytes law](docs/reference/canonical.md)
 - [Stable diagnostics](docs/reference/diagnostics.md)
-- [Conformance runner contract](conformance/README.md)
+- [Conformance suite](conformance/README.md)
 - [Agent skill](skills/udl/SKILL.md)
+- [Contributing](CONTRIBUTING.md)
 
-## Versioning
+## License and security
 
-The literal `"udl": 1` is the format version. The version in `package.json` is the package version. They move independently. After package version `1.0.0`, an incompatible format change uses a new format literal and keeps an explicit reader for stored format 1 documents during its stated support window.
+UDL is licensed under AGPL-3.0-only, with a commercial license available from Hyperscale LLC. See [LICENSE](LICENSE), [LICENSING.md](LICENSING.md), and [TRADEMARKS.md](TRADEMARKS.md).
 
-## Contributing and license
-
-Hyperscale accepts format proposals as issues with a use case and the conformance case they would add. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and proof commands.
-
-UDL is AGPL-3.0-only. Hyperscale LLC also offers a commercial license. See [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).
+Vulnerability reports go through private disclosure as described in [SECURITY.md](SECURITY.md).

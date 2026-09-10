@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
-    "types": ["bun"]
+    "types": ["bun-types"]
   },
   "include": ["scripts/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
 }

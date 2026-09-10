@@ -1302,6 +1302,10 @@
                       "type": "string",
                       "pattern": "^[a-z][A-Za-z0-9]*$"
                     },
+                    "chargeRetainedBy": {
+                      "type": "string",
+                      "enum": ["payer", "beneficiary", "subjectHolder"]
+                    },
                     "charges": {
                       "minItems": 1,
                       "type": "array",

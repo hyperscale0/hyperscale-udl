@@ -4262,6 +4262,69 @@ function validateQuoteCommit(
         "UDL5006",
       );
     }
+    if (quote.chargeRetainedBy !== undefined) {
+      const retainedRole = quote.chargeRetainedBy;
+      // Own keys only: a role named after a prototype member is undeclared.
+      const partyField = Object.hasOwn(instrument.parties ?? {}, retainedRole)
+        ? instrument.parties?.[retainedRole]
+        : undefined;
+      if (!partyField) {
+        add(
+          [...quoteBase, "chargeRetainedBy"],
+          `quoting action ${actionName} retains charge by undeclared party role ${retainedRole}`,
+          "UDL5006",
+        );
+      } else {
+        const partySchema = instrument.fields[partyField];
+        if (!partySchema || !references.accepts(partySchema, "acct")) {
+          add(
+            [...quoteBase, "chargeRetainedBy"],
+            `charge-retaining party field ${partyField} must be an account field`,
+            "UDL5006",
+          );
+        }
+        if (!instrument.required.includes(partyField)) {
+          add(
+            [...quoteBase, "chargeRetainedBy"],
+            `charge-retaining party field ${partyField} must be required`,
+            "UDL5006",
+          );
+        }
+        if (!quote.fixes.includes(partyField)) {
+          add(
+            [...quoteBase, "chargeRetainedBy"],
+            `quoting action ${actionName} must freeze its charge-retaining party field ${partyField}`,
+            "UDL5006",
+          );
+        }
+      }
+      const chargePath = `refs.${quote.chargeRef}`;
+      for (const [consumerName, candidateAction] of Object.entries(
+        instrument.actions,
+      )) {
+        for (const [moveIndex, move] of (
+          candidateAction.moves ?? []
+        ).entries()) {
+          for (const [target, binding] of Object.entries(move.bind)) {
+            if (binding.from === "instance" && binding.path === chargePath) {
+              add(
+                [
+                  ...base,
+                  "actions",
+                  consumerName,
+                  "moves",
+                  moveIndex,
+                  "bind",
+                  target,
+                ],
+                `charge ${chargePath} is retained by ${retainedRole} and cannot be consumed by an action`,
+                "UDL5006",
+              );
+            }
+          }
+        }
+      }
+    }
   }
 
   const seededBy = new Map<string, string>();
@@ -4341,6 +4404,37 @@ function validateQuoteCommit(
         `commit action ${actionName} must contain exactly one internal transfer whose source comes from the instrument instance, amount is refs.${quote.netRef}, and destination is fields.${quote.netDestinationField}`,
         "UDL5006",
       );
+    }
+    if (quote.chargeRetainedBy !== undefined) {
+      const partyField = instrument.parties?.[quote.chargeRetainedBy];
+      let sourceField: string | undefined;
+      if (sourceBinding?.from === "instance") {
+        if (sourceBinding.path.startsWith("fields.")) {
+          sourceField = sourceBinding.path.slice("fields.".length);
+        } else if (sourceBinding.path.startsWith("party.")) {
+          const role = sourceBinding.path.slice("party.".length);
+          sourceField = instrument.parties?.[role];
+        }
+      }
+      if (
+        sourceBinding?.from !== "instance" ||
+        !sourceField ||
+        sourceField !== partyField
+      ) {
+        add(
+          [
+            ...base,
+            "actions",
+            actionName,
+            "moves",
+            0,
+            "bind",
+            "sourceAccountId",
+          ],
+          `commit action ${actionName} refund source must come from charge-retaining party field ${partyField ?? quote.chargeRetainedBy}`,
+          "UDL5006",
+        );
+      }
     }
   }
 }

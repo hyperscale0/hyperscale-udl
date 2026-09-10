@@ -1233,6 +1233,156 @@ describe("UDL grammar validation", () => {
     );
   });
 
+  test("validates retained charge quotes against parties, fixes, and refund source", async () => {
+    const document = structuredClone(await parsedFixture("protection.udl"));
+    const policy = document.instruments.find(
+      (instrument) => instrument.id === "policy",
+    );
+    if (!policy) throw new Error("protection fixture missing policy");
+    const instrumentIndex = document.instruments.indexOf(policy);
+
+    policy.lifecycle.states.push("refund_quoted");
+    policy.lifecycle.transitions.quote_refund = {
+      from: ["active"],
+      to: "refund_quoted",
+    };
+    policy.lifecycle.transitions.confirm_refund = {
+      from: ["refund_quoted"],
+      to: "canceled",
+    };
+    policy.callerParkedStates = {
+      ...policy.callerParkedStates,
+      refund_quoted: "decision",
+    };
+    policy.actions.quote_refund = {
+      summary: "Quote active policy refund",
+      steps: [],
+      moves: [],
+      quote: {
+        baseField: "premiumAmount",
+        chargeRef: "activeUnwindPenalty",
+        chargeRetainedBy: "beneficiary",
+        charges: [{ bps: 0 }],
+        expires: { offset: "PT15M" },
+        fixes: ["insurerAccountId", "policyholderAccountId", "premiumAmount"],
+        netDestinationField: "policyholderAccountId",
+        netRef: "policyRefund",
+      },
+    };
+    policy.actions.confirm_refund = {
+      summary: "Confirm active policy refund",
+      commit: "quote_refund",
+      steps: [],
+      moves: [
+        {
+          key: "transfer",
+          operation: "internal_transfer.create",
+          bind: {
+            amount: { from: "instance", path: "refs.policyRefund" },
+            currency: { from: "instance", path: "fields.currency" },
+            destinationAccountId: {
+              from: "instance",
+              path: "fields.policyholderAccountId",
+            },
+            productId: { from: "instance", path: "productId" },
+            sourceAccountId: {
+              from: "instance",
+              path: "fields.insurerAccountId",
+            },
+          },
+        },
+      ],
+      requiresDrainedAccount: { path: "refs.premiumReserveAccountId" },
+    };
+    policy.actionOrder.push("quote_refund", "confirm_refund");
+
+    expect(validateUdl(document).ok).toBe(true);
+
+    // Undeclared role rejection:
+    const undeclaredRoleDoc = structuredClone(document);
+    const undeclaredPolicy = undeclaredRoleDoc.instruments[instrumentIndex]!;
+    undeclaredPolicy.actions.quote_refund!.quote!.chargeRetainedBy =
+      "subjectHolder";
+    const undeclaredResult = validateUdl(undeclaredRoleDoc);
+    expect(undeclaredResult.ok).toBe(false);
+    if (undeclaredResult.ok) throw new Error("expected invalid UDL");
+    expect(undeclaredResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "quoting action quote_refund retains charge by undeclared party role subjectHolder",
+      }),
+    );
+
+    // Unfrozen party field rejection:
+    const unfrozenDoc = structuredClone(document);
+    const unfrozenPolicy = unfrozenDoc.instruments[instrumentIndex]!;
+    unfrozenPolicy.actions.quote_refund!.quote!.fixes =
+      unfrozenPolicy.actions.quote_refund!.quote!.fixes.filter(
+        (field) => field !== "insurerAccountId",
+      );
+    const unfrozenResult = validateUdl(unfrozenDoc);
+    expect(unfrozenResult.ok).toBe(false);
+    if (unfrozenResult.ok) throw new Error("expected invalid UDL");
+    expect(unfrozenResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "quoting action quote_refund must freeze its charge-retaining party field insurerAccountId",
+      }),
+    );
+
+    // Wrong refund source (product escrow ref) rejection:
+    const wrongSourceDoc = structuredClone(document);
+    const wrongSourcePolicy = wrongSourceDoc.instruments[instrumentIndex]!;
+    wrongSourcePolicy.actions.confirm_refund!.moves[0]!.bind.sourceAccountId = {
+      from: "instance",
+      path: "refs.premiumReserveAccountId",
+    };
+    const wrongSourceResult = validateUdl(wrongSourceDoc);
+    expect(wrongSourceResult.ok).toBe(false);
+    if (wrongSourceResult.ok) throw new Error("expected invalid UDL");
+    expect(wrongSourceResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "commit action confirm_refund refund source cannot be a product escrow ref for a retained quote",
+      }),
+    );
+
+    // Consuming retained charge ref rejection:
+    const consumerDoc = structuredClone(document);
+    const consumerPolicy = consumerDoc.instruments[instrumentIndex]!;
+    consumerPolicy.actions.claim_fee = {
+      moves: [
+        {
+          bind: {
+            amount: { from: "instance", path: "refs.activeUnwindPenalty" },
+            destinationAccountId: {
+              from: "instance",
+              path: "fields.insurerAccountId",
+            },
+            sourceAccountId: {
+              from: "instance",
+              path: "fields.insurerAccountId",
+            },
+          },
+          key: "penalty_fee",
+          operation: "internal_transfer.create",
+        },
+      ],
+      steps: [],
+      summary: "Consume retained penalty",
+    };
+    consumerPolicy.actionOrder.push("claim_fee");
+    const consumerResult = validateUdl(consumerDoc);
+    expect(consumerResult.ok).toBe(false);
+    if (consumerResult.ok) throw new Error("expected invalid UDL");
+    expect(consumerResult.issues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "charge refs.activeUnwindPenalty is retained by beneficiary and cannot be consumed by an action",
+      }),
+    );
+  });
+
   test("rejects check kinds without a tenant-gateable evidence profile", async () => {
     const document = structuredClone(
       await parsedFixture("commerce-escrow.udl"),
@@ -1806,6 +1956,157 @@ describe("UDL grammar validation", () => {
       message: `financial analysis exceeds ${UDL_LIMITS.financeAccounts} tracked accounts`,
       path: ["actions"],
     });
+  });
+
+  test("analyzeInstrumentFinance validates retained quotes and prevents escaping through early return", () => {
+    // The insurer holds exactly the premium before the refund, so the
+    // conservation walk keeps proving the refund source even though the
+    // charge is retained rather than paid out.
+    const validRetained = {
+      lifecycle: {
+        initial: "bound",
+        states: ["bound", "active", "refund_quoted", "canceled"],
+        transitions: {
+          activate: { from: ["bound"], to: "active" },
+          quote_refund: { from: ["active"], to: "refund_quoted" },
+          confirm_refund: { from: ["refund_quoted"], to: "canceled" },
+        },
+      },
+      parties: {
+        beneficiary: "insurerAccountId",
+        payer: "policyholderAccountId",
+      },
+      actions: {
+        activate: {
+          moves: [
+            {
+              key: "premium",
+              operation: "internal_transfer.create",
+              bind: {
+                amount: { from: "instance" as const, path: "fields.premium" },
+                destinationAccountId: {
+                  from: "instance" as const,
+                  path: "fields.insurerAccountId",
+                },
+                sourceAccountId: {
+                  from: "instance" as const,
+                  path: "fields.policyholderAccountId",
+                },
+              },
+            },
+          ],
+          steps: [],
+        },
+        quote_refund: {
+          quote: {
+            baseField: "premium",
+            chargeRef: "penalty",
+            chargeRetainedBy: "beneficiary" as const,
+            charges: [{ bps: 1000 }],
+            netRef: "refund",
+          },
+          steps: [],
+        },
+        confirm_refund: {
+          commit: "quote_refund",
+          moves: [
+            {
+              key: "refund",
+              operation: "internal_transfer.create",
+              bind: {
+                amount: { from: "instance" as const, path: "refs.refund" },
+                destinationAccountId: {
+                  from: "instance" as const,
+                  path: "fields.policyholderAccountId",
+                },
+                sourceAccountId: {
+                  from: "instance" as const,
+                  path: "fields.insurerAccountId",
+                },
+              },
+            },
+          ],
+          steps: [],
+        },
+      },
+    };
+
+    const validIssues = analyzeInstrumentFinance(validRetained);
+    expect(validIssues).toEqual([]);
+
+    // A retained charge does not exempt the refund source from the walk:
+    const { activate: _unfunded, ...unfundedActions } = validRetained.actions;
+    expect(
+      analyzeInstrumentFinance({
+        ...validRetained,
+        lifecycle: {
+          ...validRetained.lifecycle,
+          initial: "active",
+          transitions: {
+            quote_refund: validRetained.lifecycle.transitions.quote_refund,
+            confirm_refund: validRetained.lifecycle.transitions.confirm_refund,
+          },
+        },
+        actions: unfundedActions,
+      }),
+    ).toContainEqual(
+      expect.objectContaining({
+        message:
+          "action confirm_refund cannot refund fields.premium from fields.insurerAccountId; that exact balance is not guaranteed",
+      }),
+    );
+
+    // Removing chargeRetainedBy restores the old refusal:
+    const withoutRetained = {
+      ...validRetained,
+      actions: {
+        ...validRetained.actions,
+        quote_refund: {
+          ...validRetained.actions.quote_refund,
+          quote: {
+            ...validRetained.actions.quote_refund.quote,
+            chargeRetainedBy: undefined,
+          },
+        },
+      },
+    };
+    const missingPayoutIssues = analyzeInstrumentFinance(withoutRetained);
+    expect(missingPayoutIssues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "refs.penalty is consumed 0 times; a nonzero charge schedule requires exactly one payout",
+      }),
+    );
+
+    // Unresolved refund source cannot escape through early return when no escrow accounts exist:
+    const unresolvedSource = {
+      ...validRetained,
+      actions: {
+        ...validRetained.actions,
+        confirm_refund: {
+          ...validRetained.actions.confirm_refund,
+          moves: [
+            {
+              ...validRetained.actions.confirm_refund.moves[0]!,
+              bind: {
+                ...validRetained.actions.confirm_refund.moves[0]!.bind,
+                sourceAccountId: {
+                  from: "const" as const,
+                  value: "unknown",
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const unresolvedIssues = analyzeInstrumentFinance(unresolvedSource);
+    expect(unresolvedIssues).toContainEqual(
+      expect.objectContaining({
+        message:
+          "commit action confirm_refund refund source cannot be resolved to charge-retaining party field insurerAccountId",
+      }),
+    );
   });
 
   test("leaves caller-sized balance limits to runtime balance checks", () => {

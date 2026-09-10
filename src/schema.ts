@@ -237,6 +237,13 @@ const udlQuoteChargeSchema = z.strictObject({
   withinOffset: nonEmptyTextSchema.optional(),
 });
 
+export const udlQuoteRetainedRoleSchema = z.enum([
+  "payer",
+  "beneficiary",
+  "subjectHolder",
+]);
+export type UdlQuoteRetainedRole = z.infer<typeof udlQuoteRetainedRoleSchema>;
+
 // A priced, expiring offer. The quoting action splits `baseField` into a charge
 // and a net at its own clock, freezes the fields the price was read from, and
 // stamps an expiry. Only the paired `commit` action may spend the offer, and
@@ -246,6 +253,8 @@ const udlQuoteShape = {
   anchorField: udlFieldNameSchema.optional(),
   baseField: udlFieldNameSchema,
   chargeRef: udlFieldNameSchema,
+  /** Party role that keeps the quoted charge instead of moving it through an escrow payout action. */
+  chargeRetainedBy: udlQuoteRetainedRoleSchema.optional(),
   charges: z.array(udlQuoteChargeSchema).min(1),
   /** Fixed ISO-8601 duration from the quoting action, or a stored deadline. */
   expires: z.union([

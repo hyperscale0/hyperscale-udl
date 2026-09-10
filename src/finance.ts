@@ -47,6 +47,11 @@ interface FinancialInstrument {
           | {
               readonly baseField: string;
               readonly chargeRef: string;
+              readonly chargeRetainedBy?:
+                | "payer"
+                | "beneficiary"
+                | "subjectHolder"
+                | undefined;
               readonly charges: readonly { readonly bps: number }[];
               readonly netRef: string;
             }
@@ -65,6 +70,11 @@ interface FinancialInstrument {
 interface QuoteFacts {
   readonly baseField: string;
   readonly chargeRef: string;
+  readonly chargeRetainedBy?:
+    | "payer"
+    | "beneficiary"
+    | "subjectHolder"
+    | undefined;
   readonly chargeCanBeNonzero: boolean;
   readonly commit: string;
   readonly netRef: string;
@@ -172,7 +182,15 @@ export function analyzeInstrumentFinance(
     trackedAccounts.add(source);
   }
   const refundSourceAccounts = new Set(refundSources.values());
-  if (trackedAccounts.size === 0) return [];
+  for (const quote of quotes) {
+    validateChargePayout(
+      instrument,
+      quote,
+      refundSources.get(quote.commit),
+      add,
+    );
+  }
+  if (trackedAccounts.size === 0) return issues;
   if (trackedAccounts.size > UDL_LIMITS.financeAccounts) {
     add(
       ["actions"],
@@ -183,14 +201,6 @@ export function analyzeInstrumentFinance(
   }
 
   const reservations = reservationsByKey(instrument);
-  for (const quote of quotes) {
-    validateChargePayout(
-      instrument,
-      quote,
-      refundSources.get(quote.commit),
-      add,
-    );
-  }
 
   let pathVariants = 0;
   let work = 0;
@@ -720,6 +730,7 @@ function quoteFacts(
         declaresChargePayout ||
         quote.charges.some((tier) => tier.bps > 0),
       chargeRef: quote.chargeRef,
+      chargeRetainedBy: quote.chargeRetainedBy,
       commit,
       netRef: quote.netRef,
       quoting,
@@ -750,6 +761,62 @@ function validateChargePayout(
         ),
       ),
   );
+
+  if (quote.chargeRetainedBy !== undefined) {
+    const role = quote.chargeRetainedBy;
+    const partyField = Object.hasOwn(instrument.parties ?? {}, role)
+      ? instrument.parties?.[
+          role as keyof NonNullable<FinancialInstrument["parties"]>
+        ]
+      : undefined;
+    if (!partyField) {
+      add(
+        ["actions", quote.quoting, "quote", "chargeRetainedBy"],
+        `quoting action ${quote.quoting} retains charge by undeclared party role ${role}`,
+      );
+    } else {
+      const expectedSource = `field:${partyField}`;
+      if (refundSource === undefined) {
+        add(
+          ["actions", quote.commit, "moves"],
+          `commit action ${quote.commit} refund source cannot be resolved to charge-retaining party field ${partyField}`,
+        );
+      } else if (refundSource !== expectedSource) {
+        if (refundSource.startsWith("ref:")) {
+          add(
+            ["actions", quote.commit, "moves"],
+            `commit action ${quote.commit} refund source cannot be a product escrow ref for a retained quote`,
+          );
+        } else {
+          add(
+            ["actions", quote.commit, "moves"],
+            `commit action ${quote.commit} refund source ${refundSource} does not match charge-retaining party field ${partyField}`,
+          );
+        }
+      }
+    }
+    if (uses.length > 0) {
+      add(
+        ["actions"],
+        `${chargePath} is retained by ${role} and cannot be consumed by an action`,
+      );
+      for (const use of uses) {
+        add(
+          [
+            "actions",
+            use.actionName,
+            "moves",
+            use.stepIndex,
+            "bind",
+            use.target,
+          ],
+          `${chargePath} is retained by ${role} and cannot be consumed by an action`,
+        );
+      }
+    }
+    return;
+  }
+
   if (quote.chargeCanBeNonzero && uses.length !== 1) {
     add(
       ["actions"],

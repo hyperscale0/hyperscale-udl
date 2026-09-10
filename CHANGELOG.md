@@ -8,6 +8,14 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-09-10
+
+Published in lockstep with HSX 2.0.3.
+
+### Added
+
+- A quote may declare `chargeRetainedBy` (`payer`, `beneficiary`, or `subjectHolder`). The named role keeps the quoted charge in the source account instead of moving it through a payout action. `UDL5006` refuses a retained charge whose refund source is not that role's account, a charge reference any action consumes, and a self-transfer. The finance walk keeps proving the refund source account when the charge is retained.
+
 ## [2.0.2] - 2026-09-10
 
 - Republished in lockstep with HSX 2.0.2. The README no longer points at a GitHub Actions publish path, and the workflows are removed. No format or API change.

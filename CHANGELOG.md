@@ -8,6 +8,10 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-09-10
+
+- Republished in lockstep with HSX 2.0.2. The README no longer points at a GitHub Actions publish path, and the workflows are removed. No format or API change.
+
 ## [2.0.1] - 2026-09-10
 
 Published in lockstep with HSX 2.0.1. No functional change.

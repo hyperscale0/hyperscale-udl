@@ -49,9 +49,9 @@ Save this document as `note.udl`:
 Check the document with the CLI:
 
 ```bash
-npx udl validate note.udl
-npx udl fmt note.udl --write
-npx udl canon note.udl --digest
+npx @hyperscale0/udl validate note.udl
+npx @hyperscale0/udl fmt note.udl --write
+npx @hyperscale0/udl canon note.udl --digest
 ```
 
 Exit code `0` means success. Exit code `1` means the validator refused the document. Exit code `2` means the invocation or file read failed.
@@ -79,7 +79,7 @@ const previous = parseUdl(await readFile("note.previous.udl"));
 const violations = diffValidatedUdlEvolution(previous, document);
 ```
 
-The evolution diff API (`diffValidatedUdlEvolution`, `diffInstrumentEvolution`, and `npx udl diff`) verifies that changes between two product versions are append-only. Adding optional fields, states, transitions, and actions is permitted; removing, renaming, or tightening existing structures returns `UDL7xxx` violation issues.
+The evolution diff API (`diffValidatedUdlEvolution`, `diffInstrumentEvolution`, and `npx @hyperscale0/udl diff`) verifies that changes between two product versions are append-only. Adding optional fields, states, transitions, and actions is permitted; removing, renaming, or tightening existing structures returns `UDL7xxx` violation issues.
 
 ## Documentation
 

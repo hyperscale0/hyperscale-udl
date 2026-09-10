@@ -31,12 +31,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "key",
-          "kind",
-          "summary",
-          "title"
-        ],
+        "required": ["key", "kind", "summary", "title"],
         "additionalProperties": false
       }
     },
@@ -140,10 +135,7 @@
                           "maximum": 3650
                         }
                       },
-                      "required": [
-                        "field",
-                        "days"
-                      ],
+                      "required": ["field", "days"],
                       "additionalProperties": false
                     }
                   },
@@ -204,13 +196,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "field",
-                    "key",
-                    "kind",
-                    "summary",
-                    "title"
-                  ],
+                  "required": ["field", "key", "kind", "summary", "title"],
                   "additionalProperties": false
                 },
                 {
@@ -245,13 +231,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "action",
-                    "key",
-                    "kind",
-                    "summary",
-                    "title"
-                  ],
+                  "required": ["action", "key", "kind", "summary", "title"],
                   "additionalProperties": false
                 },
                 {
@@ -304,12 +284,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "key",
-                    "kind",
-                    "summary",
-                    "title"
-                  ],
+                  "required": ["key", "kind", "summary", "title"],
                   "additionalProperties": false
                 }
               ]
@@ -347,10 +322,7 @@
                       "const": "percentage_of"
                     }
                   },
-                  "required": [
-                    "bps",
-                    "kind"
-                  ],
+                  "required": ["bps", "kind"],
                   "additionalProperties": false
                 },
                 "sourceField": {
@@ -358,12 +330,7 @@
                   "pattern": "^[a-z][A-Za-z0-9]*$"
                 }
               },
-              "required": [
-                "field",
-                "rounding",
-                "rule",
-                "sourceField"
-              ],
+              "required": ["field", "rounding", "rule", "sourceField"],
               "additionalProperties": false
             }
           },
@@ -388,10 +355,7 @@
                 },
                 "position": {
                   "type": "string",
-                  "enum": [
-                    "carved",
-                    "on_top"
-                  ]
+                  "enum": ["carved", "on_top"]
                 },
                 "rule": {
                   "oneOf": [
@@ -408,10 +372,7 @@
                           "const": "bps"
                         }
                       },
-                      "required": [
-                        "bps",
-                        "kind"
-                      ],
+                      "required": ["bps", "kind"],
                       "additionalProperties": false
                     },
                     {
@@ -430,11 +391,7 @@
                           "const": "exact"
                         }
                       },
-                      "required": [
-                        "currencyField",
-                        "field",
-                        "kind"
-                      ],
+                      "required": ["currencyField", "field", "kind"],
                       "additionalProperties": false
                     },
                     {
@@ -470,10 +427,7 @@
                                         "const": "bps"
                                       }
                                     },
-                                    "required": [
-                                      "bps",
-                                      "kind"
-                                    ],
+                                    "required": ["bps", "kind"],
                                     "additionalProperties": false
                                   },
                                   {
@@ -506,18 +460,12 @@
                                 "pattern": "^(0|[1-9][0-9]*)$"
                               }
                             },
-                            "required": [
-                              "fromInclusive",
-                              "rule"
-                            ],
+                            "required": ["fromInclusive", "rule"],
                             "additionalProperties": false
                           }
                         }
                       },
-                      "required": [
-                        "kind",
-                        "tiers"
-                      ],
+                      "required": ["kind", "tiers"],
                       "additionalProperties": false
                     }
                   ]
@@ -594,19 +542,12 @@
                       "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                     }
                   },
-                  "required": [
-                    "from",
-                    "to"
-                  ],
+                  "required": ["from", "to"],
                   "additionalProperties": false
                 }
               }
             },
-            "required": [
-              "initial",
-              "states",
-              "transitions"
-            ],
+            "required": ["initial", "states", "transitions"],
             "additionalProperties": false
           },
           "journeys": {
@@ -653,11 +594,7 @@
                         "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$"
                       }
                     },
-                    "required": [
-                      "bind",
-                      "example",
-                      "operation"
-                    ],
+                    "required": ["bind", "example", "operation"],
                     "additionalProperties": false
                   }
                 },
@@ -665,12 +602,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "id",
-                "label",
-                "steps",
-                "summary"
-              ],
+              "required": ["id", "label", "steps", "summary"],
               "additionalProperties": false
             }
           },
@@ -711,10 +643,7 @@
                   "pattern": "^[a-z][A-Za-z0-9]*$"
                 }
               },
-              "required": [
-                "pieceFields",
-                "totalField"
-              ],
+              "required": ["pieceFields", "totalField"],
               "additionalProperties": false
             }
           },
@@ -740,9 +669,7 @@
                 }
               }
             },
-            "required": [
-              "kinds"
-            ],
+            "required": ["kinds"],
             "additionalProperties": false
           },
           "summary": {
@@ -750,11 +677,7 @@
           },
           "surfaceVisibility": {
             "type": "string",
-            "enum": [
-              "internal",
-              "public",
-              "system"
-            ]
+            "enum": ["internal", "public", "system"]
           },
           "templateId": {
             "type": "string",
@@ -787,10 +710,7 @@
                       "$ref": "#/$defs/jsonValue"
                     }
                   },
-                  "required": [
-                    "input",
-                    "name"
-                  ],
+                  "required": ["input", "name"],
                   "additionalProperties": false
                 }
               },
@@ -811,10 +731,7 @@
                 }
               }
             },
-            "required": [
-              "fields",
-              "states"
-            ],
+            "required": ["fields", "states"],
             "additionalProperties": false
           },
           "actions": {
@@ -861,11 +778,7 @@
                       "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
                     }
                   },
-                  "required": [
-                    "boundField",
-                    "field",
-                    "remainderAction"
-                  ],
+                  "required": ["boundField", "field", "remainderAction"],
                   "additionalProperties": false
                 },
                 "deadline": {
@@ -879,9 +792,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "field"
-                  ],
+                  "required": ["field"],
                   "additionalProperties": false
                 },
                 "decision": {
@@ -918,11 +829,7 @@
                       "const": "decline"
                     }
                   },
-                  "required": [
-                    "capability",
-                    "deadlineMs",
-                    "onTimeout"
-                  ],
+                  "required": ["capability", "deadlineMs", "onTimeout"],
                   "additionalProperties": false
                 },
                 "distribute": {
@@ -934,10 +841,7 @@
                     },
                     "onZero": {
                       "type": "string",
-                      "enum": [
-                        "refuse",
-                        "skip_steps"
-                      ]
+                      "enum": ["refuse", "skip_steps"]
                     },
                     "pool": {
                       "type": "object",
@@ -951,10 +855,7 @@
                           "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                         }
                       },
-                      "required": [
-                        "from",
-                        "path"
-                      ],
+                      "required": ["from", "path"],
                       "additionalProperties": false
                     },
                     "refField": {
@@ -1015,10 +916,7 @@
                               "properties": {
                                 "calendar": {
                                   "type": "string",
-                                  "enum": [
-                                    "gregorian",
-                                    "hijri"
-                                  ]
+                                  "enum": ["gregorian", "hijri"]
                                 },
                                 "monthEnd": {
                                   "type": "string",
@@ -1030,11 +928,7 @@
                                   "maximum": 9007199254740991
                                 }
                               },
-                              "required": [
-                                "calendar",
-                                "monthEnd",
-                                "months"
-                              ],
+                              "required": ["calendar", "monthEnd", "months"],
                               "additionalProperties": false
                             }
                           ]
@@ -1052,9 +946,7 @@
                           "pattern": "^[a-z][A-Za-z0-9]*$"
                         }
                       },
-                      "required": [
-                        "period"
-                      ],
+                      "required": ["period"],
                       "additionalProperties": false
                     },
                     "field": {
@@ -1084,17 +976,11 @@
                           }
                         }
                       },
-                      "required": [
-                        "instrumentId",
-                        "refField",
-                        "statuses"
-                      ],
+                      "required": ["instrumentId", "refField", "statuses"],
                       "additionalProperties": false
                     }
                   },
-                  "required": [
-                    "field"
-                  ],
+                  "required": ["field"],
                   "additionalProperties": false
                 },
                 "earnable": {
@@ -1116,10 +1002,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["signature", "source"],
                         "additionalProperties": false
                       }
                     },
@@ -1136,10 +1019,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["signature", "source"],
                         "additionalProperties": false
                       }
                     },
@@ -1156,10 +1036,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["signature", "source"],
                         "additionalProperties": false
                       }
                     },
@@ -1184,12 +1061,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "channel",
-                          "role",
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["channel", "role", "signature", "source"],
                         "additionalProperties": false
                       }
                     },
@@ -1206,10 +1078,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["signature", "source"],
                         "additionalProperties": false
                       }
                     },
@@ -1226,10 +1095,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "signature",
-                          "source"
-                        ],
+                        "required": ["signature", "source"],
                         "additionalProperties": false
                       }
                     }
@@ -1262,10 +1128,7 @@
                         "$ref": "#/$defs/jsonValue"
                       }
                     },
-                    "required": [
-                      "input",
-                      "name"
-                    ],
+                    "required": ["input", "name"],
                     "additionalProperties": false
                   }
                 },
@@ -1303,10 +1166,7 @@
                                   "type": "string"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "value"
-                              ],
+                              "required": ["from", "value"],
                               "additionalProperties": false
                             },
                             {
@@ -1321,10 +1181,7 @@
                                   "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "path"
-                              ],
+                              "required": ["from", "path"],
                               "additionalProperties": false
                             },
                             {
@@ -1339,10 +1196,7 @@
                                   "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "path"
-                              ],
+                              "required": ["from", "path"],
                               "additionalProperties": false
                             }
                           ]
@@ -1371,11 +1225,7 @@
                         ]
                       }
                     },
-                    "required": [
-                      "bind",
-                      "key",
-                      "operation"
-                    ],
+                    "required": ["bind", "key", "operation"],
                     "additionalProperties": false
                   }
                 },
@@ -1434,9 +1284,7 @@
                       }
                     }
                   },
-                  "required": [
-                    "allowedParties"
-                  ],
+                  "required": ["allowedParties"],
                   "additionalProperties": false
                 },
                 "quote": {
@@ -1469,9 +1317,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "bps"
-                        ],
+                        "required": ["bps"],
                         "additionalProperties": false
                       }
                     },
@@ -1485,9 +1331,7 @@
                               "pattern": "^[a-z][A-Za-z0-9]*$"
                             }
                           },
-                          "required": [
-                            "field"
-                          ],
+                          "required": ["field"],
                           "additionalProperties": false
                         },
                         {
@@ -1497,9 +1341,7 @@
                               "type": "string"
                             }
                           },
-                          "required": [
-                            "offset"
-                          ],
+                          "required": ["offset"],
                           "additionalProperties": false
                         }
                       ]
@@ -1565,10 +1407,7 @@
                       },
                       "direction": {
                         "type": "string",
-                        "enum": [
-                          "credit",
-                          "debit"
-                        ]
+                        "enum": ["credit", "debit"]
                       },
                       "evidence": {
                         "type": "string",
@@ -1622,9 +1461,7 @@
                                 "const": "exact"
                               }
                             },
-                            "required": [
-                              "law"
-                            ],
+                            "required": ["law"],
                             "additionalProperties": false
                           },
                           {
@@ -1644,11 +1481,7 @@
                                 "maximum": 9007199254740991
                               }
                             },
-                            "required": [
-                              "dial",
-                              "law",
-                              "minorUnits"
-                            ],
+                            "required": ["dial", "law", "minorUnits"],
                             "additionalProperties": false
                           },
                           {
@@ -1659,9 +1492,7 @@
                                 "const": "window"
                               }
                             },
-                            "required": [
-                              "law"
-                            ],
+                            "required": ["law"],
                             "additionalProperties": false
                           }
                         ]
@@ -1676,9 +1507,7 @@
                                 "pattern": "^[a-z][A-Za-z0-9]*$"
                               }
                             },
-                            "required": [
-                              "field"
-                            ],
+                            "required": ["field"],
                             "additionalProperties": false
                           },
                           {
@@ -1688,9 +1517,7 @@
                                 "type": "string"
                               }
                             },
-                            "required": [
-                              "offset"
-                            ],
+                            "required": ["offset"],
                             "additionalProperties": false
                           }
                         ]
@@ -1766,21 +1593,14 @@
                     },
                     "onZero": {
                       "type": "string",
-                      "enum": [
-                        "refuse",
-                        "skip_steps"
-                      ]
+                      "enum": ["refuse", "skip_steps"]
                     },
                     "totalPath": {
                       "type": "string",
                       "pattern": "^(?:fields|refs)\\.[a-z][A-Za-z0-9]*$"
                     }
                   },
-                  "required": [
-                    "amountRef",
-                    "onZero",
-                    "totalPath"
-                  ],
+                  "required": ["amountRef", "onZero", "totalPath"],
                   "additionalProperties": false
                 },
                 "requiresAggregate": {
@@ -1807,11 +1627,7 @@
                                 "pattern": "^[a-z][A-Za-z0-9]*$"
                               }
                             },
-                            "required": [
-                              "amountField",
-                              "kind",
-                              "targetField"
-                            ],
+                            "required": ["amountField", "kind", "targetField"],
                             "additionalProperties": false
                           },
                           {
@@ -1830,11 +1646,7 @@
                                 "pattern": "^[a-z][A-Za-z0-9]*$"
                               }
                             },
-                            "required": [
-                              "amountField",
-                              "kind",
-                              "targetField"
-                            ],
+                            "required": ["amountField", "kind", "targetField"],
                             "additionalProperties": false
                           },
                           {
@@ -1853,11 +1665,7 @@
                                 "pattern": "^[a-z][A-Za-z0-9]*$"
                               }
                             },
-                            "required": [
-                              "amountField",
-                              "kind",
-                              "targetField"
-                            ],
+                            "required": ["amountField", "kind", "targetField"],
                             "additionalProperties": false
                           },
                           {
@@ -1876,11 +1684,7 @@
                                 "const": "sum_within_anchor_ref"
                               }
                             },
-                            "required": [
-                              "amountField",
-                              "anchorRef",
-                              "kind"
-                            ],
+                            "required": ["amountField", "anchorRef", "kind"],
                             "additionalProperties": false
                           },
                           {
@@ -1895,10 +1699,7 @@
                                 "pattern": "^[a-z][A-Za-z0-9]*$"
                               }
                             },
-                            "required": [
-                              "kind",
-                              "targetField"
-                            ],
+                            "required": ["kind", "targetField"],
                             "additionalProperties": false
                           },
                           {
@@ -1909,9 +1710,7 @@
                                 "const": "all_in"
                               }
                             },
-                            "required": [
-                              "kind"
-                            ],
+                            "required": ["kind"],
                             "additionalProperties": false
                           },
                           {
@@ -1926,10 +1725,7 @@
                                 "const": "count_equals_field"
                               }
                             },
-                            "required": [
-                              "field",
-                              "kind"
-                            ],
+                            "required": ["field", "kind"],
                             "additionalProperties": false
                           }
                         ]
@@ -1940,10 +1736,7 @@
                       },
                       "over": {
                         "type": "string",
-                        "enum": [
-                          "children",
-                          "siblings"
-                        ]
+                        "enum": ["children", "siblings"]
                       },
                       "refField": {
                         "type": "string",
@@ -1958,12 +1751,7 @@
                         }
                       }
                     },
-                    "required": [
-                      "check",
-                      "over",
-                      "refField",
-                      "statuses"
-                    ],
+                    "required": ["check", "over", "refField", "statuses"],
                     "additionalProperties": false
                   }
                 },
@@ -2032,10 +1820,7 @@
                             "type": "array",
                             "items": {
                               "type": "string",
-                              "enum": [
-                                "match",
-                                "no_match"
-                              ]
+                              "enum": ["match", "no_match"]
                             }
                           },
                           "subjectField": {
@@ -2187,11 +1972,7 @@
                             "type": "array",
                             "items": {
                               "type": "string",
-                              "enum": [
-                                "clear",
-                                "hit",
-                                "manual_review"
-                              ]
+                              "enum": ["clear", "hit", "manual_review"]
                             }
                           },
                           "subjectField": {
@@ -2257,9 +2038,7 @@
                       "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                     }
                   },
-                  "required": [
-                    "path"
-                  ],
+                  "required": ["path"],
                   "additionalProperties": false
                 },
                 "requiresExposure": {
@@ -2333,24 +2112,14 @@
                           },
                           "operator": {
                             "type": "string",
-                            "enum": [
-                              ">=",
-                              ">",
-                              "<=",
-                              "<",
-                              "=="
-                            ]
+                            "enum": [">=", ">", "<=", "<", "=="]
                           },
                           "referencedPath": {
                             "type": "string",
                             "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                           }
                         },
-                        "required": [
-                          "localPath",
-                          "operator",
-                          "referencedPath"
-                        ],
+                        "required": ["localPath", "operator", "referencedPath"],
                         "additionalProperties": false
                       },
                       "field": {
@@ -2385,19 +2154,13 @@
                         "const": true
                       }
                     },
-                    "required": [
-                      "field",
-                      "statuses"
-                    ],
+                    "required": ["field", "statuses"],
                     "additionalProperties": false
                   }
                 },
                 "sandboxFailurePoint": {
                   "type": "string",
-                  "enum": [
-                    "funding",
-                    "release"
-                  ]
+                  "enum": ["funding", "release"]
                 },
                 "setsAt": {
                   "type": "object",
@@ -2414,10 +2177,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "field",
-                    "offset"
-                  ],
+                  "required": ["field", "offset"],
                   "additionalProperties": false
                 },
                 "signedSum": {
@@ -2433,10 +2193,7 @@
                     },
                     "onZero": {
                       "type": "string",
-                      "enum": [
-                        "refuse",
-                        "skip_steps"
-                      ]
+                      "enum": ["refuse", "skip_steps"]
                     },
                     "sources": {
                       "minItems": 1,
@@ -2458,10 +2215,7 @@
                           },
                           "sign": {
                             "type": "string",
-                            "enum": [
-                              "add",
-                              "subtract"
-                            ]
+                            "enum": ["add", "subtract"]
                           },
                           "statuses": {
                             "minItems": 1,
@@ -2488,12 +2242,7 @@
                       }
                     }
                   },
-                  "required": [
-                    "amountRef",
-                    "onNegative",
-                    "onZero",
-                    "sources"
-                  ],
+                  "required": ["amountRef", "onNegative", "onZero", "sources"],
                   "additionalProperties": false
                 },
                 "steps": {
@@ -2520,10 +2269,7 @@
                                   "type": "string"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "value"
-                              ],
+                              "required": ["from", "value"],
                               "additionalProperties": false
                             },
                             {
@@ -2538,10 +2284,7 @@
                                   "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "path"
-                              ],
+                              "required": ["from", "path"],
                               "additionalProperties": false
                             },
                             {
@@ -2556,10 +2299,7 @@
                                   "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
                                 }
                               },
-                              "required": [
-                                "from",
-                                "path"
-                              ],
+                              "required": ["from", "path"],
                               "additionalProperties": false
                             }
                           ]
@@ -2583,10 +2323,7 @@
                         ]
                       }
                     },
-                    "required": [
-                      "bind",
-                      "operation"
-                    ],
+                    "required": ["bind", "operation"],
                     "additionalProperties": false
                   }
                 },
@@ -2602,10 +2339,7 @@
                   }
                 }
               },
-              "required": [
-                "steps",
-                "summary"
-              ],
+              "required": ["steps", "summary"],
               "additionalProperties": false
             }
           }
@@ -2635,11 +2369,7 @@
         "properties": {
           "declaredValue": {
             "type": "string",
-            "enum": [
-              "required",
-              "optional",
-              "none"
-            ]
+            "enum": ["required", "optional", "none"]
           },
           "kind": {
             "type": "string",
@@ -2663,13 +2393,7 @@
             "maximum": 9007199254740991
           }
         },
-        "required": [
-          "declaredValue",
-          "kind",
-          "schema",
-          "title",
-          "version"
-        ],
+        "required": ["declaredValue", "kind", "schema", "title", "version"],
         "additionalProperties": false
       }
     },
@@ -2686,14 +2410,7 @@
       "maximum": 9007199254740991
     }
   },
-  "required": [
-    "instruments",
-    "product",
-    "subjects",
-    "title",
-    "udl",
-    "version"
-  ],
+  "required": ["instruments", "product", "subjects", "title", "udl", "version"],
   "additionalProperties": false,
   "$defs": {
     "jsonValue": {

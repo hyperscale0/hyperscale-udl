@@ -508,7 +508,10 @@ function effectsByAction(
           const reserved = reservations.get(reservation);
           if (
             !reserved ||
-            (!(reserved.source && accountsMayAlias(instrument, reserved.source, account)) &&
+            (!(
+              reserved.source &&
+              accountsMayAlias(instrument, reserved.source, account)
+            ) &&
               reserved.destination !== account)
           ) {
             return [];

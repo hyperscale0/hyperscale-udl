@@ -8,6 +8,10 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-10
+
+Published in lockstep with HSX 2.0.1. No functional change.
+
 ## [2.0.0] - 2026-09-10
 
 Published in lockstep with HSX 2.0.0.

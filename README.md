@@ -1,6 +1,14 @@
-![UDL: The contract between a product and its engine.](docs/assets/udl.svg)
+<p align="left">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/udl-horizontal-white.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/udl-horizontal.svg">
+  <img src="docs/assets/brand/udl-horizontal.svg" alt="Hyperscale™ UDL" width="336">
+</picture>
+</p>
 
 # UDL
+
+Hyperscale™ UDL. The canonical contract between a financial product and its engine.
 
 UDL is the Universal Domain Language, the canonical JSON contract for a financial product. One `.udl` file declares subjects, instruments, lifecycles, actions, and money movement. An engine admits that document without reading the source language that produced it. UDL keeps provider machinery below the format: it has no file drops, polling loops, cutoff jobs, scheme messages, or provider statement schemas. The `reconcile` clause names settlement evidence against a declared provider-side row; it does not model provider transport or matching machinery.
 
@@ -96,3 +104,7 @@ The evolution diff API (`diffValidatedUdlEvolution`, `diffInstrumentEvolution`, 
 UDL is licensed under AGPL-3.0-only, with a commercial license available from Hyperscale LLC. See [LICENSE](LICENSE), [LICENSING.md](LICENSING.md), and [TRADEMARKS.md](TRADEMARKS.md).
 
 Vulnerability reports go through private disclosure as described in [SECURITY.md](SECURITY.md).
+
+---
+
+Hyperscale™ is a trademark of Hyperscale LLC. Code licenses do not grant rights to the name or marks.

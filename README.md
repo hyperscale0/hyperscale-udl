@@ -1,5 +1,7 @@
 <p align="left">
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/assets/brand/udl-stacked-white.svg">
+  <source media="(max-width: 600px)" srcset="docs/assets/brand/udl-stacked.svg">
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/udl-horizontal-white.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/udl-horizontal.svg">
   <img src="docs/assets/brand/udl-horizontal.svg" alt="Hyperscale™ UDL" width="336">

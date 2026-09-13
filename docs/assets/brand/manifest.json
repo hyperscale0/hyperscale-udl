@@ -1,0 +1,30 @@
+{
+  "releaseRevision": "7c80d03cced6a85395be53cdcf30bd3269dbd5b6",
+  "tag": "v0.2.0",
+  "assets": [
+    {
+      "source": "assets/exports/udl-horizontal.svg",
+      "destination": "udl-horizontal.svg",
+      "sourceSha256": "1b6715c8cbc809a0f881bfef033e55936b9ef1457eb7ea38999b1bb1f754300e",
+      "destinationSha256": "1b6715c8cbc809a0f881bfef033e55936b9ef1457eb7ea38999b1bb1f754300e"
+    },
+    {
+      "source": "assets/exports/udl-horizontal-white.svg",
+      "destination": "udl-horizontal-white.svg",
+      "sourceSha256": "385184bc72ac0c3708477b8048397b85821a9feb0319ee2772d21a2132920e13",
+      "destinationSha256": "385184bc72ac0c3708477b8048397b85821a9feb0319ee2772d21a2132920e13"
+    },
+    {
+      "source": "assets/exports/udl-stacked.svg",
+      "destination": "udl-stacked.svg",
+      "sourceSha256": "d72af2cc15c4979bc752157359713018790d8886cb8ad4680cf1d9eba5aaaf99",
+      "destinationSha256": "d72af2cc15c4979bc752157359713018790d8886cb8ad4680cf1d9eba5aaaf99"
+    },
+    {
+      "source": "assets/exports/udl-stacked-white.svg",
+      "destination": "udl-stacked-white.svg",
+      "sourceSha256": "2543b10e6cbe0a71194f93c216f98600ac63222f2f4402ceaddb4f316adca609",
+      "destinationSha256": "2543b10e6cbe0a71194f93c216f98600ac63222f2f4402ceaddb4f316adca609"
+    }
+  ]
+}

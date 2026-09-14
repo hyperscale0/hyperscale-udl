@@ -26,7 +26,13 @@ import {
   financeAdmissionProblem,
 } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
-import { deriveUdlActionEffects, udlEffectKinds } from "./effects.js";
+import {
+  deriveUdlActionEffects,
+  resolveUdlActionPlans,
+  udlEffectKinds,
+  type DerivedUdlEffects,
+  type ResolvedActionPlan,
+} from "./effects.js";
 import { issue, type UdlIssue, type UdlIssueCode } from "./diagnostics.js";
 
 export type {
@@ -329,6 +335,7 @@ function semanticIssues(
   }
 
   for (const [instrumentIndex, instrument] of document.instruments.entries()) {
+    const resolvedPlansResult = resolveUdlActionPlans(instrument);
     for (const [actionName, action] of Object.entries(instrument.actions)) {
       if (options.requireDecisionPartyBindings) {
         for (const [index, role] of (
@@ -352,7 +359,15 @@ function semanticIssues(
         }
       }
       if (!action.effects) continue;
-      const expected = deriveUdlActionEffects(action, udlClauseVocabulary);
+      let expected: DerivedUdlEffects;
+      if (action.calls && action.calls.length > 0) {
+        const plan = resolvedPlansResult.plans.find(
+          (p) => p.action === actionName,
+        );
+        expected = plan ? plan.effects : {};
+      } else {
+        expected = deriveUdlActionEffects(action, udlClauseVocabulary);
+      }
       for (const kind of udlEffectKinds) {
         const actualRows = action.effects[kind] ?? [];
         const expectedRows = expected[kind] ?? [];
@@ -1320,10 +1335,460 @@ function validateInstrument(
   validateSetsAt(instrument, base, add);
   validateActions(instrument, base, instruments, references, add);
   validateQuoteCommit(instrument, base, references, add);
-  for (const issue of analyzeInstrumentFinance(instrument)) {
-    add([...base, ...issue.path], issue.message, issue.code);
+  validatePiecePlan(instrument, base, references, add);
+
+  const planResolution = resolveUdlActionPlans(instrument);
+  for (const planIssue of planResolution.issues) {
+    const rawPath = planIssue.path.startsWith("$.")
+      ? planIssue.path.slice(2).split(".")
+      : [planIssue.path];
+    add([...base, ...rawPath], planIssue.message, planIssue.code);
+  }
+
+  // Validate leaf steps
+  const validatedLeaves = new Set<string>();
+  for (const plan of planResolution.plans) {
+    const actionDef = instrument.actions[plan.action];
+    if (!actionDef) continue;
+    for (const leaf of plan.leaves) {
+      const leafKey = `${plan.pieceId ?? ""}:${leaf.originPath.join(".")}`;
+      if (!validatedLeaves.has(leafKey)) {
+        validatedLeaves.add(leafKey);
+        validateStep(
+          instrument,
+          actionDef,
+          leaf.step,
+          [...base, "actions", ...leaf.originPath],
+          add,
+        );
+      }
+    }
+  }
+
+  // Multi-variant finance oracle check across action plan combinations
+  const actionsWithPlans = Object.keys(instrument.actions).filter((aName) =>
+    planResolution.plans.some((p) => p.action === aName),
+  );
+
+  let totalCombinations = 1;
+  const actionPlanMap: Record<string, ResolvedActionPlan[]> = {};
+  for (const aName of actionsWithPlans) {
+    const actionPlans = planResolution.plans.filter((p) => p.action === aName);
+    actionPlanMap[aName] = actionPlans;
+    totalCombinations *= actionPlans.length;
+  }
+
+  if (
+    actionsWithPlans.length > 0 &&
+    totalCombinations > UDL_LIMITS.maxActionExpansion
+  ) {
+    add(
+      [...base, "actions"],
+      `variant expansion exceeds combination bound of ${UDL_LIMITS.maxActionExpansion} (${totalCombinations} combinations)`,
+      "UDL2010",
+    );
+  } else {
+    const generateCombos = (
+      keys: string[],
+    ): Record<string, ResolvedActionPlan>[] => {
+      if (keys.length === 0) return [{}];
+      const [first, ...rest] = keys;
+      const restCombos = generateCombos(rest);
+      const result: Record<string, ResolvedActionPlan>[] = [];
+      for (const plan of actionPlanMap[first!]!) {
+        for (const combo of restCombos) {
+          result.push({ ...combo, [first!]: plan });
+        }
+      }
+      return result;
+    };
+
+    const combinations =
+      actionsWithPlans.length > 0 ? generateCombos(actionsWithPlans) : [{}];
+    const seenFinanceIssues = new Set<string>();
+
+    for (const combo of combinations) {
+      const expandedActions: Record<
+        string,
+        (typeof instrument.actions)[string]
+      > = {};
+      for (const [aName, aDef] of Object.entries(instrument.actions)) {
+        const plan = combo[aName];
+        // Only an action that moves money through calls is replaced by its
+        // expanded leaves. Authored moves and steps always reach the oracle.
+        if (plan && (aDef.calls?.length ?? 0) > 0) {
+          const steps: UdlStep[] = [];
+          const moves: UdlMove[] = [];
+          for (const leaf of plan.leaves) {
+            if ("key" in leaf.step) {
+              moves.push(leaf.step as UdlMove);
+            } else {
+              steps.push(leaf.step as UdlStep);
+            }
+          }
+          expandedActions[aName] = {
+            ...aDef,
+            moves,
+            steps,
+          };
+        } else {
+          expandedActions[aName] = aDef;
+        }
+      }
+      const financeInstrument = {
+        ...instrument,
+        actions: expandedActions,
+      };
+      for (const finIssue of analyzeInstrumentFinance(financeInstrument)) {
+        const issueKey = `${finIssue.code}:${finIssue.path.join(".")}:${finIssue.message}`;
+        if (!seenFinanceIssues.has(issueKey)) {
+          seenFinanceIssues.add(issueKey);
+          add([...base, ...finIssue.path], finIssue.message, finIssue.code);
+        }
+      }
+    }
   }
   validateAggregates(instrument, base, instruments, references, add);
+}
+
+function validatePiecePlan(
+  instrument: UdlInstrument,
+  base: readonly PropertyKey[],
+  references: ReferenceShapeBudget,
+  add: AddIssue,
+): void {
+  const plan = instrument.piecePlan;
+  if (!plan) return;
+
+  const planBase = [...base, "piecePlan"] as const;
+  const mutableFields = new Set(instrument.update?.fields ?? []);
+  const allUpdatedFields = new Set(
+    Object.values(instrument.actions).flatMap((a) => a.updates ?? []),
+  );
+
+  // Validate total field
+  const totalSchema = instrument.fields[plan.total];
+  if (
+    !totalSchema ||
+    totalSchema.type !== "string" ||
+    !isMoneySchema(totalSchema)
+  ) {
+    add(
+      [...planBase, "total"],
+      `piece plan total ${plan.total} must be a declared money field`,
+      "UDL4002",
+    );
+  }
+  if (!instrument.required.includes(plan.total)) {
+    add(
+      [...planBase, "total"],
+      `piece plan total ${plan.total} must be required`,
+      "UDL4002",
+    );
+  }
+  if (mutableFields.has(plan.total) || allUpdatedFields.has(plan.total)) {
+    add(
+      [...planBase, "total"],
+      `piece plan total ${plan.total} cannot be updated`,
+      "UDL4002",
+    );
+  }
+
+  const pieceIds = new Set<string>();
+  const pieceAmountFields: string[] = [];
+
+  plan.pieces.forEach((piece, index) => {
+    const pieceBase = [...planBase, "pieces", index] as const;
+    if (pieceIds.has(piece.id)) {
+      add(
+        [...pieceBase, "id"],
+        `duplicate piece id ${piece.id} in piece plan`,
+        "UDL4002",
+      );
+    }
+    pieceIds.add(piece.id);
+    pieceAmountFields.push(piece.amount);
+
+    const amountSchema = instrument.fields[piece.amount];
+    if (
+      !amountSchema ||
+      amountSchema.type !== "string" ||
+      !isMoneySchema(amountSchema)
+    ) {
+      add(
+        [...pieceBase, "amount"],
+        `piece amount ${piece.amount} must be a declared money field`,
+        "UDL4002",
+      );
+    }
+    if (!instrument.required.includes(piece.amount)) {
+      add(
+        [...pieceBase, "amount"],
+        `piece amount ${piece.amount} must be required`,
+        "UDL4002",
+      );
+    }
+    if (mutableFields.has(piece.amount) || allUpdatedFields.has(piece.amount)) {
+      add(
+        [...pieceBase, "amount"],
+        `piece amount ${piece.amount} cannot be updated`,
+        "UDL4002",
+      );
+    }
+
+    const releaseSchema = instrument.fields[piece.release_to];
+    if (!releaseSchema || !references.accepts(releaseSchema, "acct")) {
+      add(
+        [...pieceBase, "release_to"],
+        `piece release_to ${piece.release_to} must be a declared account field`,
+        "UDL4002",
+      );
+    }
+    if (!instrument.required.includes(piece.release_to)) {
+      add(
+        [...pieceBase, "release_to"],
+        `piece release_to ${piece.release_to} must be required`,
+        "UDL4002",
+      );
+    }
+    if (
+      mutableFields.has(piece.release_to) ||
+      allUpdatedFields.has(piece.release_to)
+    ) {
+      add(
+        [...pieceBase, "release_to"],
+        `piece release_to ${piece.release_to} cannot be updated`,
+        "UDL4002",
+      );
+    }
+
+    const refundSchema = instrument.fields[piece.refund_to];
+    if (!refundSchema || !references.accepts(refundSchema, "acct")) {
+      add(
+        [...pieceBase, "refund_to"],
+        `piece refund_to ${piece.refund_to} must be a declared account field`,
+        "UDL4002",
+      );
+    }
+    if (!instrument.required.includes(piece.refund_to)) {
+      add(
+        [...pieceBase, "refund_to"],
+        `piece refund_to ${piece.refund_to} must be required`,
+        "UDL4002",
+      );
+    }
+    if (
+      mutableFields.has(piece.refund_to) ||
+      allUpdatedFields.has(piece.refund_to)
+    ) {
+      add(
+        [...pieceBase, "refund_to"],
+        `piece refund_to ${piece.refund_to} cannot be updated`,
+        "UDL4002",
+      );
+    }
+  });
+
+  // Check currency agreement
+  const totalCurrency =
+    totalSchema && typeof totalSchema["x-hyperscale-currency"] === "string"
+      ? totalSchema["x-hyperscale-currency"]
+      : undefined;
+
+  const pieceCurrencies = plan.pieces.map((p) => {
+    const s = instrument.fields[p.amount];
+    return s && typeof s["x-hyperscale-currency"] === "string"
+      ? s["x-hyperscale-currency"]
+      : undefined;
+  });
+
+  const allCurrencies = [totalCurrency, ...pieceCurrencies];
+  const definedCurrencies = allCurrencies.filter(
+    (c): c is string => c !== undefined,
+  );
+
+  if (definedCurrencies.length > 0) {
+    const firstCurrency = definedCurrencies[0]!;
+    if (
+      definedCurrencies.length !== allCurrencies.length ||
+      definedCurrencies.some((c) => c !== firstCurrency)
+    ) {
+      add(
+        planBase,
+        `piece plan money fields must agree on one declared currency`,
+        "UDL4002",
+      );
+    } else if (!/^[A-Z]{3}$/.test(firstCurrency)) {
+      add(
+        planBase,
+        `piece plan currency ${firstCurrency} must be a concrete ISO currency`,
+        "UDL4002",
+      );
+    }
+  } else {
+    const concreteCurrency = ((): string | undefined => {
+      const currencyFields = Object.entries(instrument.fields).filter(
+        ([, schema]) => isCurrencySchema(schema),
+      );
+      if (currencyFields.length === 1) {
+        const [fName, fSchema] = currencyFields[0]!;
+        if (mutableFields.has(fName) || allUpdatedFields.has(fName)) {
+          return undefined;
+        }
+        if (
+          typeof fSchema.const === "string" &&
+          /^[A-Z]{3}$/.test(fSchema.const)
+        ) {
+          return fSchema.const;
+        }
+        if (
+          Array.isArray(fSchema.enum) &&
+          fSchema.enum.length === 1 &&
+          typeof fSchema.enum[0] === "string" &&
+          /^[A-Z]{3}$/.test(fSchema.enum[0])
+        ) {
+          return fSchema.enum[0];
+        }
+      }
+      return undefined;
+    })();
+
+    if (!concreteCurrency) {
+      add(
+        planBase,
+        `piece plan requires an actual single concrete currency via x-hyperscale-currency tags or an immutable concrete instrument currency declaration`,
+        "UDL4002",
+      );
+    }
+  }
+
+  // Disallow updates of the instance currency field
+  const instanceCurrencyFields = Object.entries(instrument.fields)
+    .filter(([, schema]) => isCurrencySchema(schema))
+    .map(([field]) => field);
+  for (const cField of instanceCurrencyFields) {
+    if (mutableFields.has(cField) || allUpdatedFields.has(cField)) {
+      add(
+        [...planBase, "currency"],
+        `piece plan instance currency field ${cField} cannot be updated`,
+        "UDL4002",
+      );
+    }
+  }
+
+  // Check fixed amounts against total
+  const totalVal = getFixedMoneyValue(totalSchema);
+  const pieceVals = plan.pieces.map((p) =>
+    getFixedMoneyValue(instrument.fields[p.amount]),
+  );
+  if (
+    totalVal !== undefined &&
+    pieceVals.every((v): v is bigint => v !== undefined)
+  ) {
+    const sum = pieceVals.reduce((acc, v) => acc + v, 0n);
+    if (sum !== totalVal) {
+      add(
+        [...planBase, "total"],
+        `sum of fixed piece amounts (${sum}) does not equal plan total (${totalVal})`,
+        "UDL4002",
+      );
+    }
+  }
+
+  // Check partition
+  const isSingletonTotal =
+    plan.pieces.length === 1 && plan.pieces[0]!.amount === plan.total;
+
+  if (new Set(pieceAmountFields).size !== pieceAmountFields.length) {
+    add(
+      [...planBase, "pieces"],
+      `piece amount fields must be distinct: [${pieceAmountFields.join(", ")}]`,
+      "UDL4002",
+    );
+  } else if (!isSingletonTotal) {
+    const planAmounts = [...pieceAmountFields].sort();
+    const matchingPartition = (instrument.partitions ?? []).find((p) => {
+      if (p.totalField !== plan.total) return false;
+      const partAmounts = [...p.pieceFields].sort();
+      return (
+        partAmounts.length === planAmounts.length &&
+        partAmounts.every((f, i) => f === planAmounts[i])
+      );
+    });
+
+    if (!matchingPartition) {
+      add(
+        planBase,
+        `piece plan must match a declared partition with totalField ${plan.total} and pieceFields [${pieceAmountFields.join(", ")}]`,
+        "UDL4002",
+      );
+    }
+  }
+
+  // Check orders (UDL5013)
+  const validateOrder = (
+    order: readonly string[],
+    orderName: string,
+    exactSet: boolean,
+  ): void => {
+    const orderPath = [...planBase, orderName] as const;
+    if (new Set(order).size !== order.length) {
+      add(orderPath, `${orderName} contains duplicate piece ids`, "UDL5013");
+    }
+    for (const id of order) {
+      if (!pieceIds.has(id)) {
+        add(
+          orderPath,
+          `${orderName} contains undeclared piece id ${id}`,
+          "UDL5013",
+        );
+      }
+    }
+    if (exactSet) {
+      if (order.length !== pieceIds.size) {
+        add(
+          orderPath,
+          `${orderName} must cover every declared piece id`,
+          "UDL5013",
+        );
+      }
+    }
+  };
+
+  validateOrder(plan.fund_order, "fund_order", true);
+  validateOrder(plan.release_order, "release_order", false);
+  validateOrder(plan.refund_order, "refund_order", false);
+  validateOrder(plan.unfund_order, "unfund_order", true);
+
+  if (
+    plan.fund_order.length === plan.unfund_order.length &&
+    !plan.unfund_order.every(
+      (id, idx) => id === plan.fund_order[plan.fund_order.length - 1 - idx],
+    )
+  ) {
+    add(
+      [...planBase, "unfund_order"],
+      `unfund_order must be the reverse of fund_order`,
+      "UDL5013",
+    );
+  }
+}
+
+function getFixedMoneyValue(schema: unknown): bigint | undefined {
+  if (!schema || typeof schema !== "object") return undefined;
+  const s = schema as Record<string, unknown>;
+  if (typeof s.const === "string" && /^[0-9]+$/.test(s.const)) {
+    return BigInt(s.const);
+  }
+  if (
+    Array.isArray(s.enum) &&
+    s.enum.length === 1 &&
+    typeof s.enum[0] === "string" &&
+    /^[0-9]+$/.test(s.enum[0])
+  ) {
+    return BigInt(s.enum[0]);
+  }
+  return undefined;
 }
 
 function validateFeeRules(

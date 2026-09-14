@@ -16,9 +16,13 @@ export {
 export { fixedIsoDurationMs } from "./duration.js";
 export {
   deriveUdlActionEffects,
+  resolveUdlActionPlans,
   movementClass,
   udlEffectKinds,
   type DerivedUdlEffects,
+  type ResolvedActionPlan,
+  type ResolvedActionPlanLeaf,
+  type ResolvedActionPlansResult,
   type UdlEffectKind,
   type UdlMovementClass,
 } from "./effects.js";
@@ -54,6 +58,17 @@ export {
   udlPublicActionSchema,
 } from "./schema.js";
 export type {
+  UdlPiece,
+  UdlPiecePlan,
+  UdlPieceStage,
+  UdlPieceStageStage,
+  UdlCall,
+  UdlPrivateParameterKind,
+  UdlPrivateParameter,
+  UdlPrivateLeaf,
+  UdlPrivateAction,
+  UdlActionLibraryModule,
+  UdlActionLibrary,
   UdlAggregate,
   UdlAggregateCondition,
   UdlBinding,

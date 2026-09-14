@@ -1,7 +1,17 @@
 import { z } from "zod";
 
 import { udlCheckEvidenceProfiles } from "./check-profiles.js";
-import type { UdlEffectKind } from "./effects.js";
+
+export const udlEffectKinds = [
+  "decides",
+  "holds",
+  "moves",
+  "notifies",
+  "reads",
+  "schedules",
+] as const;
+
+export type UdlEffectKind = (typeof udlEffectKinds)[number];
 
 export const UDL_FORMAT_VERSION = 1 as const;
 
@@ -639,8 +649,98 @@ const udlEffectsShape = {
 } satisfies Record<UdlEffectKind, z.ZodType>;
 const udlEffectsSchema = z.strictObject(udlEffectsShape);
 
+export const udlPieceSchema = z.strictObject({
+  amount: udlFieldNameSchema,
+  id: udlSnakeCaseSchema,
+  refund_to: udlFieldNameSchema,
+  release_to: udlFieldNameSchema,
+});
+
+export const udlPiecePlanSchema = z.strictObject({
+  fund_order: z.array(udlSnakeCaseSchema),
+  id: udlSnakeCaseSchema,
+  pieces: z.array(udlPieceSchema).min(1).max(256),
+  refund_order: z.array(udlSnakeCaseSchema),
+  release_order: z.array(udlSnakeCaseSchema),
+  total: udlFieldNameSchema,
+  unfund_order: z.array(udlSnakeCaseSchema),
+});
+
+export const udlPieceStageStageSchema = z.enum([
+  "fund",
+  "release",
+  "refund",
+  "unfund",
+]);
+
+export const udlPieceStageSchema = z.strictObject({
+  plan: udlSnakeCaseSchema,
+  stage: udlPieceStageStageSchema,
+});
+
+export const udlCallSchema = z.strictObject({
+  action: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/,
+      "must name an action as library_id.action_id",
+    ),
+  bind: z.record(udlFieldNameSchema, z.string()),
+  id: udlSnakeCaseSchema,
+});
+
+export const udlPrivateParameterKindSchema = z.enum([
+  "account",
+  "instance",
+  "money",
+  "piece",
+  "text",
+]);
+
+export const udlPrivateParameterSchema = z.strictObject({
+  currency: z.string().optional(),
+  kind: udlPrivateParameterKindSchema,
+});
+
+export const udlPrivateLeafSchema = z.strictObject({
+  bind: z.record(fieldPathSchema, z.string()),
+  capture: stringMapSchema.optional(),
+  effects: z
+    .array(
+      z.strictObject({
+        kind: z.enum(udlEffectKinds),
+        signature: nonEmptyTextSchema,
+      }),
+    )
+    .min(1, "must declare at least one effect"),
+  evidence: nonEmptyTextSchema,
+  id: udlSnakeCaseSchema,
+  operation: udlKernelOperationSchema,
+});
+
+export const udlPrivateActionSchema = z.strictObject({
+  approval: z.enum(["inherit", "independent"]),
+  calls: z.array(udlCallSchema),
+  leaves: z.array(udlPrivateLeafSchema),
+  order: z.array(udlSnakeCaseSchema),
+  parameters: z.record(udlFieldNameSchema, udlPrivateParameterSchema),
+  principal: z.enum(["api_key", "user_session"]),
+  recovery: z.enum(["local", "external"]),
+});
+
+export const udlActionLibraryModuleSchema = z.strictObject({
+  actionOrder: z.array(udlSnakeCaseSchema),
+  actions: z.record(udlSnakeCaseSchema, udlPrivateActionSchema),
+});
+
+export const udlActionLibrarySchema = z.record(
+  udlSnakeCaseSchema,
+  udlActionLibraryModuleSchema,
+);
+
 const udlActionShape = {
   agentDescription: udlAgentDescriptionSchema.optional(),
+  calls: z.array(udlCallSchema).min(1).optional(),
   captureInput: z.record(udlFieldNameSchema, udlFieldNameSchema).optional(),
   /** Names the quoting action whose offer this action spends. */
   commit: udlActionNameSchema.optional(),
@@ -657,6 +757,7 @@ const udlActionShape = {
   input: jsonObjectSchema.optional(),
   moves: z.array(udlMoveSchema).default([]),
   payout: udlPayoutSchema.optional(),
+  pieceStage: udlPieceStageSchema.optional(),
   port: udlPortSchema.optional(),
   quote: udlQuoteSchema.optional(),
   publicAction: udlPublicActionSchema
@@ -675,7 +776,7 @@ const udlActionShape = {
   sandboxFailurePoint: z.enum(["funding", "release"]).optional(),
   setsAt: udlSetsAtSchema.optional(),
   signedSum: udlSignedSumSchema.optional(),
-  steps: z.array(udlStepSchema),
+  steps: z.array(udlStepSchema).default([]),
   summary: nonEmptyTextSchema,
   updates: z.array(udlFieldNameSchema).min(1).optional(),
 };
@@ -709,6 +810,7 @@ const udlAggregateSchema = z.union([
 ]);
 
 const udlInstrumentShape = {
+  actionLibrary: udlActionLibrarySchema.optional(),
   actionOrder: z.array(udlActionNameSchema).min(1),
   agentDescription: udlAgentDescriptionSchema.optional(),
   aggregateInvariants: z.array(udlAggregateSchema).min(1).optional(),
@@ -730,6 +832,7 @@ const udlInstrumentShape = {
   nav: z.array(nonEmptyTextSchema).min(1).optional(),
   parties: z.record(udlPartyRoleSchema, udlFieldNameSchema).optional(),
   partitions: z.array(udlPartitionSchema).min(1).optional(),
+  piecePlan: udlPiecePlanSchema.optional(),
   required: z.array(udlFieldNameSchema),
   subject: udlInstrumentSubjectSchema.optional(),
   summary: nonEmptyTextSchema,
@@ -761,6 +864,7 @@ interface UdlClauseVocabularyMetadata {
   readonly effects?: readonly UdlClauseEffect[];
   readonly linearOutputs?: readonly string[];
   readonly linearSink?: true;
+  readonly literalKeys?: true;
   readonly spelling: string;
 }
 
@@ -779,9 +883,23 @@ export type UdlClauseVocabularyEntry = UdlClauseVocabularyMetadata &
 export const udlClauseVocabulary = [
   {
     cardinality: "one",
+    literalKeys: true,
+    scope: "instrument",
+    spelling: "action library",
+    target: "actionLibrary",
+  },
+  {
+    cardinality: "one",
     scope: "action",
     spelling: "agent description",
     target: "agentDescription",
+  },
+  {
+    cardinality: "many",
+    literalKeys: true,
+    scope: "action",
+    spelling: "calls",
+    target: "calls",
   },
   {
     cardinality: "one",
@@ -932,6 +1050,20 @@ export const udlClauseVocabulary = [
     scope: "action",
     spelling: "payout",
     target: "payout",
+  },
+  {
+    cardinality: "one",
+    literalKeys: true,
+    scope: "instrument",
+    spelling: "piece plan",
+    target: "piecePlan",
+  },
+  {
+    cardinality: "one",
+    literalKeys: true,
+    scope: "action",
+    spelling: "piece stage",
+    target: "pieceStage",
   },
   {
     cardinality: "one",
@@ -1395,3 +1527,18 @@ export type UdlRemainder = z.infer<typeof udlRemainderSchema>;
 export type UdlStep = z.infer<typeof udlStepSchema>;
 export type UdlSubject = z.infer<typeof udlSubjectSchema>;
 export type UdlAction = z.infer<typeof udlActionSchema>;
+export type UdlPiece = z.infer<typeof udlPieceSchema>;
+export type UdlPiecePlan = z.infer<typeof udlPiecePlanSchema>;
+export type UdlPieceStage = z.infer<typeof udlPieceStageSchema>;
+export type UdlPieceStageStage = z.infer<typeof udlPieceStageStageSchema>;
+export type UdlCall = z.infer<typeof udlCallSchema>;
+export type UdlPrivateParameterKind = z.infer<
+  typeof udlPrivateParameterKindSchema
+>;
+export type UdlPrivateParameter = z.infer<typeof udlPrivateParameterSchema>;
+export type UdlPrivateLeaf = z.infer<typeof udlPrivateLeafSchema>;
+export type UdlPrivateAction = z.infer<typeof udlPrivateActionSchema>;
+export type UdlActionLibraryModule = z.infer<
+  typeof udlActionLibraryModuleSchema
+>;
+export type UdlActionLibrary = z.infer<typeof udlActionLibrarySchema>;

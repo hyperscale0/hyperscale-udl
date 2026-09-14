@@ -8,6 +8,22 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-14
+
+Published in lockstep with HSX 2.1.0.
+
+### Added
+
+- An instrument may declare `piecePlan`: a total field partitioned into named pieces, each with an amount field and immutable release and refund payees, plus `fundOrder`, `releaseOrder`, `refundOrder` and `unfundOrder`. Fund covers every piece, unfund reverses fund, and the other orders may select subsets. Piece amount fields must be distinct and partition the total in one concrete currency; a singleton may bind the total itself.
+- An action may declare `pieceStage` (`plan` and `stage`) to move one piece of a plan. The compiler derives the required `pieceId` input from the selected order and adds no movement of its own; the money flows through the action's `calls`.
+- An action may declare `calls` to typed private actions from an `actionLibrary`, binding parameters from `$instance`, `$piece` or its own inputs and capturing results by name. Private actions never carry independent approval or recovery.
+- Diagnostics `UDL2010` (action graph: cycles, unresolved targets, expansion bound), `UDL2011` (call bindings: forward references, `$results.*`, types), `UDL2012` (call authority: principal, approval and recovery boundary), `UDL2013` (leaf effects and evidence), `UDL4002` (piece partition) and `UDL5013` (piece stage). Each has a conformance case under `conformance/invalid` and a clause reference entry.
+- `resolveUdlActionPlans` exposes the expanded action plans and their diagnostics.
+
+### Changed
+
+- The schema specification, clause reference and diagnostics reference are regenerated for the new clauses.
+
 ## [2.0.4] - 2026-09-11
 
 - Republished in lockstep with HSX 2.0.4. No format or API change.

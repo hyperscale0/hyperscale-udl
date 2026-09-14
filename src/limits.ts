@@ -7,6 +7,8 @@ export const UDL_LIMITS = Object.freeze({
   financeTransitions: 64,
   financeActions: 64,
   financeWork: 4_096,
+  maxActionExpansion: 256,
+  maxActionLeaves: 256,
   maxDepth: 24,
   maxKeyLength: 128,
   // The 33-instrument catalog includes its executable authored journeys.

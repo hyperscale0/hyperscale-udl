@@ -60,6 +60,30 @@ const diagnosticDefinitions = {
     title: "Derived effects mismatch",
     fix: "Regenerate the action effects from its clauses.",
   },
+  UDL2010: {
+    category: "invalid_semantics",
+    family: "document",
+    title: "Action graph violation",
+    fix: "Order all actions and calls without cycles or collisions, within depth and count limits.",
+  },
+  UDL2011: {
+    category: "invalid_semantics",
+    family: "document",
+    title: "Action binding violation",
+    fix: "Bind parameters to declared instance, piece, or caller variables without forward references or duplicate captures.",
+  },
+  UDL2012: {
+    category: "invalid_semantics",
+    family: "document",
+    title: "Action authority violation",
+    fix: "Match principal, approval, and recovery policies and keep field paths within tenant boundary.",
+  },
+  UDL2013: {
+    category: "invalid_semantics",
+    family: "document",
+    title: "Action effect or evidence violation",
+    fix: "Provide valid effect kind, matching effect signature, and non-empty evidence for every leaf.",
+  },
 
   UDL3001: {
     category: "invalid_semantics",
@@ -73,6 +97,12 @@ const diagnosticDefinitions = {
     family: "finance",
     title: "Money graph violation",
     fix: "Balance every funded amount and close every hold on each lifecycle path.",
+  },
+  UDL4002: {
+    category: "invalid_semantics",
+    family: "finance",
+    title: "Piece partition violation",
+    fix: "Match piece plan total, amounts, and payees to required immutable fields and declared partition.",
   },
 
   UDL5001: {
@@ -146,6 +176,12 @@ const diagnosticDefinitions = {
     family: "gates",
     title: "Reconcile exception reason field has the wrong type",
     fix: "Point reasonField at a required plain text field declared by the exception child.",
+  },
+  UDL5013: {
+    category: "invalid_semantics",
+    family: "gates",
+    title: "Piece stage violation",
+    fix: "Reference a declared piece plan and stage in the containing instrument.",
   },
 
   UDL6001: {

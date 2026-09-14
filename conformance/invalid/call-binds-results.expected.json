@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2011",
+      "path": "$.instruments[0].actions.fund_piece.calls.call_fund.bind.p"
+    }
+  ],
+  "summary": "Call bindings are static; $results is not a binding scope.",
+  "verdict": "invalid"
+}

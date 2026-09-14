@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2013",
+      "path": "$.instruments[0].actionLibrary.transfers.actions.execute_fund.leaves.leaf_fund.effects"
+    }
+  ],
+  "summary": "A leaf's declared effects must equal the effects its operation derives.",
+  "verdict": "invalid"
+}

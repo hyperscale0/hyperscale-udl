@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2010",
+      "path": "$.instruments[0].actions.fund_piece.calls.call_fund.action"
+    }
+  ],
+  "summary": "A call names an action the library does not declare.",
+  "verdict": "invalid"
+}

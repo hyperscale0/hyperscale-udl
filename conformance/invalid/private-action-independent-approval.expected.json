@@ -1,0 +1,10 @@
+{
+  "issues": [
+    {
+      "code": "UDL2012",
+      "path": "$.instruments[0].actionLibrary.transfers.actions.execute_fund.approval"
+    }
+  ],
+  "summary": "A private action inherits the public action's approval; it cannot declare its own.",
+  "verdict": "invalid"
+}

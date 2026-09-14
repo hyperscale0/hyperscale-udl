@@ -41,6 +41,202 @@
       "items": {
         "type": "object",
         "properties": {
+          "actionLibrary": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "actionOrder": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                  }
+                },
+                "actions": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "approval": {
+                        "type": "string",
+                        "enum": ["inherit", "independent"]
+                      },
+                      "calls": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "action": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+                            },
+                            "bind": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*$"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                            }
+                          },
+                          "required": ["action", "bind", "id"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "leaves": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "bind": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)*$"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "capture": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            },
+                            "effects": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "decides",
+                                      "holds",
+                                      "moves",
+                                      "notifies",
+                                      "reads",
+                                      "schedules"
+                                    ]
+                                  },
+                                  "signature": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["kind", "signature"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "evidence": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                            },
+                            "operation": {
+                              "type": "string",
+                              "enum": [
+                                "account.escrow.provision",
+                                "account.freeze",
+                                "account.unfreeze",
+                                "internal_transfer.create",
+                                "internal_transfer.reserve",
+                                "internal_transfer.post",
+                                "internal_transfer.void"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "bind",
+                            "effects",
+                            "evidence",
+                            "id",
+                            "operation"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "order": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                        }
+                      },
+                      "parameters": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "currency": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "account",
+                                "instance",
+                                "money",
+                                "piece",
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": ["kind"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "principal": {
+                        "type": "string",
+                        "enum": ["api_key", "user_session"]
+                      },
+                      "recovery": {
+                        "type": "string",
+                        "enum": ["local", "external"]
+                      }
+                    },
+                    "required": [
+                      "approval",
+                      "calls",
+                      "leaves",
+                      "order",
+                      "parameters",
+                      "principal",
+                      "recovery"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["actionOrder", "actions"],
+              "additionalProperties": false
+            }
+          },
           "actionOrder": {
             "minItems": 1,
             "type": "array",
@@ -647,6 +843,85 @@
               "additionalProperties": false
             }
           },
+          "piecePlan": {
+            "type": "object",
+            "properties": {
+              "fund_order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+              },
+              "pieces": {
+                "minItems": 1,
+                "maxItems": 256,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "refund_to": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "release_to": {
+                      "type": "string",
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    }
+                  },
+                  "required": ["amount", "id", "refund_to", "release_to"],
+                  "additionalProperties": false
+                }
+              },
+              "refund_order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              },
+              "release_order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$"
+              },
+              "unfund_order": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                }
+              }
+            },
+            "required": [
+              "fund_order",
+              "id",
+              "pieces",
+              "refund_order",
+              "release_order",
+              "total",
+              "unfund_order"
+            ],
+            "additionalProperties": false
+          },
           "required": {
             "type": "array",
             "items": {
@@ -746,6 +1021,35 @@
                 "agentDescription": {
                   "type": "string",
                   "maxLength": 400
+                },
+                "calls": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+                      },
+                      "bind": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "pattern": "^[a-z][A-Za-z0-9]*$"
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                      }
+                    },
+                    "required": ["action", "bind", "id"],
+                    "additionalProperties": false
+                  }
                 },
                 "captureInput": {
                   "type": "object",
@@ -1270,6 +1574,21 @@
                     "sourceAccountField",
                     "speed"
                   ],
+                  "additionalProperties": false
+                },
+                "pieceStage": {
+                  "type": "object",
+                  "properties": {
+                    "plan": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    },
+                    "stage": {
+                      "type": "string",
+                      "enum": ["fund", "release", "refund", "unfund"]
+                    }
+                  },
+                  "required": ["plan", "stage"],
                   "additionalProperties": false
                 },
                 "port": {
@@ -2250,6 +2569,7 @@
                   "additionalProperties": false
                 },
                 "steps": {
+                  "default": [],
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -2343,7 +2663,7 @@
                   }
                 }
               },
-              "required": ["steps", "summary"],
+              "required": ["summary"],
               "additionalProperties": false
             }
           }

@@ -109,6 +109,7 @@ export {
   reconcileExceptionChildProblems,
   openReferenceShapeBudget,
   UdlError,
+  instrumentFinanceIssues,
   validateUdl,
   validateUdlJsonSchema,
   validateUdlSchemaValue,

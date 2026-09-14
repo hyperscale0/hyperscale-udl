@@ -11,4 +11,7 @@ UDL is the versioned JSON contract between a product definition and an engine th
 7. [Evolution](guide/07-evolution.md)
 8. [Implementing UDL](guide/08-implementing.md)
 
+[Piece plans and private action composition](piece-plans.md) is a worked
+instrument fragment for `piecePlan`, `pieceStage`, `calls` and `actionLibrary`.
+
 The [clause reference](reference/clauses.md) and [diagnostic reference](reference/diagnostics.md) come from the package tables. The [command reference](reference/cli.md) comes from the CLI usage text. Do not edit those generated files by hand.

@@ -66,6 +66,26 @@ function boundPath(move: Movement, endpoint: string): string | undefined {
  * External collection, deposit, and payout operations carry their role in the
  * operation family because their remote endpoint is not a UDL account binding.
  */
+/**
+ * The typed kind of an instance ref a call binding may name. Refs exist only
+ * through step and move captures on the same instrument; a capture of a leaf's
+ * `accountId` output is an account, every other capture is opaque text.
+ */
+function capturedRefKind(
+  instrument: UdlInstrument,
+  refName: string,
+): "account" | "text" | undefined {
+  for (const action of Object.values(instrument.actions)) {
+    for (const step of [...action.steps, ...action.moves]) {
+      const output = step.capture?.[refName];
+      if (output !== undefined) {
+        return output === "accountId" ? "account" : "text";
+      }
+    }
+  }
+  return undefined;
+}
+
 export function movementClass(move: Movement): UdlMovementClass {
   if (move.operation.startsWith("internal_transfer.")) {
     const source = boundPath(move, "sourceAccountId");
@@ -229,6 +249,35 @@ function combineDerivedEffects(
 function encodeOriginPathKey(originPath: readonly string[]): string {
   const parts = originPath.map((seg) => `${seg.length}_${seg}`);
   return `k_${parts.join("_")}`;
+}
+
+function sameEffectSignatures(
+  left: readonly { readonly kind: UdlEffectKind; readonly signature: string }[],
+  right: readonly {
+    readonly kind: UdlEffectKind;
+    readonly signature: string;
+  }[],
+): boolean {
+  const count = (
+    effects: readonly {
+      readonly kind: UdlEffectKind;
+      readonly signature: string;
+    }[],
+  ) => {
+    const counts = new Map<string, number>();
+    for (const eff of effects) {
+      const key = `${eff.kind}:${eff.signature}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const leftCounts = count(left);
+  const rightCounts = count(right);
+  if (leftCounts.size !== rightCounts.size) return false;
+  for (const [key, n] of leftCounts) {
+    if (rightCounts.get(key) !== n) return false;
+  }
+  return true;
 }
 
 function expectedLeafEffects(
@@ -925,6 +974,35 @@ export function resolveUdlActionPlans(
             path: parts[1],
           };
         }
+        if (parts[1] === "refs") {
+          if (parts.length !== 3) {
+            issues.push(
+              issue(
+                "UDL2011",
+                leafPath,
+                `invalid trailing member access on instance ref: ${rawBind}`,
+              ),
+            );
+            return undefined;
+          }
+          const refName = parts[2]!;
+          const captured = capturedRefKind(instrument, refName);
+          if (!captured) {
+            issues.push(
+              issue(
+                "UDL2011",
+                leafPath,
+                `referenced ref ${refName} is not captured by any step or move on instrument`,
+              ),
+            );
+            return undefined;
+          }
+          return {
+            binding: { from: "instance", path: `refs.${refName}` },
+            kind: captured,
+            path: `refs.${refName}`,
+          };
+        }
         issues.push(
           issue(
             "UDL2011",
@@ -1275,27 +1353,17 @@ export function resolveUdlActionPlans(
           consumedSources.add(holdKey);
         }
 
+        // A library leaf is written once and expanded under several callers,
+        // so its declaration names the operation's generic class (the class
+        // with no bindings). Each expansion then carries the class its
+        // resolved bindings select, exactly as an inline move would: a buyer
+        // funding escrow is a pay-in, the same leaf paying out is internal.
         const expectedEffects = expectedLeafEffects(step);
-        const actualCounts = new Map<string, number>();
-        for (const eff of leaf.effects) {
-          const key = `${eff.kind}:${eff.signature}`;
-          actualCounts.set(key, (actualCounts.get(key) ?? 0) + 1);
-        }
-        const expectedCounts = new Map<string, number>();
-        for (const eff of expectedEffects) {
-          const key = `${eff.kind}:${eff.signature}`;
-          expectedCounts.set(key, (expectedCounts.get(key) ?? 0) + 1);
-        }
-        let effectsMatch = actualCounts.size === expectedCounts.size;
-        if (effectsMatch) {
-          for (const [k, count] of actualCounts.entries()) {
-            if (expectedCounts.get(k) !== count) {
-              effectsMatch = false;
-              break;
-            }
-          }
-        }
-        if (!effectsMatch) {
+        const genericEffects = expectedLeafEffects({ ...step, bind: {} });
+        if (
+          !sameEffectSignatures(leaf.effects, expectedEffects) &&
+          !sameEffectSignatures(leaf.effects, genericEffects)
+        ) {
           issues.push(
             issue(
               "UDL2013",
@@ -1306,7 +1374,7 @@ export function resolveUdlActionPlans(
         }
 
         expandedLeaves.push({
-          effects: leaf.effects,
+          effects: expectedEffects,
           evidence: leaf.evidence,
           originPath,
           step,

@@ -8,6 +8,18 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-14
+
+### Added
+
+- `instrumentFinanceIssues(instrument, options?)` exposes the funded-amount conservation proof for one instrument. An instrument with a `piecePlan` is unfolded over piece progress (which pieces are funded, which are consumed) the same way the runtime admits pieces: the next piece in the stage's order, fund refused once any piece has left escrow, the lifecycle state retained until the stage's last eligible piece, and `requiresDrainedAccount` actions closed while held pieces remain. `validateUdl` runs the same proof, so a plan whose refund or unfund order skips a funded piece is refused with `UDL4001` on the authored action and state names.
+- A call binding may name `$instance.refs.<name>` when a step or move on the same instrument captures that ref; a captured `accountId` binds as an account, any other capture as text.
+
+### Changed
+
+- The piece-progress unfolding is bounded by the action expansion limit (256 reachable variants); exceeding it reports `UDL2010`.
+- Sandbox failure points and finance proofs judge a call-based action by its resolved plan leaves, not by authored moves it does not have.
+
 ## [2.2.0] - 2026-09-14
 
 ### Changed

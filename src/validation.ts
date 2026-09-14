@@ -19,11 +19,14 @@ import {
   type UdlInstrument,
   type UdlStep,
   type UdlAction,
+  type UdlPieceStageStage,
 } from "./schema.js";
 import { fixedIsoDurationMs } from "./duration.js";
 import {
   analyzeInstrumentFinance,
   financeAdmissionProblem,
+  type FinanceIssue,
+  type FinanceOptions,
 } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
 import {
@@ -1365,90 +1368,366 @@ function validateInstrument(
     }
   }
 
-  // Multi-variant finance oracle check across action plan combinations
-  const actionsWithPlans = Object.keys(instrument.actions).filter((aName) =>
-    planResolution.plans.some((p) => p.action === aName),
-  );
+  for (const finIssue of instrumentFinanceIssues(instrument, {
+    plans: planResolution.plans,
+  })) {
+    add([...base, ...finIssue.path], finIssue.message, finIssue.code);
+  }
+  validateAggregates(instrument, base, instruments, references, add);
+}
 
+/**
+ * The finance oracle over an instrument's resolved action plans, with paths
+ * rooted at the instrument. A piece-plan instrument is unfolded over the
+ * runtime's piece progress; any other instrument runs once per action plan
+ * combination. Contract-side callers pass the UDL projection of a blueprint
+ * definition so both boundaries prove the same machine.
+ */
+export function instrumentFinanceIssues(
+  instrument: UdlInstrument,
+  options: FinanceOptions & {
+    readonly plans?: readonly ResolvedActionPlan[];
+  } = {},
+): readonly FinanceIssue[] {
+  const plans = options.plans ?? resolveUdlActionPlans(instrument).plans;
+  const financeOptions: FinanceOptions =
+    options.penaltyMayBeNonzero === undefined
+      ? {}
+      : { penaltyMayBeNonzero: options.penaltyMayBeNonzero };
+  const issues: FinanceIssue[] = [];
+  const seen = new Set<string>();
+  const add = (
+    path: readonly PropertyKey[],
+    message: string,
+    code: UdlIssueCode,
+  ): void => {
+    const key = `${code}:${path.join(".")}:${message}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    issues.push({ code, message, path });
+  };
+
+  const expansion = instrument.piecePlan
+    ? expandPieceProgress(instrument, plans)
+    : undefined;
+  if (expansion === "bound") {
+    add(
+      ["actions"],
+      `piece progress expansion exceeds reachable variant bound of ${UDL_LIMITS.maxActionExpansion}`,
+      "UDL2010",
+    );
+    return issues;
+  }
+  if (expansion) {
+    for (const finIssue of analyzeInstrumentFinance(
+      expansion.instrument,
+      financeOptions,
+    )) {
+      const message = expansion.displayNames.reduce(
+        (text, [expanded, display]) => text.replaceAll(expanded, display),
+        finIssue.message,
+      );
+      add(originFinancePath(expansion, finIssue.path), message, finIssue.code);
+    }
+    return issues;
+  }
+
+  const actionsWithPlans = Object.keys(instrument.actions).filter((aName) =>
+    plans.some((p) => p.action === aName),
+  );
   let totalCombinations = 1;
   const actionPlanMap: Record<string, ResolvedActionPlan[]> = {};
   for (const aName of actionsWithPlans) {
-    const actionPlans = planResolution.plans.filter((p) => p.action === aName);
+    const actionPlans = plans.filter((p) => p.action === aName);
     actionPlanMap[aName] = actionPlans;
     totalCombinations *= actionPlans.length;
   }
-
   if (
     actionsWithPlans.length > 0 &&
     totalCombinations > UDL_LIMITS.maxActionExpansion
   ) {
     add(
-      [...base, "actions"],
+      ["actions"],
       `variant expansion exceeds combination bound of ${UDL_LIMITS.maxActionExpansion} (${totalCombinations} combinations)`,
       "UDL2010",
     );
-  } else {
-    const generateCombos = (
-      keys: string[],
-    ): Record<string, ResolvedActionPlan>[] => {
-      if (keys.length === 0) return [{}];
-      const [first, ...rest] = keys;
-      const restCombos = generateCombos(rest);
-      const result: Record<string, ResolvedActionPlan>[] = [];
-      for (const plan of actionPlanMap[first!]!) {
-        for (const combo of restCombos) {
-          result.push({ ...combo, [first!]: plan });
-        }
-      }
-      return result;
-    };
-
-    const combinations =
-      actionsWithPlans.length > 0 ? generateCombos(actionsWithPlans) : [{}];
-    const seenFinanceIssues = new Set<string>();
-
-    for (const combo of combinations) {
-      const expandedActions: Record<
-        string,
-        (typeof instrument.actions)[string]
-      > = {};
-      for (const [aName, aDef] of Object.entries(instrument.actions)) {
-        const plan = combo[aName];
-        // Only an action that moves money through calls is replaced by its
-        // expanded leaves. Authored moves and steps always reach the oracle.
-        if (plan && (aDef.calls?.length ?? 0) > 0) {
-          const steps: UdlStep[] = [];
-          const moves: UdlMove[] = [];
-          for (const leaf of plan.leaves) {
-            if ("key" in leaf.step) {
-              moves.push(leaf.step as UdlMove);
-            } else {
-              steps.push(leaf.step as UdlStep);
-            }
-          }
-          expandedActions[aName] = {
-            ...aDef,
-            moves,
-            steps,
-          };
-        } else {
-          expandedActions[aName] = aDef;
-        }
-      }
-      const financeInstrument = {
-        ...instrument,
-        actions: expandedActions,
-      };
-      for (const finIssue of analyzeInstrumentFinance(financeInstrument)) {
-        const issueKey = `${finIssue.code}:${finIssue.path.join(".")}:${finIssue.message}`;
-        if (!seenFinanceIssues.has(issueKey)) {
-          seenFinanceIssues.add(issueKey);
-          add([...base, ...finIssue.path], finIssue.message, finIssue.code);
-        }
+    return issues;
+  }
+  const generateCombos = (
+    keys: string[],
+  ): Record<string, ResolvedActionPlan>[] => {
+    if (keys.length === 0) return [{}];
+    const [first, ...rest] = keys;
+    const restCombos = generateCombos(rest);
+    const result: Record<string, ResolvedActionPlan>[] = [];
+    for (const plan of actionPlanMap[first!]!) {
+      for (const combo of restCombos) {
+        result.push({ ...combo, [first!]: plan });
       }
     }
+    return result;
+  };
+  const combinations =
+    actionsWithPlans.length > 0 ? generateCombos(actionsWithPlans) : [{}];
+  for (const combo of combinations) {
+    const expandedActions: Record<string, UdlAction> = {};
+    for (const [aName, aDef] of Object.entries(instrument.actions)) {
+      expandedActions[aName] = planExpandedAction(aDef, combo[aName]);
+    }
+    for (const finIssue of analyzeInstrumentFinance(
+      { ...instrument, actions: expandedActions },
+      financeOptions,
+    )) {
+      add(finIssue.path, finIssue.message, finIssue.code);
+    }
   }
-  validateAggregates(instrument, base, instruments, references, add);
+  return issues;
+}
+
+/**
+ * Only an action that moves money through calls is replaced by its expanded
+ * leaves. Authored moves and steps always reach the oracle.
+ */
+function planExpandedAction(
+  definition: UdlAction,
+  plan: ResolvedActionPlan | undefined,
+): UdlAction {
+  if (!plan || (definition.calls?.length ?? 0) === 0) return definition;
+  const steps: UdlStep[] = [];
+  const moves: UdlMove[] = [];
+  for (const leaf of plan.leaves) {
+    if ("key" in leaf.step) {
+      moves.push(leaf.step as UdlMove);
+    } else {
+      steps.push(leaf.step as UdlStep);
+    }
+  }
+  return { ...definition, moves, steps };
+}
+
+interface PieceProgress {
+  readonly funded: readonly string[];
+  readonly consumed: readonly string[];
+}
+
+interface PieceProgressExpansion {
+  readonly instrument: UdlInstrument;
+  /** Expanded action name to display name, longest first. */
+  readonly displayNames: readonly (readonly [string, string])[];
+  readonly actionOrigins: ReadonlyMap<
+    string,
+    {
+      readonly action: string;
+      readonly leafOrigins?: readonly (readonly string[])[];
+    }
+  >;
+  readonly stateOrigins: ReadonlyMap<string, string>;
+  readonly originStates: readonly string[];
+}
+
+function progressKey(progress: PieceProgress): string {
+  return `${progress.funded.join(",")}|${progress.consumed.join(",")}`;
+}
+
+/** Mirrors eligiblePieces in the engine's piece-plan dispatcher. */
+function eligiblePieces(
+  plan: NonNullable<UdlInstrument["piecePlan"]>,
+  stage: UdlPieceStageStage,
+  progress: PieceProgress,
+): readonly string[] {
+  return plan[`${stage}_order`].filter((id) =>
+    stage === "fund"
+      ? !progress.funded.includes(id)
+      : progress.funded.includes(id) && !progress.consumed.includes(id),
+  );
+}
+
+/**
+ * Unfolds a piece-plan instrument over the runtime's piece progress so the
+ * ordinary lifecycle oracle sees exactly the states the dispatcher admits: a
+ * piece-stage action moves the next eligible piece of its stage order, the
+ * lifecycle state is retained until the stage's last piece moves, funding
+ * cannot resume once a piece has left escrow, and an action gated on a drained
+ * account is closed while a funded piece is still held. Every expanded state is
+ * one (lifecycle state, progress) pair; expanded action names carry the piece
+ * and the source state so each has exactly one transition. A quote-commit pair
+ * is not carried through the expansion.
+ */
+function expandPieceProgress(
+  instrument: UdlInstrument,
+  plans: readonly ResolvedActionPlan[],
+): PieceProgressExpansion | "bound" | undefined {
+  const plan = instrument.piecePlan;
+  if (!plan) return undefined;
+  const stateName = (state: string, progress: PieceProgress): string =>
+    `${state}#${progressKey(progress)}`;
+  const initialProgress: PieceProgress = { funded: [], consumed: [] };
+  const stateOrigins = new Map<string, string>();
+  const actionOrigins = new Map<
+    string,
+    { action: string; leafOrigins?: readonly (readonly string[])[] }
+  >();
+  const displayNames: [string, string][] = [];
+  const actions: Record<string, UdlAction> = {};
+  const transitions: Record<string, { from: string[]; to: string }> = {};
+  const pending: { state: string; progress: PieceProgress }[] = [
+    { state: instrument.lifecycle.initial, progress: initialProgress },
+  ];
+  stateOrigins.set(
+    stateName(instrument.lifecycle.initial, initialProgress),
+    instrument.lifecycle.initial,
+  );
+
+  const visit = (state: string, progress: PieceProgress): void => {
+    const name = stateName(state, progress);
+    if (stateOrigins.has(name)) return;
+    stateOrigins.set(name, state);
+    pending.push({ state, progress });
+  };
+
+  while (pending.length > 0) {
+    const { state, progress } = pending.shift()!;
+    if (stateOrigins.size > UDL_LIMITS.maxActionExpansion) return "bound";
+    const held = progress.funded.filter(
+      (id) => !progress.consumed.includes(id),
+    );
+    for (const [actionName, transition] of Object.entries(
+      instrument.lifecycle.transitions,
+    )) {
+      if (!transition.from.includes(state)) continue;
+      const definition = instrument.actions[actionName];
+      if (!definition) continue;
+      if (definition.requiresDrainedAccount && held.length > 0) continue;
+      const stage = definition.pieceStage;
+      if (!stage) {
+        const expanded = `${actionName}#${state}#${progressKey(progress)}`;
+        const variant = plans.find(
+          (candidate) => candidate.action === actionName,
+        );
+        actions[expanded] = planExpandedAction(definition, variant);
+        transitions[expanded] = {
+          from: [stateName(state, progress)],
+          to: stateName(transition.to, progress),
+        };
+        actionOrigins.set(expanded, {
+          action: actionName,
+          ...(variant && (definition.calls?.length ?? 0) > 0
+            ? { leafOrigins: variant.leaves.map((leaf) => leaf.originPath) }
+            : {}),
+        });
+        displayNames.push([expanded, actionName]);
+        visit(transition.to, progress);
+        continue;
+      }
+      if (stage.plan !== plan.id) continue;
+      if (stage.stage === "fund" && progress.consumed.length > 0) continue;
+      const eligible = eligiblePieces(plan, stage.stage, progress);
+      const pieceId = eligible[0];
+      if (pieceId === undefined) continue;
+      const variant = plans.find(
+        (candidate) =>
+          candidate.action === actionName && candidate.pieceId === pieceId,
+      );
+      if (!variant) continue;
+      const next: PieceProgress =
+        stage.stage === "fund"
+          ? {
+              funded: [...progress.funded, pieceId],
+              consumed: progress.consumed,
+            }
+          : {
+              funded: progress.funded,
+              consumed: [...progress.consumed, pieceId],
+            };
+      const stageComplete =
+        eligiblePieces(plan, stage.stage, next).length === 0;
+      const target = stageComplete ? transition.to : state;
+      const expanded = `${actionName}@${pieceId}#${state}#${progressKey(progress)}`;
+      actions[expanded] = planExpandedAction(definition, variant);
+      transitions[expanded] = {
+        from: [stateName(state, progress)],
+        to: stateName(target, next),
+      };
+      actionOrigins.set(expanded, {
+        action: actionName,
+        leafOrigins: variant.leaves.map((leaf) => leaf.originPath),
+      });
+      displayNames.push([expanded, `${actionName}[${pieceId}]`]);
+      visit(target, next);
+    }
+  }
+
+  for (const [actionName, definition] of Object.entries(instrument.actions)) {
+    if (Object.hasOwn(instrument.lifecycle.transitions, actionName)) continue;
+    actions[actionName] = planExpandedAction(
+      definition,
+      plans.find((candidate) => candidate.action === actionName),
+    );
+    actionOrigins.set(actionName, { action: actionName });
+  }
+
+  return {
+    instrument: {
+      ...instrument,
+      actions,
+      lifecycle: {
+        initial: stateName(instrument.lifecycle.initial, initialProgress),
+        states: [...stateOrigins.keys()],
+        transitions,
+      },
+    },
+    displayNames: [
+      ...displayNames,
+      ...[...stateOrigins.entries()].map(
+        ([expanded, origin]): [string, string] => [expanded, origin],
+      ),
+    ].sort((left, right) => right[0].length - left[0].length),
+    actionOrigins,
+    stateOrigins,
+    originStates: instrument.lifecycle.states,
+  };
+}
+
+function originFinancePath(
+  expansion: PieceProgressExpansion,
+  path: readonly PropertyKey[],
+): readonly PropertyKey[] {
+  const [head, second, third, fourth, ...rest] = path;
+  if (
+    head === "lifecycle" &&
+    second === "states" &&
+    typeof third === "number"
+  ) {
+    const expandedState = expansion.instrument.lifecycle.states[third];
+    const origin =
+      expandedState === undefined
+        ? undefined
+        : expansion.stateOrigins.get(expandedState);
+    const index =
+      origin === undefined ? -1 : expansion.originStates.indexOf(origin);
+    return index >= 0
+      ? ["lifecycle", "states", index]
+      : ["lifecycle", "states"];
+  }
+  if (head === "actions" && typeof second === "string") {
+    const origin = expansion.actionOrigins.get(second);
+    if (!origin) return path;
+    if (
+      third === "moves" &&
+      typeof fourth === "number" &&
+      origin.leafOrigins?.[fourth]
+    ) {
+      return ["actions", ...origin.leafOrigins[fourth], ...rest];
+    }
+    return [
+      "actions",
+      origin.action,
+      ...(third === undefined ? [] : [third]),
+      ...(fourth === undefined ? [] : [fourth]),
+      ...rest,
+    ];
+  }
+  return path;
 }
 
 function validatePiecePlan(

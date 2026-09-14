@@ -14,17 +14,46 @@ describe("W1 UDL ABI Refactor Clauses", () => {
 
     const planRes = resolveUdlActionPlans(doc.instruments[0]!);
     expect(planRes.issues.length).toBe(0);
-    expect(planRes.plans.length).toBe(4); // fund_piece (p1, p2), payout_piece (p1, p2)
-    expect(planRes.plans[0]?.pieceId).toBe("p1");
-    expect(planRes.plans[1]?.pieceId).toBe("p2");
-    expect(planRes.plans[0]?.leaves[0]?.originPath).toEqual([
+    const piecePlans = planRes.plans.filter(
+      (plan) => plan.pieceId !== undefined,
+    );
+    expect(piecePlans.length).toBe(4);
+    expect(piecePlans[0]?.pieceId).toBe("p1");
+    expect(piecePlans[1]?.pieceId).toBe("p2");
+    expect(piecePlans[0]?.leaves[0]?.originPath).toEqual([
       "fund_piece",
       "call_fund",
       "leaf_fund",
     ]);
 
-    const effects = deriveActionEffectsFromPlan(planRes.plans[0]!.leaves);
+    const effects = deriveActionEffectsFromPlan(piecePlans[0]!.leaves);
     expect(effects.moves?.[0]?.source).toBe("fund_piece.call_fund.leaf_fund");
+  });
+
+  it("resolves every ordinary action without changing its steps or effects", () => {
+    const instrument = makeValidDocument().instruments[0]!;
+    const ordinary = instrument.actionOrder.filter(
+      (key) =>
+        !instrument.actions[key]!.calls?.length &&
+        !instrument.actions[key]!.pieceStage,
+    );
+    const resolved = resolveUdlActionPlans(instrument);
+    const actual = resolved.plans
+      .filter((plan) => ordinary.includes(plan.action))
+      .map((plan) => ({
+        action: plan.action,
+        steps: plan.leaves.map((leaf) => leaf.step),
+        effects: plan.effects,
+      }));
+    const expected = ordinary.map((action) => ({
+      action,
+      steps: [
+        ...instrument.actions[action]!.steps,
+        ...instrument.actions[action]!.moves,
+      ],
+      effects: instrument.actions[action]!.effects ?? {},
+    }));
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
   });
 
   it("enforces UDL4002 piece partition and immutability invariants", () => {

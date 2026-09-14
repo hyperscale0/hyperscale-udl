@@ -8,6 +8,13 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-14
+
+### Changed
+
+- `resolveUdlActionPlans` returns a plan for every action. Ordinary actions (no `calls`, no `pieceStage`) now resolve to flat leaves in executor order: each `steps` entry, the `payout` intent as a `payout.create` step, then each `moves` entry. Every leaf carries an `originPath` into the authored action and the clause-vocabulary effects derived for that source. Compilers no longer need a separate path for actions that never expanded.
+- `ResolvedActionPlanLeaf.step` admits the synthetic `payout.create` step alongside authored steps and moves.
+
 ## [2.1.0] - 2026-09-14
 
 Published in lockstep with HSX 2.1.0.

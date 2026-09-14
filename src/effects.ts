@@ -176,7 +176,11 @@ export interface ResolvedActionPlanLeaf {
   }[];
   readonly evidence: string;
   readonly originPath: readonly string[];
-  readonly step: UdlStep | UdlMove;
+  readonly step:
+    | UdlMove
+    | (Omit<UdlStep, "operation"> & {
+        readonly operation: UdlStep["operation"] | "payout.create";
+      });
 }
 
 export interface ResolvedActionPlan {
@@ -1749,6 +1753,71 @@ export function resolveUdlActionPlans(
         action: actionKey,
         effects,
         leaves: expandedLeaves,
+      });
+    } else {
+      // Ordinary actions already are flat. Preserve the executor's order and
+      // authored step bytes; origin paths belong to the plan, not the ABI.
+      const effects = deriveUdlActionEffects(
+        action as Readonly<Record<string, unknown>>,
+        udlClauseVocabulary,
+      );
+      const leafEffects = (source: string): ResolvedActionPlanLeaf["effects"] =>
+        Object.entries(effects).flatMap(([kind, rows]) =>
+          rows
+            .filter((row) => row.source === source)
+            .map((row) => ({
+              kind: kind as UdlEffectKind,
+              signature: row.signature,
+            })),
+        );
+      const leaves: ResolvedActionPlanLeaf[] = action.steps.map(
+        (step, index) => ({
+          step,
+          originPath: [actionKey, "steps", String(index)],
+          effects: leafEffects(`steps[${index}]`),
+          evidence: "parent_receipt",
+        }),
+      );
+      if (action.payout) {
+        const intent = action.payout;
+        leaves.push({
+          step: {
+            operation: "payout.create",
+            bind: {
+              amount: { from: "instance", path: intent.amount },
+              beneficiaryId: {
+                from: "instance",
+                path: `fields.${intent.beneficiaryField}`,
+              },
+              currency: {
+                from: "instance",
+                path: `fields.${intent.currencyField}`,
+              },
+              sourceAccountId: {
+                from: "instance",
+                path: `fields.${intent.sourceAccountField}`,
+              },
+              speed: { from: "const", value: intent.speed },
+            },
+            capture: { [intent.capture]: "payoutId" },
+          },
+          originPath: [actionKey, "payout"],
+          effects: leafEffects("payout"),
+          evidence: "parent_receipt",
+        });
+      }
+      leaves.push(
+        ...action.moves.map((step, index) => ({
+          step,
+          originPath: [actionKey, "moves", String(index)],
+          effects: leafEffects(`moves[${index}]`),
+          evidence: "parent_receipt",
+        })),
+      );
+      plans.push({
+        action: actionKey,
+        leaves,
+        effects,
       });
     }
   }

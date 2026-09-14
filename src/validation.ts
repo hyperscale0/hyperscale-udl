@@ -4455,7 +4455,7 @@ function referencedPathDeclared(target: UdlInstrument, path: string): boolean {
 function validateStep(
   instrument: UdlInstrument,
   action: UdlAction,
-  step: UdlStep | UdlMove,
+  step: ResolvedActionPlan["leaves"][number]["step"],
   base: readonly PropertyKey[],
   add: AddIssue,
 ): void {

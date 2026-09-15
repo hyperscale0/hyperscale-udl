@@ -56,7 +56,11 @@ Save this document as `note.udl`:
 }
 ```
 
-Check the document with the CLI:
+In the full repository checkout, the UDL CLI entrypoint is `open/udl/src/cli.ts`. Validate local compiler output with `bun open/udl/src/cli.ts validate note.udl` from the repository root so the compiler and validator use the same source revision. In a standalone UDL package checkout, use `bun src/cli.ts validate note.udl`.
+
+For npm installations, pair HSX 2.2.0 with UDL 2.4.0. HSX 2.1.1 as published pairs with UDL 2.3.0; a checkout with later clauses such as `templateBinding` needs the local validator even if its package version has not yet changed. These are package versions; the UDL document format remains version 1.
+
+Check the document with the installed CLI:
 
 ```bash
 npx @hyperscale0/udl validate note.udl

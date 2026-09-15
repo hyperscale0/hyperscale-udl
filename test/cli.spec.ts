@@ -108,7 +108,7 @@ describe("udl canon", () => {
     const digest = await udl("canon", document, "--digest");
     expect(digest.code).toBe(0);
     expect(digest.stdout.trim()).toBe(
-      "d7a742548bf559eaa3101e09e0c404190957e34854b220ca010d145d4fd9cae6",
+      "7933986489470a2e95e316c854077b6f970b1228679ea86d71d8c4c276e89624",
     );
   });
 });

@@ -1,3 +1,4 @@
+import { referencePatternPrefix } from "./reference.js";
 import { z } from "zod";
 
 import { udlCheckEvidenceProfiles } from "./check-profiles.js";
@@ -24,6 +25,9 @@ const eventNamePattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
 const udlSnakeCaseSchema = z
   .string()
   .regex(snakeCasePattern, "must be a snake_case identifier");
+const udlInstrumentIdSchema = udlSnakeCaseSchema.meta({
+  "x-udl-reference": "instrument",
+});
 const udlActionNameSchema = z
   .string()
   .regex(snakeCasePattern, "must be a snake_case action identifier");
@@ -41,14 +45,6 @@ export const udlInstrumentActionIdSchema = z
   .regex(
     /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/,
     "must name an instrument action as instrument_id.action_key",
-  );
-
-const udlJourneyOperationNameSchema = z
-  .string()
-  .max(160)
-  .regex(
-    /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/,
-    "must name a dotted operation",
   );
 
 const nonEmptyTextSchema = z
@@ -111,20 +107,6 @@ const udlExampleSchema = z.strictObject({
   output: z.json().optional(),
 });
 
-const udlJourneyStepSchema = z.strictObject({
-  bind: z.record(fieldPathSchema, udlSnakeCaseSchema),
-  example: udlSnakeCaseSchema,
-  id: udlSnakeCaseSchema.optional(),
-  operation: udlJourneyOperationNameSchema,
-});
-
-export const udlJourneySchema = z.strictObject({
-  id: udlSnakeCaseSchema,
-  label: nonEmptyTextSchema,
-  steps: z.array(udlJourneyStepSchema).min(1),
-  summary: nonEmptyTextSchema,
-});
-
 const udlLifecycleTransitionSchema = z.strictObject({
   from: z.array(udlSnakeCaseSchema).min(1),
   to: udlSnakeCaseSchema,
@@ -150,10 +132,28 @@ const udlDateComparisonSchema = z.strictObject({
   referencedPath: fieldPathSchema,
 });
 
+const udlStoredFieldSchema = z.strictObject({ field: udlFieldNameSchema });
+const udlOffsetSchema = z.union([nonEmptyTextSchema, udlStoredFieldSchema]);
+
+const udlAttestationSchema = z.strictObject({
+  forAction: udlActionNameSchema.optional(),
+  action: instanceValuePathSchema,
+  digest: instanceValuePathSchema,
+  role: instanceValuePathSchema,
+  expiresAt: instanceValuePathSchema,
+  instrument: instanceValuePathSchema,
+  party: z.string().regex(/^[a-z][A-Za-z0-9_]*$/),
+  consume: udlActionNameSchema,
+});
+
 const udlGateSchema = z.strictObject({
+  attests: udlAttestationSchema.optional(),
   /** Local field key <- referenced instance path; create actions only. */
   bind: z.record(udlFieldNameSchema, fieldPathSchema).optional(),
   dateComparison: udlDateComparisonSchema.optional(),
+  dueBefore: z
+    .strictObject({ field: udlFieldNameSchema, offset: nonEmptyTextSchema })
+    .optional(),
   field: udlFieldNameSchema,
   /** Local instance path === referenced instance path at admission. */
   match: z.record(fieldPathSchema, fieldPathSchema).optional(),
@@ -161,7 +161,15 @@ const udlGateSchema = z.strictObject({
   optional: z.literal(true).optional(),
   statuses: z.array(udlSnakeCaseSchema).min(1),
   /** One dependent ever per referenced instance; create actions only. */
-  unique: z.literal(true).optional(),
+  unique: z
+    .union([
+      z.literal(true),
+      z.strictObject({
+        namespace: udlSnakeCaseSchema,
+        byFields: z.array(udlFieldNameSchema).min(1).max(8),
+      }),
+    ])
+    .optional(),
 });
 
 const udlBindingSchema = z.discriminatedUnion("from", [
@@ -219,7 +227,7 @@ const udlDueRecurrenceSchema = z.strictObject({
 });
 
 const udlDueParentStatusSchema = z.strictObject({
-  instrumentId: udlSnakeCaseSchema,
+  instrumentId: udlInstrumentIdSchema,
   refField: udlFieldNameSchema,
   statuses: z.array(udlSnakeCaseSchema).min(1),
 });
@@ -227,13 +235,13 @@ const udlDueParentStatusSchema = z.strictObject({
 const udlDueSchema = z.strictObject({
   every: udlDueRecurrenceSchema.optional(),
   field: udlFieldNameSchema,
-  offset: nonEmptyTextSchema.optional(),
+  offset: udlOffsetSchema.optional(),
   whenParentStatus: udlDueParentStatusSchema.optional(),
 });
 
 const udlDeadlineSchema = z.strictObject({
   field: udlFieldNameSchema,
-  offset: nonEmptyTextSchema.optional(),
+  offset: udlOffsetSchema.optional(),
 });
 
 const udlSetsAtSchema = z.strictObject({
@@ -352,6 +360,31 @@ const udlAggregateCheckSchema = z.discriminatedUnion("kind", [
     kind: z.literal("count_at_least"),
     targetField: udlFieldNameSchema,
   }),
+  z.strictObject({
+    kind: z.literal("count_exactly"),
+    value: z.number().int().min(0),
+  }),
+  z.strictObject({
+    kind: z.literal("ordered"),
+    field: udlFieldNameSchema,
+    positionField: udlFieldNameSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("schedule"),
+    positionField: udlFieldNameSchema,
+    dateField: udlFieldNameSchema,
+    datesField: udlFieldNameSchema,
+    amounts: z
+      .array(
+        z.strictObject({
+          amountField: udlFieldNameSchema,
+          totalField: udlFieldNameSchema,
+        }),
+      )
+      .min(1)
+      .max(8),
+    remainder: z.literal("first"),
+  }),
   z.strictObject({ kind: z.literal("all_in") }),
   z.strictObject({
     field: udlFieldNameSchema,
@@ -360,19 +393,29 @@ const udlAggregateCheckSchema = z.discriminatedUnion("kind", [
 ]);
 
 const udlAggregateConditionSchema = z.strictObject({
+  anchorField: udlFieldNameSchema.optional(),
+  dueBefore: z
+    .strictObject({
+      field: udlFieldNameSchema,
+      offset: udlOffsetSchema.optional(),
+    })
+    .optional(),
   check: udlAggregateCheckSchema,
-  instrumentId: udlSnakeCaseSchema.optional(),
+  instrumentId: udlInstrumentIdSchema.optional(),
   over: z.enum(["children", "siblings"]),
   refField: udlFieldNameSchema,
   statuses: z.array(udlSnakeCaseSchema).min(1),
 });
 
 const udlExposureRequirementSchema = z.strictObject({
+  groupField: udlFieldNameSchema.optional(),
+  minimumField: udlFieldNameSchema.optional(),
+  measure: z.strictObject({ allocation: udlSnakeCaseSchema }).optional(),
   amountField: udlFieldNameSchema,
   anchorField: udlFieldNameSchema,
   capField: udlFieldNameSchema,
   capOnAnchor: z.literal(true).optional(),
-  childInstrumentId: udlSnakeCaseSchema,
+  childInstrumentId: udlInstrumentIdSchema,
   statuses: z.array(udlSnakeCaseSchema).min(1),
 });
 
@@ -383,6 +426,7 @@ const udlPartyRoleSchema = z.string().regex(/^[a-z][A-Za-z0-9_]*$/);
 
 const udlPortSchema = z.strictObject({
   allowedParties: z.array(udlPartyRoleSchema).min(1),
+  capture: udlFieldNameSchema.optional(),
 });
 
 const udlPayoutSchema = z.strictObject({
@@ -421,7 +465,7 @@ const udlReconcileSchema = z.strictObject({
    */
   exception: z.strictObject({
     amountField: udlFieldNameSchema,
-    childInstrumentId: udlSnakeCaseSchema,
+    childInstrumentId: udlInstrumentIdSchema,
     maxOpen: z.number().int().min(1).max(1_000),
     reasonField: udlFieldNameSchema,
     refField: udlFieldNameSchema,
@@ -449,7 +493,7 @@ const udlReconcileSchema = z.strictObject({
 
 const udlSignedSumSourceSchema = z.strictObject({
   amountField: udlFieldNameSchema,
-  instrumentId: udlSnakeCaseSchema,
+  instrumentId: udlInstrumentIdSchema,
   refField: udlFieldNameSchema,
   sign: z.enum(["add", "subtract"]),
   statuses: z.array(udlSnakeCaseSchema).min(1),
@@ -477,7 +521,7 @@ const udlDistributeSchema = z.strictObject({
 
 const udlRemainderCollectedSchema = z.strictObject({
   amountField: udlFieldNameSchema,
-  instrumentId: udlSnakeCaseSchema,
+  instrumentId: udlInstrumentIdSchema,
   path: z.literal("refs").optional(),
   refField: udlFieldNameSchema,
   statuses: z.array(udlSnakeCaseSchema).min(1),
@@ -490,6 +534,7 @@ const udlRemainderSchema = z.strictObject({
   inputKey: udlFieldNameSchema.optional(),
   onZero: z.enum(["refuse", "skip_steps"]),
   totalPath: instanceValuePathSchema,
+  subtractPaths: z.array(instanceValuePathSchema).min(1).max(16).optional(),
 });
 
 type UdlCheckRequirementShape = {
@@ -575,10 +620,16 @@ const udlPartitionSchema = z.strictObject({
 const udlDerivedAmountSchema = z.strictObject({
   field: udlFieldNameSchema,
   rounding: z.literal("floor"),
-  rule: z.strictObject({
-    bps: z.number().int().min(1).max(9_999),
-    kind: z.literal("percentage_of"),
-  }),
+  rule: z.discriminatedUnion("kind", [
+    z.strictObject({
+      bps: z.union([z.number().int().min(1).max(9_999), udlStoredFieldSchema]),
+      kind: z.literal("percentage_of"),
+    }),
+    z.strictObject({
+      kind: z.literal("minimum"),
+      capField: udlFieldNameSchema,
+    }),
+  ]),
   sourceField: udlFieldNameSchema,
 });
 
@@ -738,7 +789,171 @@ export const udlActionLibrarySchema = z.record(
   udlActionLibraryModuleSchema,
 );
 
+const templateParametersSchema = z.record(
+  udlFieldNameSchema,
+  z.union([z.string(), z.number().int(), z.boolean()]),
+);
+
+const udlAllocationBucketSchema = z.strictObject({
+  key: z.enum(["principal", "profit", "cost", "fine"]),
+  source: z.union([
+    z.strictObject({
+      from: z.literal("slice"),
+      amountField: udlFieldNameSchema,
+      destinationField: udlFieldNameSchema,
+    }),
+    z.strictObject({
+      from: z.literal("children"),
+      instrumentId: udlInstrumentIdSchema,
+      refField: udlFieldNameSchema,
+      statuses: z.array(udlSnakeCaseSchema).min(1),
+      amountField: udlFieldNameSchema,
+      destinationField: udlFieldNameSchema,
+    }),
+    z.strictObject({
+      from: z.literal("children"),
+      template: udlSnakeCaseSchema,
+      parameters: templateParametersSchema,
+      refField: udlFieldNameSchema,
+      statuses: z.array(udlSnakeCaseSchema).min(1),
+      amountField: udlFieldNameSchema,
+      destinationField: udlFieldNameSchema,
+    }),
+  ]),
+});
+const udlAllocationSchema = z.strictObject({
+  sliceInstrumentId: udlInstrumentIdSchema,
+  sliceRefField: udlFieldNameSchema,
+  sliceStatuses: z.array(udlSnakeCaseSchema).min(1),
+  dueField: udlFieldNameSchema,
+  positionField: udlFieldNameSchema,
+  earningRuleField: udlFieldNameSchema,
+  buckets: z.array(udlAllocationBucketSchema).min(2).max(4),
+});
+const udlAllocateSchema = z.union([
+  z.strictObject({
+    refField: udlFieldNameSchema.optional(),
+    mode: z.literal("refund"),
+    action: udlActionNameSchema.optional(),
+    assessmentField: udlFieldNameSchema.optional(),
+    capture: udlFieldNameSchema,
+  }),
+  z.strictObject({
+    refField: udlFieldNameSchema,
+    mode: z.literal("payment"),
+    assessment: z.literal("self").optional(),
+    amountField: udlFieldNameSchema.optional(),
+    sourceAccountField: udlFieldNameSchema,
+    paymentIdentityField: udlFieldNameSchema,
+    capture: udlFieldNameSchema,
+  }),
+  z.strictObject({
+    refField: udlFieldNameSchema.optional(),
+    mode: z.literal("payoff"),
+    amountField: udlFieldNameSchema.optional(),
+    sourceAccountField: udlFieldNameSchema,
+    paymentIdentityField: udlFieldNameSchema,
+    capture: udlFieldNameSchema,
+  }),
+  z.strictObject({
+    refField: udlFieldNameSchema.optional(),
+    mode: z.literal("write_off"),
+    capture: udlFieldNameSchema,
+  }),
+]);
+const udlContributionsSchema = z.strictObject({
+  field: udlFieldNameSchema,
+  amountKey: udlFieldNameSchema,
+  accountKey: udlFieldNameSchema,
+  totalField: udlFieldNameSchema,
+});
+
+// These clauses are opt-in. Absent clauses never add defaults to older documents.
+const udlFundingSchema = z.strictObject({
+  obligationField: udlFieldNameSchema,
+  ticketInstrumentId: udlInstrumentIdSchema,
+  ticketRefField: udlFieldNameSchema,
+  ticketAmountField: udlFieldNameSchema,
+  ticketInvestorField: udlFieldNameSchema,
+  ticketAccountField: udlFieldNameSchema,
+  ticketStatus: udlSnakeCaseSchema,
+  collectAction: udlActionNameSchema,
+  principalField: udlFieldNameSchema,
+  sourceAccountPath: instanceValuePathSchema,
+  destinationAccountField: udlFieldNameSchema,
+  terms: z.record(udlFieldNameSchema, udlFieldNameSchema),
+  capture: udlFieldNameSchema,
+});
+const udlReceiptDistributionSchema = z.strictObject({
+  roundField: udlFieldNameSchema,
+  snapshotRef: udlFieldNameSchema,
+  receiptField: udlFieldNameSchema,
+  receiptPath: instanceValuePathSchema,
+  mode: z.enum(["cash", "loss"]),
+  feeBps: z.number().int().min(0).max(10000),
+  vatBps: z.number().int().min(0).max(10000),
+  feeAccountField: udlFieldNameSchema,
+  taxAccountField: udlFieldNameSchema,
+  residualAccountField: udlFieldNameSchema,
+  capture: udlFieldNameSchema,
+});
+
+const udlRequestAuthoritySchema = z.strictObject({
+  instrumentField: udlFieldNameSchema,
+  instanceField: udlFieldNameSchema,
+  actionField: udlFieldNameSchema,
+  inputField: udlFieldNameSchema,
+  digestField: udlFieldNameSchema,
+  roleField: udlFieldNameSchema,
+  party: udlPartyRoleSchema,
+  expiresField: udlFieldNameSchema,
+});
+
 const udlActionShape = {
+  requestAuthority: udlRequestAuthoritySchema.optional(),
+  funding: udlFundingSchema.optional(),
+  receiptDistribution: udlReceiptDistributionSchema.optional(),
+  requiresAllocation: z
+    .strictObject({
+      refField: udlFieldNameSchema.optional(),
+      slice: z.union([z.literal("self"), udlStoredFieldSchema]),
+      buckets: z
+        .array(z.enum(["principal", "profit", "cost", "fine"]))
+        .min(1)
+        .max(4),
+      check: z.enum(["settled", "outstanding"]),
+    })
+    .optional(),
+  unique: z
+    .strictObject({
+      namespace: udlSnakeCaseSchema,
+      byFields: z.array(udlFieldNameSchema).min(1).max(8),
+    })
+    .optional(),
+  requiresInput: z
+    .record(udlFieldNameSchema, instanceValuePathSchema)
+    .optional(),
+  engineOwned: z.literal(true).optional(),
+  captureEngine: z
+    .record(udlFieldNameSchema, z.enum(["operationId"]))
+    .optional(),
+  allocate: udlAllocateSchema.optional(),
+  contributionStage: z
+    .strictObject({
+      stage: z.enum(["fund", "refund"]),
+      accountPath: instanceValuePathSchema,
+    })
+    .optional(),
+  transitionsRefs: z
+    .array(
+      z.strictObject({
+        field: udlFieldNameSchema,
+        action: udlActionNameSchema,
+      }),
+    )
+    .min(1)
+    .max(16)
+    .optional(),
   agentDescription: udlAgentDescriptionSchema.optional(),
   calls: z.array(udlCallSchema).min(1).optional(),
   captureInput: z.record(udlFieldNameSchema, udlFieldNameSchema).optional(),
@@ -752,7 +967,11 @@ const udlActionShape = {
   due: udlDueSchema.optional(),
   earnable: z.boolean().optional(),
   effects: udlEffectsSchema.optional(),
-  eventName: z.string().regex(eventNamePattern).optional(),
+  eventName: z
+    .string()
+    .regex(eventNamePattern)
+    .meta({ "x-udl-reference": "instrument_event" })
+    .optional(),
   examples: z.array(udlExampleSchema).min(1).optional(),
   input: jsonObjectSchema.optional(),
   moves: z.array(udlMoveSchema).default([]),
@@ -783,7 +1002,7 @@ const udlActionShape = {
 const udlActionSchema = z.strictObject(udlActionShape);
 
 const udlAggregateBaseShape = {
-  childInstrumentId: udlSnakeCaseSchema,
+  childInstrumentId: udlInstrumentIdSchema,
   childRefField: udlFieldNameSchema,
   childStatuses: z.array(udlSnakeCaseSchema).min(1),
   parentField: udlFieldNameSchema,
@@ -810,6 +1029,25 @@ const udlAggregateSchema = z.union([
 ]);
 
 const udlInstrumentShape = {
+  templateBinding: z
+    .strictObject({
+      id: udlSnakeCaseSchema,
+      parameters: templateParametersSchema,
+    })
+    .optional(),
+  allocation: udlAllocationSchema.optional(),
+  contributions: udlContributionsSchema.optional(),
+  dateOrder: z
+    .array(
+      z.strictObject({
+        beforeField: udlFieldNameSchema,
+        afterField: udlFieldNameSchema,
+        operator: z.enum(["<", "<="]),
+      }),
+    )
+    .min(1)
+    .max(16)
+    .optional(),
   actionLibrary: udlActionLibrarySchema.optional(),
   actionOrder: z.array(udlActionNameSchema).min(1),
   agentDescription: udlAgentDescriptionSchema.optional(),
@@ -820,15 +1058,14 @@ const udlInstrumentShape = {
   description: nonEmptyTextSchema.optional(),
   dials: z.array(udlDialSchema).optional(),
   distinctParties: z.literal(true).optional(),
-  derivedAmounts: z.array(udlDerivedAmountSchema).min(1).max(4).optional(),
+  derivedAmounts: z.array(udlDerivedAmountSchema).min(1).max(64).optional(),
   feeRules: z.array(udlFeeRuleSchema).min(1).max(4).optional(),
   fields: z.record(udlFieldNameSchema, jsonObjectSchema),
-  id: udlSnakeCaseSchema,
+  id: udlInstrumentIdSchema,
   idPrefix: z
     .string()
     .regex(idPrefixPattern, "must contain 2 to 8 lowercase letters"),
   lifecycle: udlLifecycleSchema,
-  journeys: z.array(udlJourneySchema).min(1).optional(),
   nav: z.array(nonEmptyTextSchema).min(1).optional(),
   parties: z.record(udlPartyRoleSchema, udlFieldNameSchema).optional(),
   partitions: z.array(udlPartitionSchema).min(1).optional(),
@@ -882,6 +1119,105 @@ export type UdlClauseVocabularyEntry = UdlClauseVocabularyMetadata &
 
 export const udlClauseVocabulary = [
   {
+    scope: "action",
+    spelling: "funding",
+    target: "funding",
+    cardinality: "one",
+    effects: [
+      {
+        kind: "moves",
+        per: "clause",
+        signature: { fixed: "transfer.internal" },
+      },
+    ],
+  },
+  {
+    scope: "action",
+    spelling: "receipt distribution",
+    target: "receiptDistribution",
+    cardinality: "one",
+    effects: [
+      { kind: "decides", per: "clause", signature: { fixed: "allocation" } },
+      { kind: "moves", per: "clause", signature: { fixed: "allocation" } },
+    ],
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "requires allocation",
+    target: "requiresAllocation",
+    effects: [
+      { kind: "decides", per: "clause", signature: { fixed: "allocation" } },
+    ],
+  },
+  {
+    cardinality: "one",
+    scope: "instrument",
+    spelling: "allocation",
+    target: "allocation",
+  },
+  {
+    cardinality: "one",
+    scope: "instrument",
+    spelling: "contributions",
+    target: "contributions",
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "allocate",
+    target: "allocate",
+    effects: [
+      { kind: "decides", per: "clause", signature: { fixed: "allocation" } },
+      { kind: "moves", per: "clause", signature: { fixed: "allocation" } },
+    ],
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "contribution stage",
+    target: "contributionStage",
+    effects: [
+      {
+        kind: "moves",
+        per: "clause",
+        signature: { fixed: "transfer.internal" },
+      },
+    ],
+  },
+  {
+    cardinality: "many",
+    scope: "instrument",
+    spelling: "date order",
+    target: "dateOrder",
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "unique",
+    target: "unique",
+    effects: [
+      {
+        kind: "decides",
+        per: "clause",
+        signature: { fixed: "subject_unique" },
+      },
+    ],
+  },
+  {
+    cardinality: "many",
+    scope: "action",
+    spelling: "transitions refs",
+    target: "transitionsRefs",
+    effects: [
+      {
+        kind: "decides",
+        per: "element",
+        signature: { fixed: "referenced_transition" },
+      },
+    ],
+  },
+  {
     cardinality: "one",
     literalKeys: true,
     scope: "instrument",
@@ -900,6 +1236,26 @@ export const udlClauseVocabulary = [
     scope: "action",
     spelling: "calls",
     target: "calls",
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "requires input",
+    target: "requiresInput",
+    literalKeys: true,
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "engine owned",
+    target: "engineOwned",
+  },
+  {
+    cardinality: "one",
+    scope: "action",
+    spelling: "capture engine",
+    target: "captureEngine",
+    literalKeys: true,
   },
   {
     cardinality: "one",
@@ -1269,12 +1625,6 @@ export const udlClauseVocabulary = [
   {
     cardinality: "many",
     scope: "instrument",
-    spelling: "journeys",
-    target: "journeys",
-  },
-  {
-    cardinality: "many",
-    scope: "instrument",
     spelling: "nav",
     target: "nav",
   },
@@ -1305,6 +1655,12 @@ export const udlClauseVocabulary = [
   {
     cardinality: "one",
     scope: "instrument",
+    spelling: "template binding",
+    target: "templateBinding",
+  },
+  {
+    cardinality: "one",
+    scope: "instrument",
     spelling: "template id",
     target: "templateId",
   },
@@ -1319,6 +1675,13 @@ export const udlClauseVocabulary = [
     scope: "instrument",
     spelling: "update",
     target: "update",
+  },
+  {
+    cardinality: "one",
+    effects: [],
+    scope: "action",
+    spelling: "request authority",
+    target: "requestAuthority",
   },
 ] as const satisfies readonly UdlClauseVocabularyEntry[];
 
@@ -1348,24 +1711,10 @@ function referenceTargets(
   schema: Readonly<Record<string, unknown>>,
   instruments: readonly ParsedInstrument[],
 ): readonly ParsedInstrument[] {
-  if (schema.type !== "string" || typeof schema.pattern !== "string") return [];
-  // Parse the scoped-ID pattern. Executing an author regex here would bypass
-  // the semantic validator's branch and quantifier budgets.
-  const match = /^\^([a-z]{2,8})_\(sandbox\|live\)_\[a-z0-9\]\{8,64\}\$$/.exec(
-    schema.pattern,
-  );
-  if (!match) return [];
-  const prefix = match[1] as string;
-  const probe = `${prefix}_sandbox_0123456789abcdef`;
-  if (typeof schema.const === "string" && schema.const !== probe) return [];
-  if (Array.isArray(schema.enum) && !schema.enum.includes(probe)) return [];
-  if (typeof schema.minLength === "number" && probe.length < schema.minLength) {
-    return [];
-  }
-  if (typeof schema.maxLength === "number" && probe.length > schema.maxLength) {
-    return [];
-  }
-  return instruments.filter((instrument) => instrument.idPrefix === prefix);
+  const prefix = referencePatternPrefix(schema);
+  return prefix
+    ? instruments.filter((instrument) => instrument.idPrefix === prefix)
+    : [];
 }
 
 function declaredMoneyRefKeys(
@@ -1490,6 +1839,10 @@ export const udlDocumentSchema = udlDocumentShapeSchema.superRefine(
   },
 );
 
+export type UdlAllocation = z.infer<typeof udlAllocationSchema>;
+export type UdlAllocate = z.infer<typeof udlAllocateSchema>;
+export type UdlContributions = z.infer<typeof udlContributionsSchema>;
+
 export type UdlAggregate = z.infer<typeof udlAggregateSchema>;
 export type UdlAggregateCondition = z.infer<typeof udlAggregateConditionSchema>;
 export type UdlBinding = z.infer<typeof udlBindingSchema>;
@@ -1515,8 +1868,6 @@ export type UdlLifecycleTransition = z.infer<
 >;
 export type UdlInstrument = z.infer<typeof udlInstrumentSchema>;
 export type UdlInstrumentSubject = z.infer<typeof udlInstrumentSubjectSchema>;
-export type UdlJourney = z.infer<typeof udlJourneySchema>;
-export type UdlJourneyStep = z.infer<typeof udlJourneyStepSchema>;
 export type UdlMove = z.infer<typeof udlMoveSchema>;
 export type UdlPayout = z.infer<typeof udlPayoutSchema>;
 export type UdlQuote = z.infer<typeof udlQuoteSchema>;

@@ -22,7 +22,24 @@ interface FinancialMove extends FinancialStep {
   readonly key: string;
 }
 
-interface FinancialInstrument {
+export interface FinancialPartition {
+  readonly totalField: string;
+  readonly pieceFields: readonly string[];
+}
+
+export interface FinancialContribution {
+  readonly field: string;
+  readonly amountKey: string;
+  readonly accountKey: string;
+  readonly totalField: string;
+}
+
+export interface FinancialContributionStage {
+  readonly stage: "fund" | "refund";
+  readonly accountPath: string;
+}
+
+export interface FinancialInstrument {
   readonly lifecycle: {
     readonly initial: string;
     readonly states: readonly string[];
@@ -37,6 +54,8 @@ interface FinancialInstrument {
         readonly subjectHolder?: string | undefined;
       }
     | undefined;
+  readonly partitions?: readonly FinancialPartition[] | undefined;
+  readonly contributions?: FinancialContribution | undefined;
   readonly actions: Readonly<
     Record<
       string,
@@ -57,6 +76,7 @@ interface FinancialInstrument {
             }
           | undefined;
         readonly steps: readonly FinancialStep[];
+        readonly contributionStage?: FinancialContributionStage | undefined;
       }
     >
   >;
@@ -90,6 +110,7 @@ type Balance =
 interface AccountState {
   readonly balance: Balance;
   readonly holds: Readonly<Record<string, Balance>>;
+  readonly exchanged?: boolean | undefined;
 }
 
 interface Reservation {
@@ -348,13 +369,9 @@ function productEscrowAccounts(instrument: FinancialInstrument): Set<string> {
   const accounts = new Set<string>();
   for (const action of Object.values(instrument.actions)) {
     for (const step of action.steps) {
-      if (
-        step.operation !== "account.escrow.provision" ||
-        step.bind.role?.from !== "const" ||
-        step.bind.role.value !== "product_escrow"
-      ) {
-        continue;
-      }
+      // This operation fixes the escrow role; an omitted redundant binding
+      // must not exempt its captured account from the conservation proof.
+      if (step.operation !== "account.escrow.provision") continue;
       for (const [key, result] of Object.entries(step.capture ?? {})) {
         if (result === "accountId") accounts.add(`ref:${key}`);
       }
@@ -366,8 +383,17 @@ function productEscrowAccounts(instrument: FinancialInstrument): Set<string> {
   // remain runtime balance checks. Commit sources are added separately above.
   return new Set(
     [...accounts].filter((account) =>
-      Object.values(instrument.actions).some((action) =>
-        (action.moves ?? []).some((step) => {
+      Object.values(instrument.actions).some((action) => {
+        if (
+          action.contributionStage &&
+          canonicalAccountPath(
+            instrument,
+            action.contributionStage.accountPath,
+          ) === account
+        ) {
+          return true;
+        }
+        return (action.moves ?? []).some((step) => {
           if (
             (step.operation !== "internal_transfer.create" &&
               step.operation !== "internal_transfer.reserve") ||
@@ -381,8 +407,8 @@ function productEscrowAccounts(instrument: FinancialInstrument): Set<string> {
             canonicalAccount(instrument, step.bind.destinationAccountId) ===
               account
           );
-        }),
-      ),
+        });
+      }),
     ),
   );
 }
@@ -425,9 +451,37 @@ function effectsByAction(
     quotes.map((quote) => [`refs.${quote.chargeRef}`, quote]),
   );
   return new Map(
-    Object.entries(instrument.actions).map(([actionName, action]) => [
-      actionName,
-      (action.moves ?? []).flatMap((step, stepIndex) => {
+    Object.entries(instrument.actions).map(([actionName, action]) => {
+      const stageEffects: Effect[] = [];
+      if (action.contributionStage && instrument.contributions) {
+        const stage = action.contributionStage;
+        const stageAccount = canonicalAccountPath(
+          instrument,
+          stage.accountPath,
+        );
+        if (
+          stageAccount &&
+          accountsMayAlias(instrument, stageAccount, account)
+        ) {
+          const path = ["actions", actionName, "contributionStage"] as const;
+          const totalAmount = `fields.${instrument.contributions.totalField}`;
+          if (stage.stage === "fund") {
+            stageEffects.push({
+              amount: totalAmount,
+              kind: "credit",
+              path,
+            });
+          } else if (stage.stage === "refund") {
+            stageEffects.push({
+              amount: totalAmount,
+              kind: "debit",
+              path,
+            });
+          }
+        }
+      }
+
+      const moveEffects = (action.moves ?? []).flatMap((step, stepIndex) => {
         const path = [
           "actions",
           actionName,
@@ -537,9 +591,93 @@ function effectsByAction(
           ];
         }
         return [];
-      }),
-    ]),
+      });
+      return [actionName, [...stageEffects, ...moveEffects]];
+    }),
   );
+}
+
+interface NormalizedPartition {
+  readonly total: string;
+  readonly pieces: readonly string[];
+}
+
+function getInstrumentPartitions(
+  instrument: FinancialInstrument,
+): readonly NormalizedPartition[] {
+  if (!instrument.partitions) return [];
+  const partitions: NormalizedPartition[] = [];
+  for (const p of instrument.partitions) {
+    if (!p.totalField || !p.pieceFields || p.pieceFields.length === 0) continue;
+    const total = `fields.${p.totalField}`;
+    const pieces = p.pieceFields.map((f) => `fields.${f}`);
+    if (new Set(pieces).size !== pieces.length) continue;
+    if (pieces.includes(total) && pieces.length > 1) continue;
+    partitions.push({ total, pieces });
+  }
+  return partitions;
+}
+
+function tryPartitionSubstitution(
+  instrument: FinancialInstrument,
+  balance: Balance,
+  holds: Readonly<Record<string, Balance>>,
+  exchanged: boolean,
+  targetAmount: string,
+): Balance | null {
+  if (exchanged) return null;
+  if (balance.kind !== "funded") return null;
+  if (Object.keys(holds).length > 0) return null;
+
+  const declaredPartitions = getInstrumentPartitions(instrument);
+  if (declaredPartitions.length === 0) return null;
+
+  for (const pOut of declaredPartitions) {
+    const total = pOut.total;
+
+    let candidateOutPieces: readonly string[] | null = null;
+    if (pOut.pieces.includes(targetAmount)) {
+      candidateOutPieces = pOut.pieces;
+    } else if (targetAmount === total) {
+      candidateOutPieces = [total];
+    }
+    if (!candidateOutPieces) continue;
+
+    if (candidateOutPieces.length === 0) continue;
+    if (new Set(candidateOutPieces).size !== candidateOutPieces.length)
+      continue;
+
+    const incomingCandidates: (readonly string[])[] = [];
+
+    if (balance.amounts.includes(total)) {
+      incomingCandidates.push([total]);
+    }
+
+    for (const pIn of declaredPartitions) {
+      if (pIn.total !== total) continue;
+      if (pIn.pieces.every((piece) => balance.amounts.includes(piece))) {
+        incomingCandidates.push(pIn.pieces);
+      }
+    }
+
+    for (const candidateInPieces of incomingCandidates) {
+      if (
+        candidateInPieces.length === candidateOutPieces.length &&
+        candidateInPieces.every((piece) => candidateOutPieces!.includes(piece))
+      ) {
+        continue;
+      }
+
+      if (
+        balance.amounts.length === candidateInPieces.length &&
+        candidateInPieces.every((piece) => balance.amounts.includes(piece))
+      ) {
+        return funded(candidateOutPieces);
+      }
+    }
+  }
+
+  return null;
 }
 
 function applyEffects(
@@ -554,6 +692,7 @@ function applyEffects(
 ): AccountState {
   let balance = input.balance;
   const holds = { ...input.holds };
+  let exchanged = input.exchanged ?? false;
   const accountLabel = formatAccount(account);
   for (const effect of effects) {
     const fail = (message: string): void =>
@@ -579,8 +718,24 @@ function applyEffects(
     }
     if (effect.kind === "incoming_reserve") continue;
     if (effect.kind === "outgoing_reserve") {
-      const held =
+      let held =
         balance.kind === "funded" && balance.amounts.includes(effect.amount);
+      if (!held && balance.kind === "funded") {
+        const substituted = tryPartitionSubstitution(
+          instrument,
+          balance,
+          holds,
+          exchanged,
+          effect.amount,
+        );
+        if (substituted !== null) {
+          exchanged = true;
+          balance = substituted;
+          held =
+            balance.kind === "funded" &&
+            balance.amounts.includes(effect.amount);
+        }
+      }
       if (!held) {
         fail(
           `cannot reserve ${effect.amount} from ${accountLabel}; that exact balance is not guaranteed`,
@@ -676,12 +831,36 @@ function applyEffects(
       balance = balance.kind === "empty" ? EMPTY : { kind: "unknown" };
       continue;
     }
-    if (balance.kind === "funded" && balance.amounts.includes(effect.amount)) {
-      balance = funded(withoutPiece(balance.amounts, effect.amount));
-      continue;
+    if (balance.kind === "funded") {
+      if (balance.amounts.includes(effect.amount)) {
+        balance = funded(withoutPiece(balance.amounts, effect.amount));
+        continue;
+      }
+      const substituted = tryPartitionSubstitution(
+        instrument,
+        balance,
+        holds,
+        exchanged,
+        effect.amount,
+      );
+      if (substituted !== null) {
+        exchanged = true;
+        balance = substituted;
+        if (
+          balance.kind === "funded" &&
+          balance.amounts.includes(effect.amount)
+        ) {
+          balance = funded(withoutPiece(balance.amounts, effect.amount));
+          continue;
+        }
+      }
     }
     if (balance.kind === "empty") {
-      fail(`can debit unfunded ${accountLabel}`);
+      fail(
+        exchanged
+          ? `cannot prove ${effect.amount} is available after the substituted partition was spent from ${accountLabel}`
+          : `can debit unfunded ${accountLabel}`,
+      );
     } else if (balance.kind === "penalty") {
       fail(
         `can debit ${accountLabel} after its refund left only the quoted charge`,
@@ -693,7 +872,14 @@ function applyEffects(
     }
     balance = EMPTY;
   }
-  return { balance, holds };
+  // A held account permits at most one equal-partition substitution per funded
+  // balance, preventing cycles, duplicate minting, and double spending. When an
+  // account is completely drained to empty with no active holds, the exchange
+  // record resets for any distinct subsequent funding.
+  if (balance.kind === "empty" && Object.keys(holds).length === 0) {
+    exchanged = false;
+  }
+  return { balance, holds, exchanged };
 }
 
 /**
@@ -873,7 +1059,14 @@ function canonicalAccount(
   binding: UdlBinding | undefined,
 ): string | undefined {
   if (binding?.from !== "instance") return undefined;
-  const [root, key, extra] = binding.path.split(".");
+  return canonicalAccountPath(instrument, binding.path);
+}
+
+function canonicalAccountPath(
+  instrument: FinancialInstrument,
+  path: string,
+): string | undefined {
+  const [root, key, extra] = path.split(".");
   if (!key || extra !== undefined) return undefined;
   if (root === "fields") return `field:${key}`;
   if (root === "refs") return `ref:${key}`;
@@ -961,6 +1154,7 @@ function stateKey(state: AccountState): string {
     holds: Object.fromEntries(
       Object.entries(state.holds).sort(([a], [b]) => a.localeCompare(b)),
     ),
+    exchanged: state.exchanged ?? false,
   });
 }
 

@@ -133,6 +133,13 @@ export function deriveUdlActionEffects(
         ) {
           continue;
         }
+        if (
+          descriptor.kind === "moves" &&
+          ((clause.target === "allocate" && object?.mode === "write_off") ||
+            (clause.target === "receiptDistribution" &&
+              object?.mode === "loss"))
+        )
+          continue;
         const suffix = effectSignatureSuffix(descriptor, object);
         if (!suffix) continue;
         (effects[descriptor.kind] ??= []).push({
@@ -159,7 +166,26 @@ function actionClauseValue(
 ): unknown {
   const [head, tail] = target.split(".");
   if (!head) return undefined;
-  const value = action[head];
+  const value =
+    head === "transitionsRefs"
+      ? [
+          ...(Array.isArray(action.transitionsRefs)
+            ? action.transitionsRefs
+            : []),
+          ...(Array.isArray(action.requiresRefs)
+            ? action.requiresRefs
+            : []
+          ).flatMap((gate) => {
+            const requirement = recordValue(gate);
+            const attests = recordValue(requirement?.attests);
+            return attests
+              ? [{ field: requirement?.field, action: attests.consume }]
+              : [];
+          }),
+        ]
+      : action[head];
+  if (head === "transitionsRefs" && Array.isArray(value) && value.length === 0)
+    return undefined;
   if (!tail) return value;
   return recordValue(value)?.[tail];
 }

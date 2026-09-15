@@ -1,79 +1,77 @@
 {
   "instruments": [
     {
-      "actionOrder": ["create", "close"],
+      "actionOrder": [
+        "close",
+        "create"
+      ],
       "actions": {
-        "create": {
-          "examples": [{ "input": { "reference": "example" }, "name": "default" }],
-          "moves": [],
-          "steps": [],
-          "summary": "File the note."
-        },
         "close": {
-          "examples": [{ "input": {}, "name": "default" }],
           "moves": [],
           "steps": [],
           "summary": "Close the note."
+        },
+        "create": {
+          "examples": [
+            {
+              "input": {
+                "reference": "example"
+              },
+              "name": "default"
+            }
+          ],
+          "moves": [],
+          "steps": [],
+          "summary": "File the note."
         }
       },
-      "fields": { "reference": { "type": "string" } },
+      "fields": {
+        "reference": {
+          "type": "string"
+        }
+      },
       "id": "note",
       "idPrefix": "note",
       "journeys": [
         {
-          "id": "unknown_operation",
-          "label": "Unknown operation",
-          "steps": [{ "bind": {}, "example": "default", "operation": "note.missing" }],
-          "summary": "Refuse an unknown operation."
-        },
-        {
-          "id": "unknown_example",
-          "label": "Unknown example",
-          "steps": [{ "bind": {}, "example": "missing", "operation": "note.create" }],
-          "summary": "Refuse an unknown example."
-        },
-        {
-          "id": "unbound_reference",
-          "label": "Unbound reference",
+          "id": "file_note",
+          "label": "File a note",
           "steps": [
-            { "bind": {}, "example": "default", "id": "note", "operation": "note.create" },
-            { "bind": {}, "example": "default", "operation": "note.close" }
+            {
+              "bind": {},
+              "example": "default",
+              "id": "note",
+              "operation": "note.create"
+            }
           ],
-          "summary": "Refuse an unbound reference."
-        },
-        {
-          "id": "invalid_transition",
-          "label": "Invalid transition",
-          "steps": [
-            { "bind": {}, "example": "default", "id": "note", "operation": "note.create" },
-            { "bind": { "noteId": "note" }, "example": "default", "operation": "note.close" },
-            { "bind": { "noteId": "note" }, "example": "default", "operation": "note.close" }
-          ],
-          "summary": "Refuse an invalid transition."
-        },
-        {
-          "id": "duplicate_step_id",
-          "label": "Duplicate step id",
-          "steps": [
-            { "bind": {}, "example": "default", "id": "duplicate", "operation": "note.create" },
-            { "bind": {}, "example": "default", "id": "duplicate", "operation": "note.create" }
-          ],
-          "summary": "Refuse a duplicate step id."
+          "summary": "File a note."
         }
       ],
       "lifecycle": {
         "initial": "open",
-        "states": ["open", "closed"],
-        "transitions": { "close": { "from": ["open"], "to": "closed" } }
+        "states": [
+          "open",
+          "closed"
+        ],
+        "transitions": {
+          "close": {
+            "from": [
+              "open"
+            ],
+            "to": "closed"
+          }
+        }
       },
-      "required": ["reference"],
+      "required": [
+        "reference"
+      ],
       "summary": "A note a tenant files and later closes.",
       "title": "Note"
     }
   ],
-  "product": "invalid_journeys",
+  "product": "minimal",
   "subjects": [],
-  "title": "Invalid journeys",
+  "title": "Minimal",
   "udl": 1,
   "version": 1
 }

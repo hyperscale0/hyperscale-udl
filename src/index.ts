@@ -1,3 +1,7 @@
+export {
+  mapUdlInstrumentReferences,
+  referencedUdlInstrumentIds,
+} from "./instrument-references.js";
 export { canonicalizeUdl, parseUdl } from "./parser.js";
 export { canonicalDigest, serializeUdl } from "./canonical.js";
 export { issue, udlDiagnostic, udlDiagnostics } from "./diagnostics.js";
@@ -52,7 +56,6 @@ export {
   udlClauseVocabulary,
   udlDocumentSchema,
   udlInstrumentActionIdSchema,
-  udlJourneySchema,
   udlKernelOperationSchema,
   udlProviderFamilyIdSchema,
   udlPublicActionSchema,
@@ -88,8 +91,6 @@ export type {
   UdlLifecycleTransition,
   UdlInstrument,
   UdlInstrumentSubject,
-  UdlJourney,
-  UdlJourneyStep,
   UdlPayout,
   UdlQuote,
   UdlProviderFamilyId,
@@ -119,3 +120,29 @@ export type {
   UdlValidationOptions,
   UdlValidationResult,
 } from "./validation.js";
+
+export {
+  deriveUdlAmount,
+  deriveRemainder,
+  matchesOrdered,
+  matchesDateOrder,
+  matchesSchedule,
+  isDueBefore,
+  planContributions,
+} from "./vocabulary.js";
+export {
+  planAllocation,
+  planAllocationRefund,
+  matchesAllocationConsumption,
+} from "./allocation.js";
+export type { UdlAllocation, UdlAllocate, UdlContributions } from "./schema.js";
+
+export type {
+  AllocationInput,
+  AllocationSlice,
+  AllocationBalance,
+  AllocationPosting,
+  AllocationCancellation,
+} from "./allocation.js";
+
+export { distributeReceiptAmounts } from "./distribution.js";

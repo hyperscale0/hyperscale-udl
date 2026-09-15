@@ -4,6 +4,7 @@ import {
   analyzeInstrumentFinance as analyzeInstrumentFinanceRaw,
   deriveUdlActionEffects,
   movementClass,
+  openReferenceShapeBudget,
   parseUdl,
   serializeUdl,
   udlClauseVocabulary,
@@ -639,7 +640,8 @@ describe("UDL grammar validation", () => {
     expect(elapsedMs).toBeLessThan(1_000);
   });
 
-  test("pays for each reference-shape check once, and caps the total", async () => {
+  test("classifies references without the catalogue exhausting the safety budget", async () => {
+    expect(UDL_LIMITS.maxSchemaProbes).toBe(131_072);
     const widened = async (
       gateField: (index: number) => string,
     ): Promise<ReturnType<typeof validateUdl>> => {
@@ -695,12 +697,28 @@ describe("UDL grammar validation", () => {
     if (sharedField.ok) throw new Error("expected invalid UDL");
     expect(sharedField.issues).not.toContainEqual(overBudget);
 
-    // 46 distinct gate fields over 46 instruments is a genuine 2116-answer product,
-    // and that is where validation refuses to keep paying.
+    // The former 2116-pair refusal now fits, with room for company instruments.
     const distinctFields = await widened((index) => `gate${index}Id`);
     expect(distinctFields.ok).toBe(false);
     if (distinctFields.ok) throw new Error("expected invalid UDL");
-    expect(distinctFields.issues).toEqual([overBudget]);
+    expect(distinctFields.issues).not.toContainEqual(overBudget);
+    const budget = openReferenceShapeBudget();
+    for (let i = 0; i < UDL_LIMITS.maxSchemaProbes; i++) {
+      expect(
+        budget.accepts(
+          { type: "string", pattern: "^clm_(sandbox|live)_[a-z0-9]{8,64}$" },
+          "clm",
+        ),
+      ).toBe(true);
+    }
+    expect(budget.exhausted).toBe(false);
+    expect(
+      budget.accepts(
+        { type: "string", pattern: "^clm_(sandbox|live)_[a-z0-9]{8,64}$" },
+        "clm",
+      ),
+    ).toBe(false);
+    expect(budget.exhausted).toBe(true);
   });
 
   test("requires one create action and a transition for every other action", async () => {
@@ -776,6 +794,21 @@ describe("UDL grammar validation", () => {
     delete escrow.actions.create!.requiresRefs![0]!.optional;
     escrow.required = escrow.required.filter((field) => field !== "listingId");
     expect(validateUdl(document).ok).toBe(true);
+
+    // Optional is a runtime opt-out, never permission to omit the target kind.
+    document.instruments = document.instruments.filter(
+      (instrument) => instrument.id !== "listing",
+    );
+    const missingTarget = validateUdl(document);
+    expect(missingTarget.ok).toBe(false);
+    if (missingTarget.ok)
+      throw new Error("expected a closed-document reference refusal");
+    expect(missingTarget.issues).toContainEqual({
+      code: "UDL5001",
+      message:
+        "gate field listingId must identify exactly one instrument (found 0)",
+      path: `$.instruments[${document.instruments.indexOf(escrow)}].actions.fund.requiresRefs[0].field`,
+    });
   });
 
   test("checks deadline fields, offsets, and exclusion with due", async () => {

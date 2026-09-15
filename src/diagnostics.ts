@@ -12,7 +12,6 @@ export type UdlDiagnosticFamily =
   | "evolution"
   | "finance"
   | "gates"
-  | "journey"
   | "lifecycle"
   | "schema";
 
@@ -189,37 +188,6 @@ const diagnosticDefinitions = {
     family: "schema",
     title: "Unsupported JSON Schema",
     fix: "Use only the sealed UDL JSON Schema subset.",
-  },
-
-  journey_unknown_operation: {
-    category: "invalid_semantics",
-    family: "journey",
-    title: "Journey operation is not in the composition",
-    fix: "Name an operation in the composition closure.",
-  },
-  journey_unknown_example: {
-    category: "invalid_semantics",
-    family: "journey",
-    title: "Journey example does not exist",
-    fix: "Name an authored example on the journey operation.",
-  },
-  journey_invalid_transition: {
-    category: "invalid_semantics",
-    family: "journey",
-    title: "Journey lifecycle transition is invalid",
-    fix: "Order the steps so each action starts from the state produced by earlier steps.",
-  },
-  journey_unbound_reference: {
-    category: "invalid_semantics",
-    family: "journey",
-    title: "Journey reference is unbound or has the wrong kind",
-    fix: "Bind every reference input to an earlier step that creates the required kind.",
-  },
-  journey_duplicate_step_id: {
-    category: "invalid_semantics",
-    family: "journey",
-    title: "Journey step id is duplicated",
-    fix: "Give every named step in the journey a unique id.",
   },
 
   UDL7001: {

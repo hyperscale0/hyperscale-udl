@@ -1,3 +1,5 @@
+import { referencePatternPrefix } from "./reference.js";
+import { validateVocabulary } from "./vocabulary.js";
 import {
   Validator,
   type OutputUnit,
@@ -68,6 +70,12 @@ export interface UdlValidationOptions {
   readonly requireDecisionPartyBindings?: boolean;
 }
 
+/**
+ * Validate a complete document. Clause references to instruments must resolve
+ * within this document, even when the reference field is optional. A catalogue
+ * slice must include its referenced instruments; an external catalogue cannot
+ * supply missing product laws. Reference fields use the sealed public ID grammar.
+ */
 export function validateUdl(
   value: unknown,
   options: UdlValidationOptions = {},
@@ -296,6 +304,26 @@ function semanticIssues(
   validateDocumentSchemas(document, add);
   if (issues.length > 0) return issues;
 
+  // Vocabulary laws must accumulate with the existing semantic diagnostics.
+  validateVocabulary(document.instruments, (path, message) =>
+    add(
+      path,
+      message,
+      path.some((part) =>
+        [
+          "attests",
+          "requiresInput",
+          "engineOwned",
+          "captureEngine",
+          "unique",
+          "port",
+        ].includes(String(part)),
+      )
+        ? "UDL5001"
+        : shapeIssueCode(path),
+    ),
+  );
+
   addDuplicateIssues(
     document.subjects.map((subject) => subject.kind),
     ["subjects"],
@@ -316,7 +344,6 @@ function semanticIssues(
   );
 
   validateCompositionDials(document, add);
-  validateInstrumentJourneys(document, add);
 
   const subjects = new Map(
     document.subjects.map((subject) => [subject.kind, subject] as const),
@@ -414,162 +441,6 @@ function semanticIssues(
     );
   }
   return issues;
-}
-
-const scopedIdPattern =
-  /^\^([a-z]{2,8})_\(sandbox\|live\)_\[a-z0-9\]\{8,64\}\$$/;
-
-function camel(value: string): string {
-  return value.replace(/_([a-z0-9])/g, (_match, character: string) =>
-    character.toUpperCase(),
-  );
-}
-
-function journeyReferenceFields(
-  instrument: UdlInstrument,
-  actionName: string,
-): ReadonlyMap<string, string> {
-  const action = instrument.actions[actionName];
-  if (!action) return new Map();
-  const fields = new Map<string, string>();
-  const addSchema = (name: string, schema: unknown) => {
-    const pattern = recordValue(schema).pattern;
-    if (typeof pattern !== "string") return;
-    const prefix = scopedIdPattern.exec(pattern)?.[1];
-    if (prefix) fields.set(name, prefix);
-  };
-  if (actionName === "create") {
-    const derivedFields = new Set(
-      (action.requiresRefs ?? []).flatMap((gate) =>
-        Object.keys(gate.bind ?? {}),
-      ),
-    );
-    for (const name of instrument.required) {
-      if (!derivedFields.has(name)) addSchema(name, instrument.fields[name]);
-    }
-  } else {
-    fields.set(`${camel(instrument.id)}Id`, instrument.idPrefix);
-  }
-  const input = recordValue(action.input);
-  const required = Array.isArray(input.required)
-    ? input.required.filter((name): name is string => typeof name === "string")
-    : [];
-  const properties = recordValue(input.properties);
-  for (const name of required) addSchema(name, properties[name]);
-  return fields;
-}
-
-/**
- * Validate the part of authored journeys that canonical UDL can prove alone.
- * A caller with the operation catalog validates root-operation examples and
- * cross-kind bindings. UDL owns local examples, lifecycle order, and local
- * reference completeness so raw UDL cannot bypass those laws.
- */
-function validateInstrumentJourneys(
-  document: UdlDocument,
-  add: AddIssue,
-): void {
-  const instruments = new Map(
-    document.instruments.map(
-      (instrument) => [instrument.id, instrument] as const,
-    ),
-  );
-  for (const [instrumentIndex, owner] of document.instruments.entries()) {
-    for (const [journeyIndex, journey] of (owner.journeys ?? []).entries()) {
-      const base = [
-        "instruments",
-        instrumentIndex,
-        "journeys",
-        journeyIndex,
-      ] as const;
-      const seen = new Set<string>();
-      const createdKindByStep = new Map<string, string>();
-      const stateByStep = new Map<string, string>();
-      for (const [stepIndex, step] of journey.steps.entries()) {
-        const stepBase = [...base, "steps", stepIndex] as const;
-        if (step.id) {
-          if (seen.has(step.id)) {
-            add(
-              [...stepBase, "id"],
-              `journey ${journey.id} declares step id ${step.id} more than once`,
-              "journey_duplicate_step_id",
-            );
-          }
-        }
-        const [instrumentId, actionName] = step.operation.split(".");
-        const instrument = instrumentId
-          ? instruments.get(instrumentId)
-          : undefined;
-        const action =
-          instrument && actionName ? instrument.actions[actionName] : undefined;
-        if (!instrument) {
-          if (step.id) seen.add(step.id);
-          continue;
-        }
-        if (!action || !actionName) {
-          add(
-            [...stepBase, "operation"],
-            `journey ${journey.id} names unknown operation ${step.operation}`,
-            "journey_unknown_operation",
-          );
-          continue;
-        }
-        if (
-          !action.examples?.some((example) => example.name === step.example)
-        ) {
-          add(
-            [...stepBase, "example"],
-            `journey ${journey.id} names unknown example ${step.example} on ${step.operation}`,
-            "journey_unknown_example",
-          );
-        }
-        for (const [field, prefix] of journeyReferenceFields(
-          instrument,
-          actionName,
-        )) {
-          const producer = step.bind[field];
-          if (!producer || !seen.has(producer)) {
-            add(
-              [...stepBase, "bind", field],
-              `journey ${journey.id} must bind ${step.operation}.${field} to an earlier step`,
-              "journey_unbound_reference",
-            );
-            continue;
-          }
-          const producedPrefix = createdKindByStep.get(producer);
-          if (producedPrefix && producedPrefix !== prefix) {
-            add(
-              [...stepBase, "bind", field],
-              `journey ${journey.id} binds ${step.operation}.${field} to ${producer}, which creates ${producedPrefix} instead of ${prefix}`,
-              "journey_unbound_reference",
-            );
-          }
-        }
-        if (actionName === "create") {
-          if (step.id) {
-            createdKindByStep.set(step.id, instrument.idPrefix);
-            stateByStep.set(step.id, instrument.lifecycle.initial);
-            seen.add(step.id);
-          }
-          continue;
-        }
-        const transition = instrument.lifecycle.transitions[actionName];
-        if (!transition) continue;
-        const ownProducer = step.bind[`${camel(instrument.id)}Id`];
-        const state = ownProducer ? stateByStep.get(ownProducer) : undefined;
-        if (state && !transition.from.includes(state)) {
-          add(
-            [...stepBase, "operation"],
-            `journey ${journey.id} runs ${step.operation} from ${state}; allowed states are ${transition.from.join(", ")}`,
-            "journey_invalid_transition",
-          );
-        } else if (ownProducer) {
-          stateByStep.set(ownProducer, transition.to);
-        }
-        if (step.id) seen.add(step.id);
-      }
-    }
-  }
 }
 
 function structuralBudgetIssue(value: unknown): UdlIssue | undefined {
@@ -2916,7 +2787,11 @@ function validateActionUpdates(
       add(fieldPath, `updated field ${field} is an aggregate cap`, "UDL5008");
     }
   });
-  if (definition.moves.length > 0) {
+  if (
+    definition.moves.length > 0 ||
+    definition.allocate ||
+    definition.contributionStage
+  ) {
     add(
       [...actionBase, "updates"],
       "an action cannot update fields while moving money",
@@ -2994,6 +2869,33 @@ function validateRemainder(
       "remainder accumulateRef must differ from amountRef",
       "UDL4001",
     );
+  }
+  addDuplicateIssues(
+    remainder.subtractPaths ?? [],
+    [...remainderBase, "subtractPaths"],
+    "remainder operand",
+    add,
+  );
+  for (const path of remainder.subtractPaths ?? []) {
+    const [root, key] = path.split(".");
+    const declared =
+      root === "fields" &&
+      key !== undefined &&
+      isMoneySchema(instrument.fields[key] ?? {}) &&
+      !instrument.update?.fields.includes(key) &&
+      !Object.values(instrument.actions).some((action) =>
+        action.updates?.includes(key),
+      );
+    if (
+      !declared ||
+      path === remainder.totalPath ||
+      path === `refs.${remainder.amountRef}`
+    )
+      add(
+        [...remainderBase, "subtractPaths"],
+        `remainder subtraction ${path} must name distinct immutable money`,
+        "UDL4001",
+      );
   }
   const [totalRoot, totalKey] = remainder.totalPath.split(".");
   const totalDeclared =
@@ -3189,10 +3091,24 @@ function validateActions(
     );
 
     if (definition.requiresRefs) {
+      const boundFields = new Map<string, string>();
+      for (const gate of definition.requiresRefs) {
+        for (const [field, path] of Object.entries(gate.bind ?? {})) {
+          const source = `${gate.field}:${path}`;
+          const previous = boundFields.get(field);
+          if (previous !== undefined && previous !== source)
+            add(
+              [...actionBase, "requiresRefs"],
+              `reference gates bind ${field} from conflicting sources`,
+              "UDL5001",
+            );
+          boundFields.set(field, source);
+        }
+      }
       addDuplicateIssues(
-        definition.requiresRefs.map((gate) => gate.field),
+        definition.requiresRefs.map((gate) => JSON.stringify(sortObject(gate))),
         [...actionBase, "requiresRefs"],
-        "gate field",
+        "gate",
         add,
       );
       definition.requiresRefs.forEach((gate, gateIndex) => {
@@ -3302,6 +3218,7 @@ function validateActions(
         ...Object.entries(instrument.actions).flatMap(
           ([candidateAction, candidate]) => [
             ...Object.keys(candidate.captureInput ?? {}),
+            ...Object.keys(candidate.captureEngine ?? {}),
             ...[...candidate.steps, ...candidate.moves].flatMap((step) =>
               Object.keys(step.capture ?? {}),
             ),
@@ -3502,7 +3419,7 @@ function validateActions(
         );
       }
       if (
-        definition.due.offset &&
+        typeof definition.due.offset === "string" &&
         fixedIsoDurationMs(definition.due.offset) === null
       ) {
         add(
@@ -3537,7 +3454,7 @@ function validateActions(
         );
       }
       if (
-        definition.deadline.offset &&
+        typeof definition.deadline.offset === "string" &&
         fixedIsoDurationMs(definition.deadline.offset) === null
       ) {
         add(
@@ -4137,9 +4054,10 @@ function validatePayoutsAndSettlement(
   }
 
   const reservedRefs = new Set([
-    ...Object.values(instrument.actions).flatMap((action) =>
-      Object.keys(action.captureInput ?? {}),
-    ),
+    ...Object.values(instrument.actions).flatMap((action) => [
+      ...Object.keys(action.captureInput ?? {}),
+      ...Object.keys(action.captureEngine ?? {}),
+    ]),
     ...Object.values(instrument.actions).flatMap((action) =>
       [...action.steps, ...action.moves].flatMap((step) =>
         Object.keys(step.capture ?? {}),
@@ -4165,6 +4083,9 @@ function validatePayoutsAndSettlement(
               : []),
           ]
         : [],
+    ),
+    ...Object.values(instrument.actions).flatMap((action) =>
+      action.allocate ? [action.allocate.capture] : [],
     ),
     ...quoteRefKeys(instrument),
     ...(instrument.subject ? ["subject"] : []),
@@ -4698,9 +4619,10 @@ function declaredRefKeys(instrument: UdlInstrument): ReadonlySet<string> {
     ...Object.values(instrument.actions).flatMap((action) =>
       (action.reconcile ?? []).map((reconcile) => reconcile.capture),
     ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      Object.keys(action.captureInput ?? {}),
-    ),
+    ...Object.values(instrument.actions).flatMap((action) => [
+      ...Object.keys(action.captureInput ?? {}),
+      ...Object.keys(action.captureEngine ?? {}),
+    ]),
     ...Object.values(instrument.actions).flatMap((action) =>
       [...action.steps, ...action.moves].flatMap((step) =>
         Object.keys(step.capture ?? {}),
@@ -4713,6 +4635,9 @@ function declaredRefKeys(instrument: UdlInstrument): ReadonlySet<string> {
             ...action.signedSum.sources.map((source) => source.subtotalRef),
           ]
         : [],
+    ),
+    ...Object.values(instrument.actions).flatMap((action) =>
+      action.allocate ? [action.allocate.capture] : [],
     ),
     ...quoteRefKeys(instrument),
     ...(instrument.subject ? ["subject"] : []),
@@ -5554,34 +5479,28 @@ function reconcileExceptionProblemMessage(
  * are written once. The value is disposable: no document ever carries it, and
  * a host's real id grammar stays the host's business.
  */
-const probeIdFor = (prefix: string): string =>
-  `${prefix}_sandbox_0123456789abcdef`;
-
-/** A prefix no host mints, so a schema that accepts it accepts anything. */
-const UNCLAIMED_PREFIX = "zzzz";
-
+/** Classify the sealed ID pattern without compiling document-authored regexes. */
 export function openReferenceShapeBudget(): ReferenceShapeBudget {
   const answers = new WeakMap<object, Map<string, boolean>>();
   let probes = 0;
+  let exhausted = false;
   return {
     accepts(schema, prefix) {
       const seen = answers.get(schema);
       const cached = seen?.get(prefix);
       if (cached !== undefined) return cached;
-      if (probes >= UDL_LIMITS.maxSchemaProbes) return false;
+      if (probes >= UDL_LIMITS.maxSchemaProbes) {
+        exhausted = true;
+        return false;
+      }
       probes += 1;
-
-      const answer =
-        validateUdlSchemaValue(schema, probeIdFor(prefix)).errors.length ===
-          0 &&
-        validateUdlSchemaValue(schema, probeIdFor(UNCLAIMED_PREFIX)).errors
-          .length > 0;
+      const answer = referencePatternPrefix(schema) === prefix;
       if (seen) seen.set(prefix, answer);
       else answers.set(schema, new Map([[prefix, answer]]));
       return answer;
     },
     get exhausted() {
-      return probes >= UDL_LIMITS.maxSchemaProbes;
+      return exhausted;
     },
   };
 }
@@ -5725,4 +5644,15 @@ function jsonPath(path: readonly PropertyKey[]): string {
     } else result += `[${JSON.stringify(String(segment))}]`;
   }
   return result;
+}
+
+function sortObject(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, sortObject(item)]),
+    );
+  return value;
 }

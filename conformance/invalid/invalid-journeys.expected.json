@@ -1,26 +1,10 @@
 {
-  "summary": "Authored journeys reject unknown operations, unknown examples, missing bindings, invalid transitions, and duplicate step ids.",
+  "summary": "The retired journeys clause is refused rather than ignored.",
   "verdict": "invalid",
   "issues": [
     {
-      "code": "journey_unknown_operation",
-      "path": "$.instruments[0].journeys[0].steps[0].operation"
-    },
-    {
-      "code": "journey_unknown_example",
-      "path": "$.instruments[0].journeys[1].steps[0].example"
-    },
-    {
-      "code": "journey_unbound_reference",
-      "path": "$.instruments[0].journeys[2].steps[1].bind.noteId"
-    },
-    {
-      "code": "journey_invalid_transition",
-      "path": "$.instruments[0].journeys[3].steps[2].operation"
-    },
-    {
-      "code": "journey_duplicate_step_id",
-      "path": "$.instruments[0].journeys[4].steps[1].id"
+      "code": "UDL1003",
+      "path": "$.instruments[0]"
     }
   ]
 }

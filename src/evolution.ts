@@ -26,6 +26,13 @@ export interface EvolutionMoveSnapshot extends EvolutionStepSnapshot {
 }
 
 export interface EvolutionActionSnapshot {
+  readonly requiresInput?: unknown;
+  readonly engineOwned?: unknown;
+  readonly captureEngine?: unknown;
+  readonly requiresAllocation?: unknown;
+  readonly allocate?: unknown;
+  readonly contributionStage?: unknown;
+  readonly transitionsRefs?: unknown;
   /** Missing on snapshots written before receipt-input capture existed. */
   readonly captureInput?: unknown;
   readonly deadline: unknown;
@@ -66,6 +73,7 @@ export interface EvolutionActionSnapshot {
   readonly requiresDrainedAccount: unknown;
   /** Missing on snapshots written before exposure gates entered open UDL. */
   readonly requiresExposure?: unknown;
+  readonly unique?: unknown;
   readonly requiresRefs: unknown;
   /** Missing on snapshots written before reconcile expectations existed. */
   readonly reconcile?: unknown;
@@ -83,6 +91,10 @@ export interface EvolutionTransitionSnapshot {
 
 /** The complete serializable algebra protected by append-only evolution. */
 export interface InstrumentEvolutionSnapshot {
+  readonly templateBinding?: unknown;
+  readonly allocation?: unknown;
+  readonly contributions?: unknown;
+  readonly dateOrder?: unknown;
   /** Missing on snapshots written before UDL carried authored action order. */
   readonly actionOrder?: readonly string[];
   readonly aggregateInvariants: readonly string[];
@@ -126,14 +138,19 @@ export function snapshotUdlInstrument(
 ): InstrumentEvolutionSnapshot {
   const required = new Set(instrument.required);
   return {
+    templateBinding: instrument.templateBinding ?? null,
+    allocation: instrument.allocation ?? null,
+    contributions: instrument.contributions ?? null,
+    dateOrder: instrument.dateOrder ?? [],
     actionOrder: [...instrument.actionOrder],
     aggregateInvariants: (instrument.aggregateInvariants ?? []).map(
       aggregateInvariantKey,
     ),
     callerParkedStates: instrument.callerParkedStates ?? {},
-    derivedAmounts: (instrument.derivedAmounts ?? []).map(
-      (amount) =>
-        `${amount.field}=floor(${amount.sourceField}*${amount.rule.bps}/10000)`,
+    derivedAmounts: (instrument.derivedAmounts ?? []).map((amount) =>
+      amount.rule.kind === "minimum"
+        ? `${amount.field}=min(${amount.sourceField},${amount.rule.capField})`
+        : `${amount.field}=floor(${amount.sourceField}*${typeof amount.rule.bps === "number" ? amount.rule.bps : `fields.${amount.rule.bps.field}`}/10000)`,
     ),
     dials: instrument.dials ?? [],
     ...(instrument.distinctParties ? { distinctParties: true as const } : {}),
@@ -372,6 +389,18 @@ function diffInstrumentEvolutionMessages(
   }
   violations.push(...diffActions(previous.actions, next.actions));
   violations.push(...diffParties(previous.parties, next.parties));
+  for (const key of [
+    "allocation",
+    "contributions",
+    "dateOrder",
+    "templateBinding",
+  ] as const) {
+    if (
+      stableStringify(previous[key] ?? (key === "dateOrder" ? [] : null)) !==
+      stableStringify(next[key] ?? (key === "dateOrder" ? [] : null))
+    )
+      violations.push(`${key} contract changed`);
+  }
   violations.push(...diffAggregates(previous, next));
   if (
     stableStringify(Object.keys(previous.callerParkedStates ?? {}).sort()) !==
@@ -517,6 +546,13 @@ function evolutionIssue(message: string, instrumentBase: string): UdlIssue {
 
 function snapshotUdlAction(definition: UdlAction): EvolutionActionSnapshot {
   return {
+    requiresInput: definition.requiresInput ?? null,
+    engineOwned: definition.engineOwned ?? null,
+    captureEngine: definition.captureEngine ?? null,
+    requiresAllocation: definition.requiresAllocation ?? null,
+    allocate: definition.allocate ?? null,
+    contributionStage: definition.contributionStage ?? null,
+    transitionsRefs: definition.transitionsRefs ?? [],
     captureInput: definition.captureInput ?? null,
     commit: definition.commit ?? null,
     deadline: definition.deadline ?? null,
@@ -551,6 +587,7 @@ function snapshotUdlAction(definition: UdlAction): EvolutionActionSnapshot {
     requiresAggregate: definition.requiresAggregate ?? [],
     requiresDrainedAccount: definition.requiresDrainedAccount ?? null,
     requiresExposure: definition.requiresExposure ?? [],
+    unique: definition.unique ?? null,
     requiresRefs: definition.requiresRefs ?? [],
     reconcile: definition.reconcile ?? null,
     steps: definition.steps.map((step) => ({
@@ -717,6 +754,12 @@ function diffActions(
       violations.push(`action ${action} changed its drained-account gate`);
     }
     if (
+      stableStringify(descriptor.unique ?? null) !==
+      stableStringify(current.unique ?? null)
+    ) {
+      violations.push(`action ${action} changed its subject uniqueness claim`);
+    }
+    if (
       descriptor.requiresExposure !== undefined &&
       stableStringify(descriptor.requiresExposure) !==
         stableStringify(current.requiresExposure)
@@ -735,6 +778,23 @@ function diffActions(
       stableStringify(current.payout ?? null)
     ) {
       violations.push(`action ${action} changed its payout intent`);
+    }
+    for (const key of [
+      "requiresInput",
+      "engineOwned",
+      "captureEngine",
+      "requiresAllocation",
+      "allocate",
+      "contributionStage",
+      "transitionsRefs",
+    ] as const) {
+      if (
+        stableStringify(
+          descriptor[key] ?? (key === "transitionsRefs" ? [] : null),
+        ) !==
+        stableStringify(current[key] ?? (key === "transitionsRefs" ? [] : null))
+      )
+        violations.push(`action ${action} changed its ${key} contract`);
     }
     if (descriptor.earnable !== current.earnable) {
       violations.push(`action ${action} changed its earnable flag`);

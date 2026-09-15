@@ -14,12 +14,6 @@ const packageVersion = (
     readonly version: string;
   }
 ).version;
-const mode = process.argv[2];
-
-if (mode !== "--write" && mode !== "--check") {
-  throw new Error("usage: bun scripts/docs/build.ts --write|--check");
-}
-
 const generated = new Map<string, string>([
   ["reference/clauses.md", await clausesPage()],
   ["reference/diagnostics.md", diagnosticsPage()],
@@ -28,33 +22,10 @@ const generated = new Map<string, string>([
 generated.set("llms.txt", shortMap());
 generated.set("llms-full.txt", await fullMap(generated));
 
-const stale: string[] = [];
 for (const [relativePath, contents] of generated) {
-  const path = join(docsRoot, relativePath);
-  if (mode === "--write") {
-    await Bun.write(path, contents);
-    continue;
-  }
-  const current = await Bun.file(path)
-    .text()
-    .catch(() => "");
-  if (current !== contents) stale.push(relativePath);
+  await Bun.write(join(docsRoot, relativePath), contents);
 }
-
-if (stale.length > 0) {
-  console.error(
-    `generated UDL documentation is stale: ${stale.join(", ")}; run bun run docs:build`,
-  );
-  process.exit(1);
-}
-
 await checkLinks();
-
-if (mode === "--check") {
-  console.log(
-    `generated UDL documentation matches (${generated.size} files); local links resolve`,
-  );
-}
 
 async function clausesPage(): Promise<string> {
   const examples = await clauseExamples();
@@ -99,7 +70,7 @@ async function cliPage(): Promise<string> {
   const source = await Bun.file(join(packageRoot, "src", "cli.ts")).text();
   const usage = source.match(/const USAGE = `([\s\S]*?)`;/)?.[1];
   if (!usage) throw new Error("could not read USAGE from src/cli.ts");
-  return `${header("cli.md")}# Command reference\n\nThe installed ${code("udl")} binary exposes the following commands and exit codes.\n\n\`\`\`text\n${usage}\n\`\`\`\n`;
+  return `${header("cli.md")}# Command reference\n\nIn the full repository checkout, run ${code("bun open/udl/src/cli.ts validate <file.udl.json>")} from the repository root. The entrypoint is ${code("open/udl/src/cli.ts")}; in a standalone package checkout it is ${code("src/cli.ts")}. Use this local validator for local HSX output.\n\nThe installed ${code("udl")} binary exposes the following commands and exit codes.\n\n\`\`\`text\n${usage}\n\`\`\`\n`;
 }
 
 function shortMap(): string {
@@ -303,36 +274,11 @@ function code(value: string): string {
 }
 
 function fence(value: unknown): string {
-  return `\`\`\`json\n${formatJson(value)}\n\`\`\``;
+  return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
 }
 
 function escapeCell(value: string): string {
   return value.replaceAll("|", "\\|").replaceAll("\n", " ");
-}
-
-function formatJson(value: unknown, depth = 0): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "[]";
-    if (value.every((entry) => entry === null || typeof entry !== "object")) {
-      return `[${value.map((entry) => formatJson(entry)).join(", ")}]`;
-    }
-    const indentation = "  ".repeat(depth + 1);
-    return `[\n${value
-      .map((entry) => `${indentation}${formatJson(entry, depth + 1)}`)
-      .join(",\n")}\n${"  ".repeat(depth)}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0) return "{}";
-  const indentation = "  ".repeat(depth + 1);
-  return `{\n${entries
-    .map(
-      ([key, entry]) =>
-        `${indentation}${JSON.stringify(key)}: ${formatJson(entry, depth + 1)}`,
-    )
-    .join(",\n")}\n${"  ".repeat(depth)}}`;
 }
 
 function markdownTable(

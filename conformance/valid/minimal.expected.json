@@ -1,6 +1,6 @@
 {
   "canonical": "minimal.udl",
-  "digest": "d7a742548bf559eaa3101e09e0c404190957e34854b220ca010d145d4fd9cae6",
+  "digest": "7933986489470a2e95e316c854077b6f970b1228679ea86d71d8c4c276e89624",
   "summary": "The smallest document the grammar and the semantic laws both accept.",
   "verdict": "valid"
 }

@@ -11,7 +11,6 @@ export const UDL_LIMITS = Object.freeze({
   maxActionLeaves: 256,
   maxDepth: 24,
   maxKeyLength: 128,
-  // The 33-instrument catalog includes its executable authored journeys.
   maxNodes: 20_000,
   maxPatternLength: 320,
   /**
@@ -25,13 +24,10 @@ export const UDL_LIMITS = Object.freeze({
   maxPatternPaths: 4_096,
   /**
    * Reference-shape classifications one `ReferenceShapeBudget` may buy. Each
-   * one compiles a JSON Schema validator, and a document controls both factors
-   * of the instruments x gate-fields product that asks for them.
+   * one classifies canonical reference pattern text without compiling a validator.
+   * This safety net covers a catalogue plus hundreds of authored instruments.
    */
-  maxSchemaProbes: 2_048,
-  // The complete catalog now carries executable authored journeys beside the
-  // instrument mechanics, so its bounded source and string budgets include
-  // that contract-owned corpus.
+  maxSchemaProbes: 131_072,
   maxSourceBytes: 1_024 * 1_024,
   maxStringLength: 2_048,
   maxTotalStringLength: 512 * 1_024,

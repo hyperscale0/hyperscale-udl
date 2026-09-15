@@ -32,21 +32,6 @@
       },
       "id": "note",
       "idPrefix": "note",
-      "journeys": [
-        {
-          "id": "file_note",
-          "label": "File a note",
-          "steps": [
-            {
-              "bind": {},
-              "example": "default",
-              "id": "note",
-              "operation": "note.create"
-            }
-          ],
-          "summary": "File a note."
-        }
-      ],
       "lifecycle": {
         "initial": "open",
         "states": [

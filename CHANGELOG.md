@@ -8,20 +8,22 @@ Format version and package version are different numbers.
 
 ## [Unreleased]
 
-- `attests.forAction` lets a declined decision close the same assessed request through its declared refusal action.
+## [2.5.0] - 2026-09-17
 
-- Add reference age gates with fixed durations and allocation gates over a named slice.
-- Refuse fee plus VAT ratios above distributable profit and impossible constant partitions.
-- Derive published instrument dependencies and tenant scoping from the same schema annotations.
+### Changed
 
-### Added
-
-- Request authority binds a server-computed decision digest to a frozen target action and its material input.
-- Instrument reference annotations drive tenant scoping through the document schema, including allocation and funding references.
+- The `hyperscale-date-time` format admits any RFC 3339 offset, not only `Z`. Hosts normalise the value to its UTC instant on admission.
 
 ## [2.4.0] - 2026-09-15
 
 ### Added
+
+- `attests.forAction` lets a declined decision close the same assessed request through its declared refusal action.
+- Add reference age gates with fixed durations and allocation gates over a named slice.
+- Refuse fee plus VAT ratios above distributable profit and impossible constant partitions.
+- Derive published instrument dependencies and tenant scoping from the same schema annotations.
+- Request authority binds a server-computed decision digest to a frozen target action and its material input.
+- Instrument reference annotations drive tenant scoping through the document schema, including allocation and funding references.
 
 - Allocation vocabulary: `allocation`, `requiresAllocation`, self allocation, shared consumption and children buckets; `templateBinding` preserves template identity. Unique constraints accept account fields, and exposure can measure allocation-backed remaining balances.
 - Signed schedules, stored rates, equal partitions, contributions, referenced transitions and attested decisions with subject and party binding.

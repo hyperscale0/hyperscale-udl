@@ -491,10 +491,13 @@ describe("UDL grammar validation", () => {
       notificationEmails: ["owner@example.com"],
     });
     expect(validateUdl(document).ok).toBe(true);
+    // Any RFC 3339 offset is a valid date-time; the host stores it as UTC.
+    example.input.exactTime = "2026-07-23T15:00:00+03:00";
+    expect(validateUdl(document).ok).toBe(true);
+    example.input.exactTime = "2026-07-23T12:00:00.000Z";
 
     const invalidValues = [
       ["exactDate", "2026-02-30", "hyperscale-date"],
-      ["exactTime", "2026-07-23T15:00:00+03:00", "hyperscale-date-time"],
       ["exactTime", "2026-07-23t12:00:00.000z", "hyperscale-date-time"],
       ["exactTime", "2026-07-23 12:00:00.000Z", "hyperscale-date-time"],
       ["exactEmail", "a@b", "hyperscale-email"],

@@ -5509,7 +5509,8 @@ const sealedFormatValidators: Readonly<
   Record<string, (value: string) => boolean>
 > = {
   "hyperscale-date": (value) => z.iso.date().safeParse(value).success,
-  "hyperscale-date-time": (value) => z.iso.datetime().safeParse(value).success,
+  "hyperscale-date-time": (value) =>
+    z.iso.datetime({ offset: true }).safeParse(value).success,
   "hyperscale-email": (value) => z.email().safeParse(value).success,
   "hyperscale-uri": (value) => z.url().safeParse(value).success,
 };

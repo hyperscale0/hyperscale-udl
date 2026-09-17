@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Format version and package version are different numbers.
 
+## [2.6.1] - 2026-09-17
+
+Pairs with HSX 2.4.1.
+
+### Changed
+
+- README pairs the package with HSX 2.4.1. No format or validator change.
+
 ## [2.6.0] - 2026-09-17
 
 ### Added

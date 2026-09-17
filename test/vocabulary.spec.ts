@@ -906,3 +906,208 @@ test("allocation gates and action operands reject ambiguous or foreign bindings"
     }
   });
 });
+
+test("cascade action clause enforces lifecycle, ownership and reference invariants", () => {
+  const parent = instrument("booking", "bkg");
+  const slice = instrument("slice", "slc");
+  const traveller = instrument("traveller", "trv");
+  fields(traveller, { bookingId: ref("bkg") });
+
+  parent.actions.close!.cascade = [
+    {
+      action: "close",
+      inputField: "sliceIds",
+      instrumentId: "slice",
+    },
+    {
+      action: "close",
+      instrumentId: "traveller",
+      refField: "bookingId",
+      statuses: ["open"],
+    },
+  ];
+
+  const doc = document(parent, slice, traveller);
+  accepted(doc);
+  expect(
+    deriveUdlActionEffects(parent.actions.close!, udlClauseVocabulary)
+      .decides?.[0]?.signature,
+  ).toBe("decides.cascade_transition");
+
+  // Refusal: both selectors
+  refused(doc, (d) => {
+    (d.instruments[0]!.actions.close!.cascade![0] as any).refField =
+      "bookingId";
+  });
+
+  // Refusal: neither selector
+  refused(doc, (d) => {
+    delete (d.instruments[0]!.actions.close!.cascade![0] as any).inputField;
+  });
+
+  // Refusal: create target
+  refused(doc, (d) => {
+    d.instruments[0]!.actions.close!.cascade![0]!.action = "create";
+  });
+
+  // Refusal: engine-owned target
+  refused(doc, (d) => {
+    d.instruments[1]!.actions.close!.engineOwned = true;
+  });
+
+  // Refusal: unknown status
+  refused(doc, (d) => {
+    (d.instruments[0]!.actions.close!.cascade![1] as any).statuses = [
+      "nonexistent",
+    ];
+  });
+
+  // Refusal: cascading action cannot be create
+  refused(doc, (d) => {
+    d.instruments[0]!.actions.create!.cascade = [
+      { action: "close", inputField: "sliceIds", instrumentId: "slice" },
+    ];
+  });
+
+  // Refusal: cascading action cannot have a decision
+  refused(doc, (d) => {
+    d.instruments[0]!.actions.close!.decision = {
+      capability: "insurance_carrier",
+      deadlineMs: 1000,
+      onTimeout: "decline",
+    };
+  });
+
+  // Refusal: target action cannot have a cascade of its own
+  refused(doc, (d) => {
+    d.instruments[1]!.actions.close!.cascade = [
+      {
+        action: "close",
+        instrumentId: "traveller",
+        refField: "bookingId",
+        statuses: ["open"],
+      },
+    ];
+  });
+
+  // Refusal: target action cannot have a decision
+  refused(doc, (d) => {
+    d.instruments[1]!.actions.close!.decision = {
+      capability: "insurance_carrier",
+      deadlineMs: 1000,
+      onTimeout: "decline",
+    };
+  });
+
+  // Refusal: target action cannot declare a port without parent port
+  refused(doc, (d) => {
+    d.instruments[1]!.actions.close!.port = {
+      allowedParties: ["payer"],
+    };
+  });
+  {
+    const d = structuredClone(doc);
+    d.instruments[1]!.actions.close!.port = {
+      allowedParties: ["payer"],
+    };
+    const result = validateUdl(d);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(
+        result.issues.some((i) =>
+          i.message.includes(
+            "cascade target action close declares a port; the parent action close must declare a port so the actor is forwarded",
+          ),
+        ),
+      ).toBe(true);
+    }
+  }
+
+  // Acceptance: target action and parent action both declare a port
+  {
+    const d = structuredClone(doc);
+    d.instruments[0]!.actions.close!.port = {
+      allowedParties: ["payer"],
+    };
+    d.instruments[1]!.actions.close!.port = {
+      allowedParties: ["payer"],
+    };
+    accepted(d);
+  }
+
+  // Refusal: target action cannot have required input properties
+  refused(doc, (d) => {
+    d.instruments[1]!.actions.close!.input = {
+      type: "object",
+      properties: { reason: { type: "string" } },
+      required: ["reason"],
+    };
+  });
+
+  // Refusal: missing statuses on refField cascade
+  refused(doc, (d) => {
+    delete (d.instruments[0]!.actions.close!.cascade![1] as any).statuses;
+  });
+
+  // Refusal: status not in target action from-states
+  refused(doc, (d) => {
+    (d.instruments[0]!.actions.close!.cascade![1] as any).statuses = ["closed"];
+  });
+
+  // Refusal: target refField must reference this instrument
+  refused(doc, (d) => {
+    const wrong = instrument("other", "oth");
+    d.instruments.push(wrong);
+    fields(d.instruments[2]!, { otherId: ref("oth") });
+    (d.instruments[0]!.actions.close!.cascade![1] as any).refField = "otherId";
+  });
+
+  // Refusal: inputField collides with instrument field
+  refused(doc, (d) => {
+    fields(d.instruments[0]!, { sliceIds: ref("slc") });
+  });
+
+  // Refusal: inputField collides with action input property
+  refused(doc, (d) => {
+    d.instruments[0]!.actions.close!.input = {
+      properties: { sliceIds: { type: "string" } },
+      type: "object",
+    };
+  });
+});
+
+test("cascade inputField collides with protocol fields and instrument instance key", () => {
+  const parent = instrument("booking", "bkg");
+  const slice = instrument("slice", "slc");
+  parent.actions.close!.cascade = [
+    { action: "close", inputField: "sliceIds", instrumentId: "slice" },
+  ];
+  const doc = document(parent, slice);
+  accepted(doc);
+
+  for (const reserved of [
+    "tenantId",
+    "productId",
+    "actorAccountId",
+    "bookingId",
+  ]) {
+    const d = structuredClone(doc);
+    (d.instruments[0]!.actions.close!.cascade![0] as any).inputField = reserved;
+    const result = validateUdl(d);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(
+        result.issues.some((i) =>
+          i.message.includes(
+            `cascade inputField ${reserved} collides with a reserved field`,
+          ),
+        ),
+      ).toBe(true);
+    }
+  }
+
+  const toStringDoc = structuredClone(doc);
+  (toStringDoc.instruments[0]!.actions.close!.cascade![0] as any).inputField =
+    "toString";
+  accepted(toStringDoc);
+});

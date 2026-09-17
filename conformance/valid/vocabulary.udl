@@ -10,7 +10,20 @@
       "actions": {
         "close": {
           "agentDescription": "Close when the declared count and schedule hold.",
+          "cascade": [
+            {
+              "action": "close",
+              "inputField": "sliceIds",
+              "instrumentId": "slice"
+            }
+          ],
           "effects": {
+            "decides": [
+              {
+                "signature": "decides.cascade_transition",
+                "source": "cascade[0]"
+              }
+            ],
             "reads": [
               {
                 "signature": "reads.requires_aggregate",

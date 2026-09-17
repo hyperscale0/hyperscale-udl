@@ -909,6 +909,20 @@ const udlRequestAuthoritySchema = z.strictObject({
   expiresField: udlFieldNameSchema,
 });
 
+const udlCascadeEntrySchema = z.union([
+  z.strictObject({
+    instrumentId: udlInstrumentIdSchema,
+    action: udlActionNameSchema,
+    inputField: udlFieldNameSchema,
+  }),
+  z.strictObject({
+    instrumentId: udlInstrumentIdSchema,
+    action: udlActionNameSchema,
+    refField: udlFieldNameSchema,
+    statuses: z.array(udlSnakeCaseSchema).min(1),
+  }),
+]);
+
 const udlActionShape = {
   requestAuthority: udlRequestAuthoritySchema.optional(),
   funding: udlFundingSchema.optional(),
@@ -954,6 +968,7 @@ const udlActionShape = {
     .min(1)
     .max(16)
     .optional(),
+  cascade: z.array(udlCascadeEntrySchema).min(1).max(8).optional(),
   agentDescription: udlAgentDescriptionSchema.optional(),
   calls: z.array(udlCallSchema).min(1).optional(),
   captureInput: z.record(udlFieldNameSchema, udlFieldNameSchema).optional(),
@@ -1214,6 +1229,19 @@ export const udlClauseVocabulary = [
         kind: "decides",
         per: "element",
         signature: { fixed: "referenced_transition" },
+      },
+    ],
+  },
+  {
+    cardinality: "many",
+    scope: "action",
+    spelling: "cascade",
+    target: "cascade",
+    effects: [
+      {
+        kind: "decides",
+        per: "element",
+        signature: { fixed: "cascade_transition" },
       },
     ],
   },
@@ -1893,3 +1921,4 @@ export type UdlActionLibraryModule = z.infer<
   typeof udlActionLibraryModuleSchema
 >;
 export type UdlActionLibrary = z.infer<typeof udlActionLibrarySchema>;
+export type UdlCascadeEntry = z.infer<typeof udlCascadeEntrySchema>;

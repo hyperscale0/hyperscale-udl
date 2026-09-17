@@ -32,6 +32,12 @@ const mutable = (instrument: UdlInstrument, field: string) =>
   Object.values(instrument.actions).some((action) =>
     action.updates?.includes(field),
   );
+function instrumentInstanceKey(instrumentId: string): string {
+  const camel = instrumentId.replaceAll(/_([a-z])/g, (_, letter: string) =>
+    letter.toUpperCase(),
+  );
+  return `${camel}Id`;
+}
 
 /** Validate product laws independently of any instrument catalogue. */
 /** The children buckets of an allocation owner that select this instrument or its template alias. */
@@ -952,6 +958,127 @@ export function validateVocabulary(
         outgoing.push(`${target.id}.${transition.action}`);
       }
       edges.set(`${instrument.id}.${name}`, outgoing);
+      if (action.cascade) {
+        const ap = [...path, "cascade"];
+        if (name === "create" || action.decision) {
+          add(
+            ap,
+            "cascade is not allowed on create or actions with a decision",
+          );
+        }
+        const seenInputFields = new Set<string>();
+        for (const [i, entry] of action.cascade.entries()) {
+          const ep = [...ap, i];
+          const hasInput =
+            "inputField" in entry && entry.inputField !== undefined;
+          const hasRef = "refField" in entry && entry.refField !== undefined;
+          if ((!hasInput && !hasRef) || (hasInput && hasRef)) {
+            add(
+              ep,
+              "cascade must specify exactly one of inputField or refField",
+            );
+          }
+          const target = byId.get(entry.instrumentId);
+          if (!target) {
+            add(
+              ep,
+              "cascade target instrument must be declared in the document",
+            );
+          } else {
+            const targetAction = target.actions[entry.action];
+            const targetTransition = target.lifecycle.transitions[entry.action];
+            if (
+              !targetAction ||
+              !targetTransition ||
+              entry.action === "create"
+            ) {
+              add(
+                ep,
+                "cascade target action must exist in lifecycle and cannot be create",
+              );
+            } else {
+              if (targetAction.engineOwned) {
+                add(ep, "cascade target action cannot be engine-owned");
+              }
+              if (targetAction.cascade) {
+                add(
+                  ep,
+                  "cascade target action cannot have a cascade of its own",
+                );
+              }
+              if (targetAction.decision) {
+                add(ep, "cascade target action cannot have a decision");
+              }
+              if (targetAction.port && !action.port) {
+                add(
+                  ep,
+                  `cascade target action ${entry.action} declares a port; the parent action ${name} must declare a port so the actor is forwarded`,
+                );
+              }
+              if (
+                Array.isArray(targetAction.input?.required) &&
+                targetAction.input.required.length > 0
+              ) {
+                add(ep, "cascade target action cannot have required inputs");
+              }
+            }
+            if ("refField" in entry && entry.refField !== undefined) {
+              if (!entry.statuses || entry.statuses.length === 0) {
+                add(ep, "cascade with refField requires statuses");
+              }
+              const targetRef = reference(target, entry.refField, ep);
+              if (targetRef && targetRef.id !== instrument.id) {
+                add(
+                  ep,
+                  "cascade target refField must reference this instrument",
+                );
+              }
+              if (targetTransition) {
+                for (const status of entry.statuses ?? []) {
+                  if (!targetTransition.from.includes(status)) {
+                    add(
+                      ep,
+                      `cascade status ${status} is not an allowed from-state for ${target.id}.${entry.action}`,
+                    );
+                  }
+                }
+              }
+            }
+          }
+          if ("inputField" in entry && entry.inputField !== undefined) {
+            const reservedFields = new Set([
+              "tenantId",
+              "productId",
+              "actorAccountId",
+              instrumentInstanceKey(instrument.id),
+            ]);
+            if (reservedFields.has(entry.inputField)) {
+              add(
+                ep,
+                `cascade inputField ${entry.inputField} collides with a reserved field`,
+              );
+            }
+            if (Object.hasOwn(instrument.fields, entry.inputField)) {
+              add(
+                ep,
+                `cascade inputField ${entry.inputField} collides with an instrument field`,
+              );
+            }
+            if (
+              Object.hasOwn(object(action.input?.properties), entry.inputField)
+            ) {
+              add(
+                ep,
+                `cascade inputField ${entry.inputField} collides with an action input property`,
+              );
+            }
+            if (seenInputFields.has(entry.inputField)) {
+              add(ep, `cascade inputField ${entry.inputField} is repeated`);
+            }
+            seenInputFields.add(entry.inputField);
+          }
+        }
+      }
       if (action.allocate || action.contributionStage) {
         if (
           name === "create" ||

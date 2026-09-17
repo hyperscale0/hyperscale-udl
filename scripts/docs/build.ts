@@ -252,6 +252,9 @@ function lawFor(target: string): string {
 }
 
 function clauseNote(target: string): string {
+  if (target === "cascade") {
+    return `A cascade target action that declares a ${code("port")} is allowed only when the parent action declares a ${code("port")}: the engine forwards the port actor.\n\n`;
+  }
   if (target === "commit") {
     return `A commit has no separate effect row. The committing action consumes the quote through its ${code("moves.*")} row.\n\n`;
   }

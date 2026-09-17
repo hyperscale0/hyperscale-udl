@@ -3389,6 +3389,45 @@ describe("payout settlement evidence", () => {
       "payout_batch: action instruct changed its sandbox failure point",
     );
   });
+
+  test("classifies a changed or removed cascade as breaking", () => {
+    const previous = snapshotUdlInstrument(
+      payoutSettlementDocument().instruments[0]!,
+    );
+    const withCascade = structuredClone(previous);
+    (withCascade.actions as Record<string, EvolutionActionSnapshot>).instruct =
+      {
+        ...structuredClone(withCascade.actions.instruct!),
+        cascade: [
+          {
+            action: "collect",
+            inputField: "sliceIds",
+            instrumentId: "slice",
+          },
+        ],
+      };
+
+    const changedCascade = structuredClone(withCascade);
+    (
+      changedCascade.actions as Record<string, EvolutionActionSnapshot>
+    ).instruct = {
+      ...structuredClone(changedCascade.actions.instruct!),
+      cascade: [
+        {
+          action: "cancel",
+          inputField: "sliceIds",
+          instrumentId: "slice",
+        },
+      ],
+    };
+    expect(diffInstrumentEvolution(withCascade, changedCascade)).toContain(
+      "payout_batch: action instruct changed its cascade rules",
+    );
+
+    expect(diffInstrumentEvolution(withCascade, previous)).toContain(
+      "payout_batch: action instruct changed its cascade rules",
+    );
+  });
 });
 
 describe("signed sum validation", () => {

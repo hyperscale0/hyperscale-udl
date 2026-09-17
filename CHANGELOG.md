@@ -6,7 +6,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Format version and package version are different numbers.
 
-## [Unreleased]
+## [2.6.0] - 2026-09-17
+
+### Added
+
+- `cascade`: executes a named lifecycle action on linked instances of another instrument inside the same transaction before evaluating the parent action's gates. A cascade target action may declare a port when the parent action declares a port.
+- Validate cascade `inputField` against reserved protocol fields (`tenantId`, `productId`, `actorAccountId`) and the instrument instance key.
+- Snapshot cascade declarations in `EvolutionActionSnapshot` and report changed or removed cascade configurations as breaking changes.
 
 ## [2.5.0] - 2026-09-17
 

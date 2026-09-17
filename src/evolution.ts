@@ -80,6 +80,8 @@ export interface EvolutionActionSnapshot {
   readonly setsAt: unknown;
   /** Missing on snapshots written before signed child sums existed. */
   readonly signedSum?: unknown;
+  /** Missing on snapshots written before cascade transitions existed. */
+  readonly cascade?: unknown;
   readonly moves: readonly EvolutionMoveSnapshot[];
   readonly steps: readonly EvolutionStepSnapshot[];
 }
@@ -578,6 +580,9 @@ function snapshotUdlAction(definition: UdlAction): EvolutionActionSnapshot {
     publicAction: definition.publicAction ?? null,
     setsAt: definition.setsAt ?? null,
     signedSum: definition.signedSum ?? null,
+    cascade: definition.cascade
+      ? definition.cascade.map((entry) => ({ ...entry }))
+      : null,
     moves: definition.moves.map((move) => ({
       bind: move.bind,
       capture: move.capture ?? {},
@@ -886,6 +891,12 @@ function diffActions(
         stableStringify(current.signedSum)
     ) {
       violations.push(`action ${action} changed its signed child sum`);
+    }
+    if (
+      descriptor.cascade !== undefined &&
+      stableStringify(descriptor.cascade) !== stableStringify(current.cascade)
+    ) {
+      violations.push(`action ${action} changed its cascade rules`);
     }
   }
   for (const [action, descriptor] of Object.entries(next)) {

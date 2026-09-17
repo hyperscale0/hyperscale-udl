@@ -1719,6 +1719,68 @@
                     "additionalProperties": false
                   }
                 },
+                "cascade": {
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "instrumentId": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+                            "x-udl-reference": "instrument"
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "inputField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          }
+                        },
+                        "required": ["instrumentId", "action", "inputField"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "instrumentId": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+                            "x-udl-reference": "instrument"
+                          },
+                          "action": {
+                            "type": "string",
+                            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                          },
+                          "refField": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]*$"
+                          },
+                          "statuses": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                            }
+                          }
+                        },
+                        "required": [
+                          "instrumentId",
+                          "action",
+                          "refField",
+                          "statuses"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
                 "agentDescription": {
                   "type": "string",
                   "maxLength": 400

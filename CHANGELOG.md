@@ -1,3 +1,7 @@
+# UDL 3.0.2
+
+Dependencies: zod 4.6.5. No grammar change.
+
 # UDL 3.0.1
 
 Spec: a move whose amount resolves to zero records nothing, so a payment can fan out across slices until the held balance runs out. No grammar change.

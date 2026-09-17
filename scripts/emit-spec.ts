@@ -6,7 +6,7 @@
  * `--check` fails when the committed content no longer matches the generator,
  * which is what keeps a grammar edit from shipping a stale spec.
  */
-import { z } from "zod";
+import * as z from "zod";
 
 import { UDL_FORMAT_VERSION, udlDocumentSchema } from "../src/schema.js";
 

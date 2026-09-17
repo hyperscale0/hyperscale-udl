@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "The Universal Domain Language: format spec, parser, validator, canonical serializer, and evolution diff.",
   "keywords": [
     "udl",
@@ -65,7 +65,7 @@
     "check": "bun run spec:check && bun run docs:build && bun run typecheck && bun run build && bun test test"
   },
   "dependencies": {
-    "zod": "4.5.4"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "bun-types": "1.4.2",

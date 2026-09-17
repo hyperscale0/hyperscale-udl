@@ -77,7 +77,8 @@ edges name their source and destination states. Requirements and effects execute
 atomically under the same account and reference locks. `set` copies typed values
 to mutable fields. Action calculations read the locked snapshot and populate the
 action draft before requirements. Ordered moves and invocations follow admission;
-invariants check the completed transaction. A due instant
+a move whose amount resolves to zero records nothing.
+Invariants check the completed transaction. A due instant
 is inclusive; a deadline is exclusive. Clock delays never extend deadlines.
 
 Requirements are compare, state, unique, aggregate, approval, evidence and hours.

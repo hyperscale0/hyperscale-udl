@@ -40,8 +40,7 @@ says nothing about trademarks in either direction, so
 ## The format is not the implementation
 
 UDL the format is separate from this implementation of it. The JSON Schema in
-[`spec/`](./spec) and the conformance cases in [`conformance/`](./conformance)
-are data describing a format, and anyone may write their own parser, validator,
+[`spec/`](./spec) is data describing a format, and anyone may write their own parser, validator,
 or serializer against them, in any language, under any license, without
 touching this code.
 

@@ -25,8 +25,8 @@ What that means in practice:
 An independent implementation may say it "implements UDL version X" or "passes
 the UDL conformance suite version X" only while it passes the published
 conformance cases for that version, unmodified. The cases in
-[`conformance/`](./conformance) are the whole test: no skipped case, no edited
-expectation, no local fork of the fixtures.
+[`test/language.spec.ts`](./test/language.spec.ts) are the whole test: no skipped case, no edited
+expectation, no local change to the document mutations.
 
 That claim is a statement about your implementation, so keep the marks out of
 its name and off its logo, and do not present it as endorsement or

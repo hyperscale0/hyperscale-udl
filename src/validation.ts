@@ -1,5659 +1,918 @@
-import { referencePatternPrefix } from "./reference.js";
-import { validateVocabulary } from "./vocabulary.js";
 import {
-  Validator,
-  type OutputUnit,
-  type Schema,
-  type ValidationResult,
-} from "@cfworker/json-schema";
-import { z } from "zod";
-
-import {
-  udlClauseVocabulary,
-  quoteExpiresAtRefKey,
-  quoteFrozenRefKey,
-  quoteSeededRefKeys,
   udlDocumentSchema,
-  type UdlAggregate,
   type UdlDocument,
-  type UdlGate,
-  type UdlMove,
+  type UdlField,
   type UdlInstrument,
-  type UdlStep,
-  type UdlAction,
-  type UdlPieceStageStage,
+  type UdlValue,
+  type UdlCalculation,
+  type UdlSelection,
 } from "./schema.js";
-import { fixedIsoDurationMs } from "./duration.js";
-import {
-  analyzeInstrumentFinance,
-  financeAdmissionProblem,
-  type FinanceIssue,
-  type FinanceOptions,
-} from "./finance.js";
-import { UDL_LIMITS } from "./limits.js";
-import {
-  deriveUdlActionEffects,
-  resolveUdlActionPlans,
-  udlEffectKinds,
-  type DerivedUdlEffects,
-  type ResolvedActionPlan,
-} from "./effects.js";
-import { issue, type UdlIssue, type UdlIssueCode } from "./diagnostics.js";
-
-export type {
-  UdlIssue,
-  UdlIssueCategory,
-  UdlIssueCode,
-} from "./diagnostics.js";
+import { issue, type UdlIssue } from "./diagnostics.js";
+import { analyzeInstrumentFinance } from "./finance.js";
 
 export type UdlValidationResult =
-  | { readonly ok: true; readonly value: UdlDocument }
-  | { readonly issues: readonly UdlIssue[]; readonly ok: false };
-
+  | { ok: true; value: UdlDocument }
+  | { ok: false; issues: readonly UdlIssue[] };
 export class UdlError extends Error {
-  readonly issues: readonly UdlIssue[];
-
-  constructor(issues: readonly UdlIssue[]) {
-    const first = issues[0];
-    super(
-      first
-        ? `Invalid UDL at ${first.path}: ${first.message}`
-        : "Invalid UDL document",
-    );
+  constructor(readonly issues: readonly UdlIssue[]) {
+    super(issues.map((i) => `${i.path}: ${i.message}`).join("\n"));
     this.name = "UdlError";
-    this.issues = Object.freeze([...issues]);
   }
 }
 
-export interface UdlValidationOptions {
-  /** New compilers enforce bindings without rejecting previously frozen UDL. */
-  readonly requireDecisionPartyBindings?: boolean;
+/** Reject cycles and oversized structures before the schema walks caller data. */
+function bounded(value: unknown): boolean {
+  const active = new Set<object>();
+  let nodes = 0;
+  let bytes = 0;
+  const visit = (v: unknown, depth: number): boolean => {
+    if (++nodes > 100000 || depth > 32) return false;
+    if (typeof v === "string") {
+      bytes += v.length;
+      return bytes <= 1048576;
+    }
+    if (v === null || typeof v === "boolean") return true;
+    if (typeof v === "number") return Number.isSafeInteger(v);
+    if (typeof v !== "object" || active.has(v)) return false;
+    if (
+      !Array.isArray(v) &&
+      Object.getPrototypeOf(v) !== Object.prototype &&
+      Object.getPrototypeOf(v) !== null
+    )
+      return false;
+    active.add(v);
+    const ok = Object.entries(v).every(
+      ([key, entry]) => key.length <= 240 && visit(entry, depth + 1),
+    );
+    active.delete(v);
+    return ok;
+  };
+  return visit(value, 0);
 }
 
-/**
- * Validate a complete document. Clause references to instruments must resolve
- * within this document, even when the reference field is optional. A catalogue
- * slice must include its referenced instruments; an external catalogue cannot
- * supply missing product laws. Reference fields use the sealed public ID grammar.
- */
-export function validateUdl(
-  value: unknown,
-  options: UdlValidationOptions = {},
-): UdlValidationResult {
-  const resourceIssue = structuralBudgetIssue(value);
-  if (resourceIssue) return { issues: [resourceIssue], ok: false };
+const targetIds = (target: string | string[]): string[] =>
+  typeof target === "string" ? [target] : target;
+const overlap = (a: string | string[], b: string | string[]) =>
+  targetIds(a).some((id) => targetIds(b).includes(id));
 
-  const reconcileShapeIssues = reconcileExceptionRequiredFieldIssues(value);
-  if (reconcileShapeIssues.length > 0)
-    return { issues: reconcileShapeIssues, ok: false };
-
-  const parsed = udlDocumentSchema.safeParse(value);
-  if (!parsed.success) {
-    return {
-      issues: parsed.error.issues.map((entry) =>
-        issue(shapeIssueCode(entry.path), jsonPath(entry.path), entry.message),
+/** Union paths retain only fields with compatible types on every member. */
+function commonField(fields: (UdlField | undefined)[]): UdlField | undefined {
+  const first = fields[0];
+  if (
+    !first ||
+    fields.some(
+      (field) =>
+        !field ||
+        field.type !== first.type ||
+        field.optional !== first.optional,
+    )
+  )
+    return;
+  if (first.type === "ref") {
+    const targets = [
+      ...new Set(
+        fields.flatMap((field) =>
+          field?.type === "ref" ? targetIds(field.target) : [],
+        ),
       ),
-      ok: false,
-    };
+    ];
+    return { ...first, target: targets.length === 1 ? targets[0]! : targets };
   }
+  if (
+    first.type === "account" &&
+    fields.some(
+      (field) =>
+        field?.type !== "account" ||
+        field.book !== first.book ||
+        field.owner !== first.owner ||
+        field.key !== first.key ||
+        field.external !== first.external ||
+        field.contra !== first.contra,
+    )
+  )
+    return;
+  if (
+    first.type === "enum" &&
+    fields.some(
+      (field) =>
+        field?.type !== "enum" ||
+        field.values.length !== first.values.length ||
+        field.values.some((value) => !first.values.includes(value)),
+    )
+  )
+    return;
+  if (
+    first.type === "list" &&
+    fields.some(
+      (field) =>
+        field?.type !== "list" ||
+        field.item !== first.item ||
+        field.target !== first.target,
+    )
+  )
+    return;
+  return first;
+}
 
-  const references = openReferenceShapeBudget();
-  const issues = semanticIssues(parsed.data, references, options);
-  if (references.exhausted) {
+export function resolveField(
+  document: UdlDocument,
+  instrument: UdlInstrument,
+  path: string,
+  input: readonly UdlField[] = [],
+): UdlField | undefined {
+  return resolvePath(document, instrument, path, input, new Map());
+}
+
+function resolvePath(
+  document: UdlDocument,
+  instrument: UdlInstrument,
+  path: string,
+  input: readonly UdlField[],
+  cache: Map<string, UdlField | undefined>,
+): UdlField | undefined {
+  const parts = path.split(".");
+  const root = parts.shift();
+  const key = parts.shift();
+  if (!key)
+    return root === "self"
+      ? { name: "id", type: "ref", target: instrument.id }
+      : undefined;
+  if (root === "party") {
+    if (!document.parties[key]) return;
+    if (parts.length === 0)
+      return { name: key, type: "account", owner: key, book: "cash" };
+    if (parts.length === 1 && ["balance", "reserved"].includes(parts[0]!))
+      return { name: parts[0]!, type: "money" };
+    return;
+  }
+  if (root === "self" && parts.length === 0) {
+    if (key === "id") return { name: key, type: "ref", target: instrument.id };
+    if (key === "now" || key === "createdAt")
+      return { name: key, type: "date" };
+    if (key === "status")
+      return { name: key, type: "enum", values: instrument.lifecycle.states };
+  }
+  const scope = instrument;
+  let field = (
+    root === "self" ? instrument.fields : root === "input" ? input : []
+  ).find((f) => f.name === key);
+  for (const [index, part] of parts.entries()) {
+    if (
+      field?.type === "account" &&
+      ["balance", "reserved"].includes(part) &&
+      index === parts.length - 1
+    )
+      return { name: part, type: "money" };
+    if (
+      field?.type === "text" &&
+      part === "status" &&
+      index === parts.length - 1 &&
+      Object.values(scope.actions).some((a) =>
+        a.moves.some((m) => "capture" in m && m.capture === field?.name),
+      )
+    )
+      return {
+        name: part,
+        type: "enum",
+        values: ["reserved", "posted", "settled", "reversed", "voided"],
+      };
+    if (field?.type !== "ref") return;
+    return commonField(
+      targetIds(field.target).map((id) => {
+        const target = document.instruments.find(
+          (instrument) => instrument.id === id,
+        );
+        if (!target) return;
+        const suffix = "self." + parts.slice(index).join(".");
+        const key = `${id}:${suffix}`;
+        if (!cache.has(key))
+          cache.set(key, resolvePath(document, target, suffix, [], cache));
+        return cache.get(key);
+      }),
+    );
+  }
+  return field;
+}
+
+export function validateUdl(value: unknown): UdlValidationResult {
+  if (!bounded(value))
     return {
+      ok: false,
       issues: [
         issue(
           "UDL1004",
-          "$.instruments",
-          `document exceeds ${UDL_LIMITS.maxSchemaProbes} reference-shape checks; declare fewer instruments, reference gates, or payout intents`,
+          "$",
+          "document exceeds structural limits or is not finite JSON",
         ),
       ],
-      ok: false,
     };
-  }
-  return issues.length === 0
-    ? { ok: true, value: parsed.data }
-    : { issues, ok: false };
-}
-
-function shapeIssueCode(path: readonly PropertyKey[]): UdlIssueCode {
-  if (path.includes("requiresExposure")) return "UDL5003";
-  if (path.includes("requiresAggregate")) return "UDL5004";
-  return "UDL1003";
-}
-
-function reconcileExceptionRequiredFieldIssues(value: unknown): UdlIssue[] {
+  const parsed = udlDocumentSchema.safeParse(value);
+  if (!parsed.success)
+    return {
+      ok: false,
+      issues: parsed.error.issues.map((i) =>
+        issue(
+          "UDL1003",
+          "$" +
+            i.path
+              .map((p) => (typeof p === "number" ? `[${p}]` : `.${String(p)}`))
+              .join(""),
+          i.message,
+        ),
+      ),
+    };
+  const document = parsed.data;
   const issues: UdlIssue[] = [];
-  const instruments = recordValue(value).instruments;
-  if (!Array.isArray(instruments)) return issues;
-  instruments.forEach((instrument, instrumentIndex) => {
-    const actions = recordValue(instrument).actions;
-    if (!actions || typeof actions !== "object" || Array.isArray(actions))
-      return;
-    for (const [action, definition] of Object.entries(actions)) {
-      const reconciles = recordValue(definition).reconcile;
-      if (!Array.isArray(reconciles)) continue;
-      reconciles.forEach((reconcile, reconcileIndex) => {
-        const exception = recordValue(recordValue(reconcile).exception);
-        const base = jsonPath([
-          "instruments",
-          instrumentIndex,
-          "actions",
-          action,
-          "reconcile",
-          reconcileIndex,
-          "exception",
-        ]);
-        if (!("amountField" in exception)) {
-          issues.push(issue("UDL5009", `${base}.amountField`));
-        }
-        if (!("reasonField" in exception)) {
-          issues.push(issue("UDL5011", `${base}.reasonField`));
-        }
-      });
+  const add = (
+    path: string,
+    message: string,
+    code: UdlIssue["code"] = "UDL2002",
+  ) => issues.push(issue(code, path, message));
+  const duplicate = (values: readonly string[], path: string) => {
+    const seen = new Set<string>();
+    for (const v of values) {
+      if (seen.has(v)) add(path, `duplicate ${v}`, "UDL2001");
+      seen.add(v);
     }
-  });
-  return issues;
+  };
+  duplicate(
+    document.instruments.map((i) => i.id),
+    "$.instruments",
+  );
+  const byId = new Map(document.instruments.map((i) => [i.id, i]));
+  const calls = new Map<string, { targets: string[]; count: number }[]>();
+  for (const [index, inst] of document.instruments.entries()) {
+    const base = `$.instruments[${index}]`;
+    const field = (p: string, input: readonly UdlField[] = []) =>
+      resolveField(document, inst, p, input);
+    const expect = (
+      p: string,
+      type: UdlField["type"],
+      where: string,
+      input: readonly UdlField[] = [],
+    ) => {
+      const found = field(p, input);
+      if (found?.type !== type)
+        add(where, `${p} must name a ${type} field`, "UDL5001");
+      return found;
+    };
+    const checkValue = (
+      v: UdlValue,
+      type: UdlField["type"],
+      where: string,
+      input: readonly UdlField[] = [],
+    ) => {
+      if ("field" in v) {
+        expect(v.field, type, where, input);
+        return;
+      }
+      const valid =
+        type === "money"
+          ? typeof v.literal === "string" &&
+            /^(0|[1-9][0-9]{0,17})$/.test(v.literal)
+          : type === "integer" || type === "percent" || type === "duration"
+            ? typeof v.literal === "number" &&
+              Number.isSafeInteger(v.literal) &&
+              (type !== "percent" || (v.literal >= 0 && v.literal <= 10000))
+            : type === "boolean"
+              ? typeof v.literal === "boolean"
+              : typeof v.literal === "string";
+      if (!valid) add(where, `literal must have type ${type}`);
+    };
+    const checkFields = (fields: readonly UdlField[], where: string) => {
+      duplicate(
+        fields.map((f) => f.name),
+        where,
+      );
+      for (const f of fields) {
+        if (
+          f.type === "account" &&
+          ((f.contra && f.book !== "claim") ||
+            (f.external && (f.book !== "cash" || f.owner === "self")))
+        )
+          add(
+            where,
+            "contra accounts require the claim book; external accounts require a cash party owner",
+          );
+        if (["id", "status", "createdAt", "now"].includes(f.name))
+          add(where, `${f.name} is a sealed instance field`);
+        if (f.type === "ref") {
+          duplicate(targetIds(f.target), where);
+          for (const id of targetIds(f.target))
+            if (!byId.has(id))
+              add(where, `unknown reference target ${id}`, "UDL5001");
+        }
+        if (
+          f.type === "account" &&
+          f.owner !== "self" &&
+          !document.parties[f.owner]
+        )
+          add(where, `${f.name} needs self or a declared party as owner`);
+        if (f.type === "enum") {
+          duplicate(f.values, where);
+          if (f.value !== undefined && !f.values.includes(f.value))
+            add(where, `${f.name} constant is outside its enum`);
+        }
+        if (
+          f.type === "list" &&
+          (f.item === "ref"
+            ? !f.target || !byId.has(f.target)
+            : f.target !== undefined)
+        )
+          add(
+            where,
+            `${f.name} needs a target exactly when its items are references`,
+          );
+        if (
+          (f.type === "integer" || f.type === "money") &&
+          f.minimum !== undefined &&
+          f.maximum !== undefined &&
+          BigInt(f.minimum) > BigInt(f.maximum)
+        )
+          add(where, `${f.name} minimum exceeds maximum`);
+        if (
+          (f.type === "integer" || f.type === "money") &&
+          f.value !== undefined &&
+          ((f.minimum !== undefined && BigInt(f.value) < BigInt(f.minimum)) ||
+            (f.maximum !== undefined && BigInt(f.value) > BigInt(f.maximum)))
+        )
+          add(where, `${f.name} constant violates its bounds`);
+      }
+    };
+    checkFields(inst.fields, `${base}.fields`);
+    const captures = new Set(
+      Object.values(inst.actions).flatMap((a) => [
+        ...a.moves.flatMap((m) =>
+          "capture" in m && m.capture ? [m.capture] : [],
+        ),
+      ]),
+    );
+    for (const captured of captures) {
+      const target = inst.fields.find((f) => f.name === captured);
+      if (target?.type !== "text" || target.value !== undefined)
+        add(
+          base,
+          `${captured} must be a text field reserved for an executor receipt`,
+        );
+    }
+    const checkSelection = (
+      selection: UdlSelection,
+      where: string,
+      input: readonly UdlField[] = [],
+    ) => {
+      const ids =
+        typeof selection.instrument === "string"
+          ? [selection.instrument]
+          : selection.instrument;
+      duplicate(ids, where);
+      const targets = ids.flatMap((id) => {
+        const target = byId.get(id);
+        if (!target) add(where, `unknown selected instrument ${id}`);
+        return target ? [target] : [];
+      });
+      const compatible = (a: UdlField | undefined, b: UdlField | undefined) =>
+        a &&
+        b &&
+        a.type === b.type &&
+        (a.type !== "ref" || (b.type === "ref" && overlap(a.target, b.target)));
+      const anchor = field(selection.anchor, input);
+      for (const target of targets) {
+        if (
+          selection.window &&
+          target.fields.find((f) => f.name === selection.window!.field)
+            ?.type !== "date"
+        )
+          add(
+            where,
+            "selection window requires a date field on every selected instrument",
+          );
+        const reference = target.fields.find(
+          (f) => f.name === selection.reference,
+        );
+        if (!compatible(reference, anchor))
+          add(
+            where,
+            "selection reference and anchor must have the same declared type",
+          );
+        if (
+          selection.states.some(
+            (state) => !target.lifecycle.states.includes(state),
+          )
+        )
+          add(where, `selection names an undeclared state on ${target.id}`);
+        for (const key of selection.order ?? []) {
+          const ordered = resolveField(document, target, `self.${key}`);
+          if (!ordered || ["account", "ref", "list"].includes(ordered.type))
+            add(where, `selection order needs a scalar path: ${key}`);
+        }
+        for (const [key, value] of Object.entries(selection.where ?? {})) {
+          const selected = resolveField(
+            document,
+            target,
+            key.startsWith("self.") ? key : `self.${key}`,
+          );
+          if (!selected) add(where, `unknown selected field ${key}`);
+          else if ("field" in value) {
+            if (!compatible(selected, field(value.field, input)))
+              add(where, `selection filter ${key} has incompatible operands`);
+          } else checkValue(value, selected.type, where, input);
+        }
+      }
+      const first = targets[0];
+      if (!first) return;
+      return {
+        ...first,
+        fields: first.fields.flatMap((field) => {
+          const shared = commonField(
+            targets.map((target) =>
+              target.fields.find((candidate) => candidate.name === field.name),
+            ),
+          );
+          return shared ? [shared] : [];
+        }),
+      };
+    };
+    const checkCalculations = (
+      calculations: readonly UdlCalculation[],
+      where: string,
+      input: readonly UdlField[] = [],
+    ) => {
+      duplicate(
+        calculations.map((c) => c.target),
+        where,
+      );
+      const dependencies = new Map<string, string[]>();
+      for (const c of calculations) {
+        const arithmetic = ["sum", "subtract", "minimum", "divide"].includes(
+          c.op,
+        );
+        const resultType =
+          c.op === "at"
+            ? (() => {
+                const list = field(c.list, input);
+                return list?.type === "list" ? list.item : "text";
+              })()
+            : (c.op === "aggregate" && c.measure === "count") ||
+                (arithmetic && field(`self.${c.target}`)?.type === "integer")
+              ? "integer"
+              : c.op === "shift"
+                ? "date"
+                : "money";
+        const result = expect(`self.${c.target}`, resultType, where);
+        if (result && "value" in result && result.value !== undefined)
+          add(where, `calculation cannot replace constant ${c.target}`);
+        const operands: UdlValue[] = [];
+        const money = (v: UdlValue) => {
+          operands.push(v);
+          checkValue(v, arithmetic ? resultType : "money", where, input);
+        };
+        if (c.op === "at") {
+          expect(c.list, "list", where, input);
+          checkValue(c.position, "integer", where, input);
+          if ("literal" in c.position && Number(c.position.literal) < 1)
+            add(where, "list positions start at one");
+          operands.push({ field: c.list }, c.position);
+        }
+        if (c.op === "aggregate") {
+          const selected = checkSelection(c.selection, where, input);
+          if (
+            c.measure !== "count" &&
+            (!selected ||
+              resolveField(document, selected, `self.${c.measure.sum}`)
+                ?.type !== "money")
+          )
+            add(where, "aggregate calculation needs a typed money path");
+        }
+        if (c.op === "ratio") {
+          money(c.amount);
+          const type =
+            "field" in c.numerator
+              ? field(c.numerator.field, input)?.type
+              : typeof c.numerator.literal === "number"
+                ? "integer"
+                : "money";
+          if (type !== "integer" && type !== "money" && type !== "percent")
+            add(where, "ratio weights must share a numeric type");
+          else {
+            checkValue(c.numerator, type, where, input);
+            checkValue(c.denominator, type, where, input);
+          }
+          if (
+            "literal" in c.denominator &&
+            BigInt(c.denominator.literal.toString()) <= 0n
+          )
+            add(where, "ratio denominator must be positive");
+          operands.push(c.numerator, c.denominator);
+        }
+        if (c.op === "sum" || c.op === "minimum") c.values.forEach(money);
+        if (c.op === "subtract") {
+          money(c.base);
+          c.subtract.forEach(money);
+        }
+        if (c.op === "rate") {
+          money(c.base);
+          checkValue(c.bps, "percent", where, input);
+          operands.push(c.bps);
+        }
+        if (c.op === "multiply" || c.op === "divide") {
+          money(c.amount);
+          const count = c.op === "multiply" ? c.units : c.divisor;
+          checkValue(count, "integer", where, input);
+          operands.push(count);
+          if (
+            "literal" in count &&
+            (c.op === "divide"
+              ? Number(count.literal) <= 0
+              : Number(count.literal) < 0)
+          )
+            add(
+              where,
+              "money multiplier must be nonnegative and divisor must be positive",
+            );
+        }
+        if (c.op === "shift") {
+          checkValue(c.date, "date", where, input);
+          checkValue(c.milliseconds, "duration", where, input);
+          operands.push(c.date, c.milliseconds);
+        }
+        dependencies.set(
+          c.target,
+          operands.flatMap((v) =>
+            "field" in v && v.field.startsWith("self.")
+              ? [v.field.slice(5)]
+              : [],
+          ),
+        );
+      }
+      const active = new Set<string>();
+      const visited = new Set<string>();
+      const visit = (key: string): void => {
+        if (active.has(key)) {
+          add(where, `calculation cycle at ${key}`);
+          return;
+        }
+        if (visited.has(key)) return;
+        active.add(key);
+        visited.add(key);
+        for (const dep of dependencies.get(key) ?? []) visit(dep);
+        active.delete(key);
+      };
+      for (const key of dependencies.keys()) visit(key);
+    };
+    checkCalculations(inst.calculate, `${base}.calculate`);
+    const states = new Set(inst.lifecycle.states);
+    duplicate(inst.lifecycle.states, `${base}.lifecycle.states`);
+    if (!states.has(inst.lifecycle.initial) || !inst.actions.create)
+      add(base, "declare create and a declared initial state", "UDL3001");
+    duplicate(inst.actionOrder, `${base}.actionOrder`);
+    if (
+      inst.actionOrder.length !== Object.keys(inst.actions).length ||
+      inst.actionOrder.some((a) => !inst.actions[a])
+    )
+      add(base, "actionOrder must list every action once");
+    const reachable = new Set([inst.lifecycle.initial]);
+    for (const [action, edge] of Object.entries(inst.lifecycle.transitions)) {
+      if (
+        !inst.actions[action] ||
+        action === "create" ||
+        !states.has(edge.to) ||
+        edge.from.some((s) => !states.has(s))
+      )
+        add(base, `invalid transition ${action}`, "UDL3001");
+    }
+    for (let pass = 0; pass < states.size; pass++)
+      for (const edge of Object.values(inst.lifecycle.transitions))
+        if (edge.from.some((s) => reachable.has(s))) reachable.add(edge.to);
+    for (const state of states)
+      if (!reachable.has(state))
+        add(base, `unreachable state ${state}`, "UDL3001");
+    const checkRequirements = (
+      requirements: typeof inst.invariants,
+      where: string,
+      input: readonly UdlField[] = [],
+    ) => {
+      for (const req of requirements ?? []) {
+        if (req.kind === "compare") {
+          const left =
+            "field" in req.left ? field(req.left.field, input) : undefined;
+          const right =
+            "field" in req.right ? field(req.right.field, input) : undefined;
+          if (
+            ("field" in req.left && !left) ||
+            ("field" in req.right && !right)
+          )
+            add(where, "comparison refers to an undeclared field");
+          if (
+            left &&
+            right &&
+            (left.type !== right.type ||
+              (left.type === "ref" &&
+                right.type === "ref" &&
+                !overlap(left.target, right.target)))
+          )
+            add(where, "comparison operands have different types");
+          if (left && "literal" in req.right) {
+            checkValue(req.right, left.type, where, input);
+            if (
+              left.type === "enum" &&
+              !left.values.includes(String(req.right.literal))
+            )
+              add(where, "comparison names an undeclared enum value");
+          }
+          if (right && "literal" in req.left) {
+            checkValue(req.left, right.type, where, input);
+            if (
+              right.type === "enum" &&
+              !right.values.includes(String(req.left.literal))
+            )
+              add(where, "comparison names an undeclared enum value");
+          }
+        } else if (req.kind === "state") {
+          const target = expect(req.reference, "ref", where, input);
+          if (
+            target?.type === "ref" &&
+            req.states.some((s) =>
+              targetIds(target.target).some(
+                (id) => !byId.get(id)?.lifecycle.states.includes(s),
+              ),
+            )
+          )
+            add(where, "reference gate names an undeclared state");
+        } else if (req.kind === "unique") {
+          for (const p of req.fields)
+            if (!field(p, input)) add(where, `unknown identity field ${p}`);
+        } else if (req.kind === "approval") {
+          const target = expect(req.target, "ref", where, input);
+          if (!document.parties[req.party])
+            add(where, `unknown approving party ${req.party}`);
+          if (
+            req.action &&
+            target?.type === "ref" &&
+            targetIds(target.target).some(
+              (id) => !byId.get(id)?.actions[req.action!],
+            )
+          )
+            add(where, `unknown approved action ${req.action}`);
+        } else if (req.kind === "evidence") {
+          const subject = field(req.subject, input);
+          if (!subject || !["account", "text"].includes(subject.type))
+            add(
+              where,
+              "evidence subject must be an account or text subject id",
+            );
+        } else if (req.kind === "hours") {
+          expect(req.at, "date", where, input);
+          try {
+            new Intl.DateTimeFormat("en", { timeZone: req.timezone });
+          } catch {
+            add(where, "hours requires an IANA timezone");
+          }
+          if (req.start === req.end)
+            add(where, "hours interval admits no time");
+        } else {
+          const selected = checkSelection(req.selection, where, input);
+          if (req.kind === "aggregate") {
+            const measure = req.measure;
+            if (
+              typeof measure !== "string" &&
+              (selected &&
+                resolveField(document, selected, `self.${measure.sum}`)
+                  ?.type) !== "money"
+            )
+              add(where, "aggregate sum requires a money field");
+            checkValue(
+              req.value,
+              req.measure === "count" ? "integer" : "money",
+              where,
+              input,
+            );
+          }
+        }
+      }
+    };
+    checkRequirements(inst.invariants, `${base}.invariants`);
+    for (const [actionName, action] of Object.entries(inst.actions)) {
+      const where = `${base}.actions.${actionName}`;
+      if (actionName !== "create" && !inst.lifecycle.transitions[actionName])
+        add(where, "action needs a lifecycle transition", "UDL3001");
+      checkFields(action.input, `${where}.input`);
+      for (const input of action.input) {
+        if (input.type === "account")
+          add(where, "account bindings cannot be caller inputs");
+        const declared = inst.fields.find((f) => f.name === input.name);
+        const calculated = [
+          ...inst.calculate,
+          ...Object.values(inst.actions).flatMap((a) => a.calculate ?? []),
+        ].some((c) => c.target === input.name);
+        if (
+          actionName === "create" &&
+          (calculated ||
+            (declared && "value" in declared && declared.value !== undefined))
+        )
+          add(
+            where,
+            `${input.name} is fixed by the contract and cannot be an input`,
+          );
+        if (captures.has(input.name))
+          add(
+            where,
+            `${input.name} is an executor-owned receipt and cannot be an input`,
+          );
+      }
+      checkCalculations(
+        action.calculate ?? [],
+        `${where}.calculate`,
+        action.input,
+      );
+      checkRequirements(action.requires, `${where}.requires`, action.input);
+      if (
+        typeof action.actor === "object" &&
+        "party" in action.actor &&
+        !document.parties[action.actor.party]
+      )
+        add(where, "actor names an undeclared party");
+      if (
+        typeof action.actor === "object" &&
+        "parent" in action.actor &&
+        !byId.has(action.actor.parent)
+      )
+        add(where, "actor names an undeclared parent");
+      if (action.actor === "clock" && !action.due)
+        add(where, "clock action needs a due instant");
+      for (const clock of [action.due, action.deadline])
+        if (clock) expect(clock.at, "date", where, action.input);
+      for (const move of action.moves) {
+        if ("amount" in move) {
+          checkValue(move.amount, "money", where, action.input);
+          const from = expect(move.from, "account", where, action.input);
+          const to = expect(move.to, "account", where, action.input);
+          if (
+            from?.type === "account" &&
+            to?.type === "account" &&
+            from.book !== to.book
+          )
+            add(where, "moves cannot cross account books", "UDL4001");
+          const samePartyAccount =
+            from?.type === "account" &&
+            to?.type === "account" &&
+            from.owner !== "self" &&
+            from.owner === to.owner &&
+            from.book === to.book &&
+            (from.key ?? "balance") === (to.key ?? "balance");
+          if (move.from === move.to || samePartyAccount)
+            add(where, "a transfer needs distinct accounts", "UDL4001");
+        } else expect(move.transfer, "text", where, action.input);
+      }
+      duplicate(
+        action.moves.flatMap((m) =>
+          "capture" in m && m.capture ? [m.capture] : [],
+        ),
+        `${where}.captures`,
+      );
+      duplicate(
+        action.moves.map((m) => m.key),
+        `${where}.moves`,
+      );
+      for (const [key, v] of Object.entries(action.set ?? {})) {
+        const target = inst.fields.find((f) => f.name === key);
+        if (
+          !target ||
+          captures.has(key) ||
+          ("value" in target && target.value !== undefined) ||
+          target.type === "account" ||
+          target.type === "ref" ||
+          inst.calculate.some((c) => c.target === key)
+        )
+          add(where, `cannot write immutable field ${key}`);
+        else checkValue(v, target.type, where, action.input);
+      }
+      const checkArguments = (
+        targetId: string | undefined,
+        actionName: string,
+        values: Record<string, UdlValue>,
+      ) => {
+        const target = targetId
+          ? byId.get(targetId)?.actions[actionName]
+          : undefined;
+        if (!target) return;
+        for (const required of target.input)
+          if (
+            !required.optional &&
+            !("value" in required && required.value !== undefined) &&
+            !(required.name in values)
+          )
+            add(where, `missing target input ${required.name}`);
+        for (const [name, value] of Object.entries(values)) {
+          const declared = target.input.find((f) => f.name === name);
+          if (!declared) {
+            add(where, `unknown target input ${name}`);
+            continue;
+          }
+          checkValue(value, declared.type, where, action.input);
+          if (declared.type === "ref" && "field" in value) {
+            const supplied = field(value.field, action.input);
+            if (
+              supplied?.type !== "ref" ||
+              !targetIds(supplied.target).every((id) =>
+                targetIds(declared.target).includes(id),
+              )
+            )
+              add(where, `target input ${name} has the wrong reference type`);
+          }
+        }
+      };
+      if (action.approval) {
+        const reference = expect(
+          action.approval.target,
+          "ref",
+          where,
+          action.input,
+        );
+        if (
+          reference?.type === "ref" &&
+          targetIds(reference.target).some(
+            (id) => !byId.get(id)?.actions[action.approval!.action],
+          )
+        )
+          add(where, "approval target action does not exist");
+        if (reference?.type === "ref")
+          for (const id of targetIds(reference.target))
+            checkArguments(id, action.approval.action, action.approval.input);
+        expect(action.approval.expires, "date", where, action.input);
+        if (!document.parties[action.approval.party])
+          add(where, "approval needs a declared party");
+      }
+      const targets: { targets: string[]; count: number }[] = [];
+      for (const call of action.invoke ?? []) {
+        if ("selection" in call)
+          checkSelection(call.selection, where, action.input);
+        const target =
+          "reference" in call ? field(call.reference, action.input) : undefined;
+        const selected =
+          "instrument" in call
+            ? call.instrument
+            : "selection" in call
+              ? call.selection.instrument
+              : target?.type === "ref"
+                ? target.target
+                : undefined;
+        const ids = Array.isArray(selected)
+          ? selected
+          : selected
+            ? [selected]
+            : [];
+        if (!ids.length) add(where, "invocation needs a declared target");
+        for (const targetId of ids) {
+          checkArguments(targetId, call.action, call.input);
+          if (call.action === "create" && !("instrument" in call))
+            add(
+              where,
+              "invocation references an existing instance and cannot create it again",
+            );
+          if (!byId.get(targetId)?.actions[call.action])
+            add(where, "invocation target must name a declared action");
+        }
+        targets.push({
+          targets: ids.map((id) => `${id}.${call.action}`),
+          count: "selection" in call ? call.selection.limit : 1,
+        });
+      }
+      calls.set(`${inst.id}.${actionName}`, targets);
+    }
+    if (!issues.some((i) => i.path.startsWith(base)))
+      issues.push(
+        ...analyzeInstrumentFinance(inst, document).map((i) =>
+          issue("UDL4001", base + i.path, i.message),
+        ),
+      );
+  }
+  const active = new Set<string>();
+  const depths = new Map<string, number>();
+  const visit = (key: string): number => {
+    if (active.has(key)) {
+      add("$.instruments", `invocation cycle at ${key}`, "UDL2010");
+      return 4097;
+    }
+    const known = depths.get(key);
+    if (known !== undefined) return known;
+    active.add(key);
+    const size =
+      1 +
+      (calls.get(key) ?? []).reduce(
+        (n, edge) => n + edge.count * Math.max(0, ...edge.targets.map(visit)),
+        0,
+      );
+    active.delete(key);
+    depths.set(key, size);
+    if (size > 4096)
+      add("$.instruments", `invocation ${key} exceeds 4096 actions`, "UDL2010");
+    return size;
+  };
+  for (const key of calls.keys()) visit(key);
+  return issues.length ? { ok: false, issues } : { ok: true, value: document };
 }
-
 export function assertValidUdl(value: unknown): UdlDocument {
   const result = validateUdl(value);
   if (!result.ok) throw new UdlError(result.issues);
   return result.value;
-}
-
-/**
- * Applies the sealed UDL JSON Schema subset to one value. Both inputs pass the
- * same deterministic admission budgets as a complete UDL document before the
- * standard validator or sealed format validators run.
- */
-export function validateUdlSchemaValue(
-  schema: Readonly<Record<string, unknown>>,
-  value: unknown,
-): ValidationResult {
-  const schemaAdmission = structuralBudgetIssue(schema);
-  if (schemaAdmission)
-    return admissionValidationResult(schemaAdmission, "invalid_schema");
-  const valueAdmission = structuralBudgetIssue(value);
-  if (valueAdmission)
-    return admissionValidationResult(valueAdmission, "invalid_value");
-
-  const schemaErrors: OutputUnit[] = [];
-  validateJsonSchema(schema, [], (path, message) => {
-    schemaErrors.push({
-      error: message,
-      instanceLocation: "",
-      keyword: "invalid_schema",
-      keywordLocation: jsonPath(path),
-    });
-  });
-  if (schemaErrors.length > 0) {
-    return { errors: schemaErrors, valid: false };
-  }
-
-  const boundedSchema = structuredClone(schema) as Schema;
-  const validator = new Validator(boundedSchema, "2020-12", false);
-  const standard = validator.validate(value);
-  const sealedErrors = sealedFormatErrors(value, boundedSchema);
-  const errors = [...standard.errors, ...sealedErrors];
-  return { errors, valid: errors.length === 0 };
-}
-
-/**
- * Validates one schema document against the sealed UDL JSON Schema subset
- * without applying it to a value. Frozen tenant contracts use this at their
- * persistence boundary so an unreadable schema cannot become immutable state.
- */
-export function validateUdlJsonSchema(schema: unknown): readonly UdlIssue[] {
-  const admissionIssue = structuralBudgetIssue(schema);
-  if (admissionIssue) return [admissionIssue];
-  if (!isRecord(schema)) {
-    return [issue("UDL1003", "$", "JSON Schema must be an object")];
-  }
-
-  const issues: UdlIssue[] = [];
-  validateJsonSchema(schema, [], (path, message) => {
-    issues.push(issue("UDL6001", jsonPath(path), message));
-  });
-  return issues;
-}
-
-function admissionValidationResult(
-  issue: UdlIssue,
-  invalidKeyword: string,
-): ValidationResult {
-  return {
-    errors: [
-      {
-        error: issue.message,
-        instanceLocation: issue.path,
-        keyword:
-          issue.category === "resource_limit"
-            ? "resource_limit"
-            : invalidKeyword,
-        keywordLocation: "$",
-      },
-    ],
-    valid: false,
-  };
-}
-
-type AddIssue = (
-  path: readonly PropertyKey[],
-  message: string,
-  code: UdlIssueCode,
-) => void;
-
-const positiveMoneyPattern = "^[1-9][0-9]{0,17}$";
-const nonNegativeMoneyPattern = "^(0|[1-9][0-9]{0,17})$";
-const currencyPattern = "^[A-Z]{3}$";
-const sealedDateTimeFormat = "hyperscale-date-time";
-const jsonSchemaFormats = new Set([
-  "hyperscale-date",
-  sealedDateTimeFormat,
-  "hyperscale-email",
-  "hyperscale-uri",
-]);
-const jsonSchemaTypes = new Set([
-  "array",
-  "boolean",
-  "integer",
-  "object",
-  "string",
-]);
-const jsonSchemaKeywords = new Set([
-  "additionalProperties",
-  "const",
-  "description",
-  "enum",
-  "format",
-  "items",
-  "maxItems",
-  "maxLength",
-  "maximum",
-  "minItems",
-  "minLength",
-  "minimum",
-  "pattern",
-  "properties",
-  "required",
-  "title",
-  "type",
-  "x-hyperscale-currency",
-  "x-hyperscale-fee-collection-port",
-  "x-hyperscale-reference-filter",
-]);
-
-function semanticIssues(
-  document: UdlDocument,
-  references: ReferenceShapeBudget,
-  options: UdlValidationOptions,
-): UdlIssue[] {
-  const issues: UdlIssue[] = [];
-  const add: AddIssue = (path, message, code) => {
-    issues.push(issue(code, jsonPath(path), message));
-  };
-
-  document.instruments.forEach((instrument, instrumentIndex) => {
-    const problem = financeAdmissionProblem(instrument);
-    if (problem)
-      add(["instruments", instrumentIndex, "lifecycle"], problem, "UDL1004");
-  });
-  if (issues.length > 0) return issues;
-
-  validateDocumentSchemas(document, add);
-  if (issues.length > 0) return issues;
-
-  // Vocabulary laws must accumulate with the existing semantic diagnostics.
-  validateVocabulary(document.instruments, (path, message) =>
-    add(
-      path,
-      message,
-      path.some((part) =>
-        [
-          "attests",
-          "requiresInput",
-          "engineOwned",
-          "captureEngine",
-          "unique",
-          "port",
-        ].includes(String(part)),
-      )
-        ? "UDL5001"
-        : shapeIssueCode(path),
-    ),
-  );
-
-  addDuplicateIssues(
-    document.subjects.map((subject) => subject.kind),
-    ["subjects"],
-    "subject kind",
-    add,
-  );
-  addDuplicateIssues(
-    document.instruments.map((instrument) => instrument.id),
-    ["instruments"],
-    "instrument id",
-    add,
-  );
-  addDuplicateIssues(
-    document.instruments.map((instrument) => instrument.idPrefix),
-    ["instruments"],
-    "instrument idPrefix",
-    add,
-  );
-
-  validateCompositionDials(document, add);
-
-  const subjects = new Map(
-    document.subjects.map((subject) => [subject.kind, subject] as const),
-  );
-  const instruments = new Map(
-    document.instruments.map(
-      (instrument) => [instrument.id, instrument] as const,
-    ),
-  );
-
-  for (const [subjectIndex, subject] of document.subjects.entries()) {
-    if (subject.schema.type !== "object") {
-      add(
-        ["subjects", subjectIndex, "schema", "type"],
-        "a subject attribute schema must declare type object",
-        "UDL2002",
-      );
-    }
-  }
-
-  for (const [instrumentIndex, instrument] of document.instruments.entries()) {
-    const resolvedPlansResult = resolveUdlActionPlans(instrument);
-    for (const [actionName, action] of Object.entries(instrument.actions)) {
-      if (options.requireDecisionPartyBindings) {
-        for (const [index, role] of (
-          action.port?.allowedParties ?? []
-        ).entries()) {
-          if (!Object.hasOwn(instrument.parties ?? {}, role)) {
-            add(
-              [
-                "instruments",
-                instrumentIndex,
-                "actions",
-                actionName,
-                "port",
-                "allowedParties",
-                index,
-              ],
-              `decision port allows party role ${role}, which the instrument does not declare`,
-              "UDL5008",
-            );
-          }
-        }
-      }
-      if (!action.effects) continue;
-      let expected: DerivedUdlEffects;
-      if (action.calls && action.calls.length > 0) {
-        const plan = resolvedPlansResult.plans.find(
-          (p) => p.action === actionName,
-        );
-        expected = plan ? plan.effects : {};
-      } else {
-        expected = deriveUdlActionEffects(action, udlClauseVocabulary);
-      }
-      for (const kind of udlEffectKinds) {
-        const actualRows = action.effects[kind] ?? [];
-        const expectedRows = expected[kind] ?? [];
-        if (
-          actualRows.length === expectedRows.length &&
-          actualRows.every((row, index) => {
-            const expectedRow = expectedRows[index];
-            return (
-              expectedRow !== undefined &&
-              row.signature === expectedRow.signature &&
-              row.source === expectedRow.source &&
-              ("channel" in row ? row.channel : undefined) ===
-                expectedRow.channel &&
-              ("role" in row ? row.role : undefined) === expectedRow.role
-            );
-          })
-        ) {
-          continue;
-        }
-        add(
-          [
-            "instruments",
-            instrumentIndex,
-            "actions",
-            actionName,
-            "effects",
-            kind,
-          ],
-          `derived ${kind} effects do not match the action clauses`,
-          "UDL2005",
-        );
-      }
-    }
-    validateInstrument(
-      instrument,
-      instrumentIndex,
-      instruments,
-      subjects,
-      references,
-      add,
-    );
-  }
-  return issues;
-}
-
-function structuralBudgetIssue(value: unknown): UdlIssue | undefined {
-  let discovered = 1;
-  let nodes = 0;
-  let totalStringLength = 0;
-  const pending: {
-    readonly ancestors: ReadonlySet<object>;
-    readonly countNode: boolean;
-    readonly depth: number;
-    readonly path: readonly PropertyKey[];
-    readonly value: unknown;
-  }[] = [{ ancestors: new Set(), countNode: true, depth: 1, path: [], value }];
-
-  while (pending.length > 0) {
-    const entry = pending.pop() as (typeof pending)[number];
-    if (entry.countNode) nodes += 1;
-    if (nodes > UDL_LIMITS.maxNodes) {
-      return resourceIssue(
-        entry.path,
-        `UDL contains more than ${UDL_LIMITS.maxNodes} values`,
-      );
-    }
-    if (entry.depth > UDL_LIMITS.maxDepth) {
-      return resourceIssue(
-        entry.path,
-        `UDL nesting exceeds ${UDL_LIMITS.maxDepth} levels`,
-      );
-    }
-    if (typeof entry.value === "string") {
-      if (entry.value.length > UDL_LIMITS.maxStringLength) {
-        return resourceIssue(
-          entry.path,
-          `UDL string exceeds ${UDL_LIMITS.maxStringLength} characters`,
-        );
-      }
-      totalStringLength += entry.value.length;
-      if (totalStringLength > UDL_LIMITS.maxTotalStringLength) {
-        return resourceIssue(
-          entry.path,
-          `UDL strings exceed ${UDL_LIMITS.maxTotalStringLength} total characters`,
-        );
-      }
-      continue;
-    }
-    if (entry.value === null || typeof entry.value === "boolean") continue;
-    if (typeof entry.value === "number") {
-      if (Number.isFinite(entry.value)) continue;
-      return jsonValueIssue(entry.path);
-    }
-    if (typeof entry.value !== "object") {
-      return jsonValueIssue(entry.path);
-    }
-    if (entry.ancestors.has(entry.value)) {
-      return resourceIssue(entry.path, "UDL must not contain object cycles");
-    }
-    const childAncestors = new Set(entry.ancestors);
-    childAncestors.add(entry.value);
-    if (Array.isArray(entry.value)) {
-      if (
-        entry.countNode &&
-        entry.value.length > UDL_LIMITS.maxNodes - discovered
-      ) {
-        return resourceIssue(
-          entry.path,
-          `UDL contains more than ${UDL_LIMITS.maxNodes} values`,
-        );
-      }
-      if (entry.countNode) discovered += entry.value.length;
-      for (let index = entry.value.length - 1; index >= 0; index -= 1) {
-        pending.push({
-          ancestors: childAncestors,
-          countNode: entry.countNode,
-          depth: entry.depth + 1,
-          path: [...entry.path, index],
-          value: entry.value[index],
-        });
-      }
-      continue;
-    }
-    const prototype = Object.getPrototypeOf(entry.value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      return jsonValueIssue(entry.path);
-    }
-    let childCount = 0;
-    for (const key in entry.value) {
-      if (!Object.hasOwn(entry.value, key)) continue;
-      if (countsAsAuthoredNode(entry, key)) childCount += 1;
-      if (childCount > UDL_LIMITS.maxNodes - discovered) {
-        return resourceIssue(
-          entry.path,
-          `UDL contains more than ${UDL_LIMITS.maxNodes} values`,
-        );
-      }
-      if (key.length > UDL_LIMITS.maxKeyLength) {
-        return resourceIssue(
-          [...entry.path, key],
-          `UDL key exceeds ${UDL_LIMITS.maxKeyLength} characters`,
-        );
-      }
-      totalStringLength += key.length;
-      if (totalStringLength > UDL_LIMITS.maxTotalStringLength) {
-        return resourceIssue(
-          [...entry.path, key],
-          `UDL strings exceed ${UDL_LIMITS.maxTotalStringLength} total characters`,
-        );
-      }
-    }
-    discovered += childCount;
-    for (const key in entry.value) {
-      if (!Object.hasOwn(entry.value, key)) continue;
-      pending.push({
-        ancestors: childAncestors,
-        countNode: countsAsAuthoredNode(entry, key),
-        depth: entry.depth + 1,
-        path: [...entry.path, key],
-        value: (entry.value as Record<string, unknown>)[key],
-      });
-    }
-  }
-  return undefined;
-}
-
-function countsAsAuthoredNode(
-  entry: { readonly countNode: boolean; readonly path: readonly PropertyKey[] },
-  key: string,
-): boolean {
-  return !(
-    !entry.countNode ||
-    (key === "effects" &&
-      entry.path.length === 4 &&
-      entry.path[0] === "instruments" &&
-      typeof entry.path[1] === "number" &&
-      entry.path[2] === "actions" &&
-      typeof entry.path[3] === "string")
-  );
-}
-
-function resourceIssue(
-  path: readonly PropertyKey[],
-  message: string,
-): UdlIssue {
-  return issue("UDL1004", jsonPath(path), message);
-}
-
-function jsonValueIssue(path: readonly PropertyKey[]): UdlIssue {
-  return issue("UDL1003", jsonPath(path), "UDL must contain only JSON values");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function validateDocumentSchemas(document: UdlDocument, add: AddIssue): void {
-  const addSchemaIssue: AddIssue = (path, message) =>
-    add(path, message, "UDL6001");
-  document.subjects.forEach((subject, subjectIndex) =>
-    validateJsonSchema(
-      subject.schema,
-      ["subjects", subjectIndex, "schema"],
-      addSchemaIssue,
-    ),
-  );
-  document.instruments.forEach((instrument, instrumentIndex) => {
-    for (const [field, schema] of Object.entries(instrument.fields)) {
-      validateJsonSchema(
-        schema,
-        ["instruments", instrumentIndex, "fields", field],
-        addSchemaIssue,
-      );
-    }
-    for (const [action, definition] of Object.entries(instrument.actions)) {
-      if (definition.input) {
-        validateJsonSchema(
-          definition.input,
-          ["instruments", instrumentIndex, "actions", action, "input"],
-          addSchemaIssue,
-        );
-      }
-    }
-  });
-}
-
-function validateJsonSchema(
-  schema: Record<string, unknown>,
-  path: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  for (const keyword of Object.keys(schema)) {
-    if (!jsonSchemaKeywords.has(keyword)) {
-      add(
-        [...path, keyword],
-        `JSON Schema keyword ${keyword} is not in the UDL schema subset`,
-        "UDL6001",
-      );
-    }
-  }
-
-  if (typeof schema.type !== "string" || !jsonSchemaTypes.has(schema.type)) {
-    add(
-      [...path, "type"],
-      `JSON Schema type must be one of ${[...jsonSchemaTypes].join(", ")}`,
-      "UDL6001",
-    );
-  }
-  for (const keyword of ["description", "title"] as const) {
-    if (Object.hasOwn(schema, keyword) && typeof schema[keyword] !== "string") {
-      add(
-        [...path, keyword],
-        `JSON Schema ${keyword} must be a string`,
-        "UDL6001",
-      );
-    }
-  }
-  if (
-    Object.hasOwn(schema, "enum") &&
-    (!Array.isArray(schema.enum) || schema.enum.length === 0)
-  ) {
-    add(
-      [...path, "enum"],
-      "JSON Schema enum must be a non-empty array",
-      "UDL6001",
-    );
-  }
-  if (
-    Object.hasOwn(schema, "properties") &&
-    (!isRecord(schema.properties) || schema.type !== "object")
-  ) {
-    add(
-      [...path, "properties"],
-      "JSON Schema properties require an object schema and object value",
-      "UDL6001",
-    );
-  }
-  if (Object.hasOwn(schema, "required")) {
-    if (schema.type !== "object") {
-      add(
-        [...path, "required"],
-        "JSON Schema required is only valid on an object schema",
-        "UDL6001",
-      );
-    } else if (
-      !Array.isArray(schema.required) ||
-      !schema.required.every((field) => typeof field === "string")
-    ) {
-      add(
-        [...path, "required"],
-        "JSON Schema required must be an array of property names",
-        "UDL6001",
-      );
-    } else {
-      const properties = recordValue(schema.properties);
-      for (const field of schema.required) {
-        if (!Object.hasOwn(properties, field)) {
-          add(
-            [...path, "required"],
-            `JSON Schema required references undeclared property ${field}`,
-            "UDL6001",
-          );
-        }
-      }
-    }
-  }
-  if (
-    Object.hasOwn(schema, "items") &&
-    (!isRecord(schema.items) || schema.type !== "array")
-  ) {
-    add(
-      [...path, "items"],
-      "JSON Schema items require an array schema and object value",
-      "UDL6001",
-    );
-  }
-  if (
-    Object.hasOwn(schema, "additionalProperties") &&
-    (schema.type !== "object" ||
-      (typeof schema.additionalProperties !== "boolean" &&
-        !isRecord(schema.additionalProperties)))
-  ) {
-    add(
-      [...path, "additionalProperties"],
-      "JSON Schema additionalProperties requires an object schema and a boolean or schema value",
-      "UDL6001",
-    );
-  }
-  for (const keyword of [
-    "maxItems",
-    "maxLength",
-    "minItems",
-    "minLength",
-  ] as const) {
-    const value = schema[keyword];
-    if (
-      Object.hasOwn(schema, keyword) &&
-      ((keyword.endsWith("Items")
-        ? schema.type !== "array"
-        : schema.type !== "string") ||
-        typeof value !== "number" ||
-        !Number.isInteger(value) ||
-        value < 0)
-    ) {
-      add(
-        [...path, keyword],
-        `JSON Schema ${keyword} must be a non-negative integer on the matching schema type`,
-        "UDL6001",
-      );
-    }
-  }
-  for (const keyword of ["maximum", "minimum"] as const) {
-    const value = schema[keyword];
-    if (
-      Object.hasOwn(schema, keyword) &&
-      (schema.type !== "integer" ||
-        typeof value !== "number" ||
-        !Number.isFinite(value))
-    ) {
-      add(
-        [...path, keyword],
-        `JSON Schema ${keyword} must be finite on an integer schema`,
-        "UDL6001",
-      );
-    }
-  }
-  if (
-    typeof schema.minLength === "number" &&
-    typeof schema.maxLength === "number" &&
-    schema.minLength > schema.maxLength
-  ) {
-    add(
-      [...path, "maxLength"],
-      "JSON Schema maxLength is below minLength",
-      "UDL6001",
-    );
-  }
-  if (
-    typeof schema.minItems === "number" &&
-    typeof schema.maxItems === "number" &&
-    schema.minItems > schema.maxItems
-  ) {
-    add(
-      [...path, "maxItems"],
-      "JSON Schema maxItems is below minItems",
-      "UDL6001",
-    );
-  }
-  if (
-    typeof schema.minimum === "number" &&
-    typeof schema.maximum === "number" &&
-    schema.minimum > schema.maximum
-  ) {
-    add(
-      [...path, "maximum"],
-      "JSON Schema maximum is below minimum",
-      "UDL6001",
-    );
-  }
-  if (Object.hasOwn(schema, "x-hyperscale-reference-filter")) {
-    const filter = schema["x-hyperscale-reference-filter"];
-    if (
-      !isRecord(filter) ||
-      schema.type !== "string" ||
-      Object.keys(filter).some((key) => key !== "column" && key !== "values") ||
-      typeof filter.column !== "string" ||
-      !Array.isArray(filter.values) ||
-      !filter.values.every((value) => typeof value === "string")
-    ) {
-      add(
-        [...path, "x-hyperscale-reference-filter"],
-        "x-hyperscale-reference-filter requires only string column and string-array values",
-        "UDL6001",
-      );
-    }
-  }
-  if (
-    Object.hasOwn(schema, "x-hyperscale-currency") &&
-    (schema.type !== "string" ||
-      typeof schema["x-hyperscale-currency"] !== "string" ||
-      !/^[A-Z]{3}$/.test(schema["x-hyperscale-currency"]))
-  ) {
-    add(
-      [...path, "x-hyperscale-currency"],
-      "x-hyperscale-currency must be a three-letter uppercase code on a string schema",
-      "UDL6001",
-    );
-  }
-  if (
-    Object.hasOwn(schema, "x-hyperscale-fee-collection-port") &&
-    (schema.type !== "string" ||
-      schema["x-hyperscale-fee-collection-port"] !== true)
-  ) {
-    add(
-      [...path, "x-hyperscale-fee-collection-port"],
-      "x-hyperscale-fee-collection-port must be true on a string schema",
-      "UDL6001",
-    );
-  }
-  if (Object.hasOwn(schema, "pattern")) {
-    if (schema.type !== "string" || typeof schema.pattern !== "string") {
-      add(
-        [...path, "pattern"],
-        "JSON Schema pattern must be a string",
-        "UDL6001",
-      );
-    } else {
-      const problem = regexProblem(schema.pattern);
-      if (problem) add([...path, "pattern"], problem, "UDL6001");
-    }
-  }
-  if (
-    Object.hasOwn(schema, "format") &&
-    (schema.type !== "string" ||
-      typeof schema.format !== "string" ||
-      !jsonSchemaFormats.has(schema.format))
-  ) {
-    add(
-      [...path, "format"],
-      `JSON Schema format must be one of ${[...jsonSchemaFormats].join(", ")}`,
-      "UDL6001",
-    );
-  }
-
-  const properties = recordValue(schema.properties);
-  for (const [property, child] of Object.entries(properties)) {
-    if (isRecord(child)) {
-      validateJsonSchema(child, [...path, "properties", property], add);
-    } else {
-      add(
-        [...path, "properties", property],
-        "JSON Schema property must be a schema object",
-        "UDL6001",
-      );
-    }
-  }
-  if (isRecord(schema.items)) {
-    validateJsonSchema(schema.items, [...path, "items"], add);
-  }
-  if (isRecord(schema.additionalProperties)) {
-    validateJsonSchema(
-      schema.additionalProperties,
-      [...path, "additionalProperties"],
-      add,
-    );
-  }
-}
-
-/**
- * Admits a document-authored `pattern` only when its worst-case match cost is
- * bounded, by multiplying out the search space instead of guessing at which
- * shapes are dangerous.
- *
- * The sealed subset leaves exactly three ways to make one anchored match
- * attempt branch: an alternation group (as many ways as it has branches), an
- * optional atom (two), and a variable-width `{n,m}` (span many). Unbounded
- * quantifiers, group repetition, backreferences, lookaround and `.` are
- * refused, so every remaining branch point is a finite factor and their
- * product is an upper bound on the attempts the backtracking engine can be
- * made to explore. Cap that product and matching cost is at most the budget
- * times the pattern length — no ambiguity heuristic to out-think, because
- * catastrophic backtracking IS an unbounded product.
- */
-function regexProblem(pattern: string): string | undefined {
-  if (pattern.length > UDL_LIMITS.maxPatternLength) {
-    return `JSON Schema pattern exceeds ${UDL_LIMITS.maxPatternLength} characters`;
-  }
-  if (
-    !pattern.startsWith("^") ||
-    !pattern.endsWith("$") ||
-    isEscapedRegexToken(pattern, pattern.length - 1)
-  ) {
-    return "JSON Schema pattern must be explicitly anchored with ^ and $";
-  }
-
-  let paths = 1;
-  const overBudget = (factor: number): boolean => {
-    paths *= factor;
-    return paths > UDL_LIMITS.maxPatternPaths;
-  };
-  const budgetProblem = `JSON Schema pattern may branch more than ${UDL_LIMITS.maxPatternPaths} ways`;
-
-  const branches: number[] = [];
-  let inClass = false;
-  let escaped = false;
-  let previous: "atom" | "group" | "quantifier" | undefined;
-  for (let index = 0; index < pattern.length; index += 1) {
-    const token = pattern[index] as string;
-    if (escaped) {
-      if (/[1-9k]/.test(token)) {
-        return "JSON Schema pattern may not contain backreferences";
-      }
-      escaped = false;
-      previous = "atom";
-      continue;
-    }
-    if (token === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (inClass) {
-      if (token === "]") {
-        inClass = false;
-        previous = "atom";
-      }
-      continue;
-    }
-    if (token === "[") {
-      inClass = true;
-      continue;
-    }
-    if (token === ".") {
-      return "JSON Schema pattern may not contain the unbounded wildcard .";
-    }
-    if (token === "(") {
-      if (pattern[index + 1] === "?" && pattern[index + 2] !== ":") {
-        return "JSON Schema pattern may not contain lookaround or inline flags";
-      }
-      branches.push(1);
-      previous = undefined;
-      continue;
-    }
-    if (token === ")") {
-      const groupBranches = branches.pop();
-      if (groupBranches === undefined) {
-        return "JSON Schema pattern contains an unmatched closing group";
-      }
-      if (overBudget(groupBranches)) return budgetProblem;
-      previous = "group";
-      continue;
-    }
-    if (token === "|") {
-      const enclosing = branches.length - 1;
-      if (enclosing < 0) {
-        return "JSON Schema pattern alternation must be enclosed in a group";
-      }
-      branches[enclosing] = (branches[enclosing] as number) + 1;
-      previous = undefined;
-      continue;
-    }
-    if (token === "*" || token === "+") {
-      return "JSON Schema pattern may not contain unbounded quantifiers";
-    }
-    if (token === "?") {
-      if (pattern[index - 1] === "(") continue;
-      if (!previous || previous === "quantifier") {
-        return "JSON Schema pattern contains an ambiguous quantifier";
-      }
-      if (overBudget(2)) return budgetProblem;
-      previous = "quantifier";
-      continue;
-    }
-    if (token === "{") {
-      const end = pattern.indexOf("}", index + 1);
-      const bounds = end < 0 ? "" : pattern.slice(index + 1, end);
-      const match = /^(\d+)(?:,(\d+))?$/.exec(bounds);
-      if (!match) {
-        return "JSON Schema pattern quantifiers must have a finite upper bound";
-      }
-      if (previous === "group") {
-        return "JSON Schema pattern may not repeat a group";
-      }
-      if (!previous || previous === "quantifier") {
-        return "JSON Schema pattern contains an ambiguous quantifier";
-      }
-      const lower = Number(match[1]);
-      const upper = Number(match[2] ?? match[1]);
-      if (upper < lower || upper > UDL_LIMITS.maxStringLength) {
-        return `JSON Schema pattern quantifier upper bound must not exceed ${UDL_LIMITS.maxStringLength}`;
-      }
-      if (overBudget(upper - lower + 1)) return budgetProblem;
-      previous = "quantifier";
-      index = end;
-      continue;
-    }
-    if (token !== "^" && token !== "$" && token !== ":") previous = "atom";
-  }
-  if (escaped || inClass || branches.length !== 0) {
-    return "JSON Schema pattern is not syntactically closed";
-  }
-  try {
-    new RegExp(pattern, "u");
-  } catch {
-    return "JSON Schema pattern is not valid ECMAScript syntax";
-  }
-  return undefined;
-}
-
-function isEscapedRegexToken(pattern: string, index: number): boolean {
-  let slashes = 0;
-  for (
-    let cursor = index - 1;
-    cursor >= 0 && pattern[cursor] === "\\";
-    cursor -= 1
-  ) {
-    slashes += 1;
-  }
-  return slashes % 2 === 1;
-}
-
-function validateInstrument(
-  instrument: UdlInstrument,
-  instrumentIndex: number,
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  subjects: ReadonlyMap<string, unknown>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const base = ["instruments", instrumentIndex] as const;
-  const states = new Set(instrument.lifecycle.states);
-  const orderedActions = new Set(instrument.actionOrder);
-
-  addDuplicateIssues(
-    instrument.actionOrder,
-    [...base, "actionOrder"],
-    "action id",
-    add,
-  );
-  instrument.actionOrder.forEach((action, actionIndex) => {
-    if (!Object.hasOwn(instrument.actions, action)) {
-      add(
-        [...base, "actionOrder", actionIndex],
-        `action order references unknown action ${action}`,
-        "UDL3001",
-      );
-    }
-  });
-  for (const action of Object.keys(instrument.actions)) {
-    if (!orderedActions.has(action)) {
-      add(
-        [...base, "actions", action],
-        `action ${action} is missing from actionOrder`,
-        "UDL3001",
-      );
-    }
-  }
-
-  addDuplicateIssues(
-    instrument.lifecycle.states,
-    [...base, "lifecycle", "states"],
-    "lifecycle state",
-    add,
-  );
-  if (!states.has(instrument.lifecycle.initial)) {
-    add(
-      [...base, "lifecycle", "initial"],
-      `initial state ${instrument.lifecycle.initial} is not declared in lifecycle.states`,
-      "UDL3001",
-    );
-  }
-  if (!Object.hasOwn(instrument.actions, "create")) {
-    add(
-      [...base, "actions"],
-      "every instrument must declare the create action",
-      "UDL3001",
-    );
-  }
-  if (Object.hasOwn(instrument.lifecycle.transitions, "create")) {
-    add(
-      [...base, "lifecycle", "transitions", "create"],
-      "create lands on lifecycle.initial and must not declare a transition",
-      "UDL3001",
-    );
-  }
-
-  for (const [action, transition] of Object.entries(
-    instrument.lifecycle.transitions,
-  )) {
-    if (!Object.hasOwn(instrument.actions, action)) {
-      add(
-        [...base, "lifecycle", "transitions", action],
-        `transition ${action} has no matching action`,
-        "UDL3001",
-      );
-    }
-    addDuplicateIssues(
-      transition.from,
-      [...base, "lifecycle", "transitions", action, "from"],
-      "source state",
-      add,
-    );
-    transition.from.forEach((from, fromIndex) => {
-      if (!states.has(from)) {
-        add(
-          [...base, "lifecycle", "transitions", action, "from", fromIndex],
-          `source state ${from} is not declared in lifecycle.states`,
-          "UDL3001",
-        );
-      }
-    });
-    if (!states.has(transition.to)) {
-      add(
-        [...base, "lifecycle", "transitions", action, "to"],
-        `target state ${transition.to} is not declared in lifecycle.states`,
-        "UDL3001",
-      );
-    }
-  }
-
-  for (const action of Object.keys(instrument.actions)) {
-    if (
-      action !== "create" &&
-      !Object.hasOwn(instrument.lifecycle.transitions, action)
-    ) {
-      add(
-        [...base, "actions", action],
-        `action ${action} must declare a lifecycle transition`,
-        "UDL3001",
-      );
-    }
-  }
-  validateReachability(instrument, base, add);
-
-  const reservedFields = new Set([
-    "createdAt",
-    "id",
-    "metadata",
-    "refs",
-    "status",
-  ]);
-  for (const field of Object.keys(instrument.fields)) {
-    if (reservedFields.has(field)) {
-      add(
-        [...base, "fields", field],
-        `${field} is an envelope field and cannot be authored`,
-        "UDL2002",
-      );
-    }
-  }
-  addDuplicateIssues(
-    instrument.required,
-    [...base, "required"],
-    "required field",
-    add,
-  );
-  instrument.required.forEach((field, fieldIndex) => {
-    if (!Object.hasOwn(instrument.fields, field)) {
-      add(
-        [...base, "required", fieldIndex],
-        `required references unknown field ${field}`,
-        "UDL2002",
-      );
-    }
-  });
-
-  if (instrument.subject) {
-    addDuplicateIssues(
-      instrument.subject.kinds,
-      [...base, "subject", "kinds"],
-      "subject kind",
-      add,
-    );
-    instrument.subject.kinds.forEach((kind, kindIndex) => {
-      if (!subjects.has(kind)) {
-        add(
-          [...base, "subject", "kinds", kindIndex],
-          `instrument subject references unknown kind ${kind}`,
-          "UDL2002",
-        );
-      }
-    });
-  }
-
-  validateParties(instrument, base, references, add);
-  validateUpdate(instrument, base, states, add);
-  validateDials(instrument, base, add);
-  validateCallerParkedStates(instrument, base, states, add);
-  validateFeeRules(instrument, base, references, add);
-  validateSetsAt(instrument, base, add);
-  validateActions(instrument, base, instruments, references, add);
-  validateQuoteCommit(instrument, base, references, add);
-  validatePiecePlan(instrument, base, references, add);
-
-  const planResolution = resolveUdlActionPlans(instrument);
-  for (const planIssue of planResolution.issues) {
-    const rawPath = planIssue.path.startsWith("$.")
-      ? planIssue.path.slice(2).split(".")
-      : [planIssue.path];
-    add([...base, ...rawPath], planIssue.message, planIssue.code);
-  }
-
-  // Validate leaf steps
-  const validatedLeaves = new Set<string>();
-  for (const plan of planResolution.plans) {
-    const actionDef = instrument.actions[plan.action];
-    if (!actionDef) continue;
-    for (const leaf of plan.leaves) {
-      const leafKey = `${plan.pieceId ?? ""}:${leaf.originPath.join(".")}`;
-      if (!validatedLeaves.has(leafKey)) {
-        validatedLeaves.add(leafKey);
-        validateStep(
-          instrument,
-          actionDef,
-          leaf.step,
-          [...base, "actions", ...leaf.originPath],
-          add,
-        );
-      }
-    }
-  }
-
-  for (const finIssue of instrumentFinanceIssues(instrument, {
-    plans: planResolution.plans,
-  })) {
-    add([...base, ...finIssue.path], finIssue.message, finIssue.code);
-  }
-  validateAggregates(instrument, base, instruments, references, add);
-}
-
-/**
- * The finance oracle over an instrument's resolved action plans, with paths
- * rooted at the instrument. A piece-plan instrument is unfolded over the
- * runtime's piece progress; any other instrument runs once per action plan
- * combination. Contract-side callers pass the UDL projection of a blueprint
- * definition so both boundaries prove the same machine.
- */
-export function instrumentFinanceIssues(
-  instrument: UdlInstrument,
-  options: FinanceOptions & {
-    readonly plans?: readonly ResolvedActionPlan[];
-  } = {},
-): readonly FinanceIssue[] {
-  const plans = options.plans ?? resolveUdlActionPlans(instrument).plans;
-  const financeOptions: FinanceOptions =
-    options.penaltyMayBeNonzero === undefined
-      ? {}
-      : { penaltyMayBeNonzero: options.penaltyMayBeNonzero };
-  const issues: FinanceIssue[] = [];
-  const seen = new Set<string>();
-  const add = (
-    path: readonly PropertyKey[],
-    message: string,
-    code: UdlIssueCode,
-  ): void => {
-    const key = `${code}:${path.join(".")}:${message}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    issues.push({ code, message, path });
-  };
-
-  const expansion = instrument.piecePlan
-    ? expandPieceProgress(instrument, plans)
-    : undefined;
-  if (expansion === "bound") {
-    add(
-      ["actions"],
-      `piece progress expansion exceeds reachable variant bound of ${UDL_LIMITS.maxActionExpansion}`,
-      "UDL2010",
-    );
-    return issues;
-  }
-  if (expansion) {
-    for (const finIssue of analyzeInstrumentFinance(
-      expansion.instrument,
-      financeOptions,
-    )) {
-      const message = expansion.displayNames.reduce(
-        (text, [expanded, display]) => text.replaceAll(expanded, display),
-        finIssue.message,
-      );
-      add(originFinancePath(expansion, finIssue.path), message, finIssue.code);
-    }
-    return issues;
-  }
-
-  const actionsWithPlans = Object.keys(instrument.actions).filter((aName) =>
-    plans.some((p) => p.action === aName),
-  );
-  let totalCombinations = 1;
-  const actionPlanMap: Record<string, ResolvedActionPlan[]> = {};
-  for (const aName of actionsWithPlans) {
-    const actionPlans = plans.filter((p) => p.action === aName);
-    actionPlanMap[aName] = actionPlans;
-    totalCombinations *= actionPlans.length;
-  }
-  if (
-    actionsWithPlans.length > 0 &&
-    totalCombinations > UDL_LIMITS.maxActionExpansion
-  ) {
-    add(
-      ["actions"],
-      `variant expansion exceeds combination bound of ${UDL_LIMITS.maxActionExpansion} (${totalCombinations} combinations)`,
-      "UDL2010",
-    );
-    return issues;
-  }
-  const generateCombos = (
-    keys: string[],
-  ): Record<string, ResolvedActionPlan>[] => {
-    if (keys.length === 0) return [{}];
-    const [first, ...rest] = keys;
-    const restCombos = generateCombos(rest);
-    const result: Record<string, ResolvedActionPlan>[] = [];
-    for (const plan of actionPlanMap[first!]!) {
-      for (const combo of restCombos) {
-        result.push({ ...combo, [first!]: plan });
-      }
-    }
-    return result;
-  };
-  const combinations =
-    actionsWithPlans.length > 0 ? generateCombos(actionsWithPlans) : [{}];
-  for (const combo of combinations) {
-    const expandedActions: Record<string, UdlAction> = {};
-    for (const [aName, aDef] of Object.entries(instrument.actions)) {
-      expandedActions[aName] = planExpandedAction(aDef, combo[aName]);
-    }
-    for (const finIssue of analyzeInstrumentFinance(
-      { ...instrument, actions: expandedActions },
-      financeOptions,
-    )) {
-      add(finIssue.path, finIssue.message, finIssue.code);
-    }
-  }
-  return issues;
-}
-
-/**
- * Only an action that moves money through calls is replaced by its expanded
- * leaves. Authored moves and steps always reach the oracle.
- */
-function planExpandedAction(
-  definition: UdlAction,
-  plan: ResolvedActionPlan | undefined,
-): UdlAction {
-  if (!plan || (definition.calls?.length ?? 0) === 0) return definition;
-  const steps: UdlStep[] = [];
-  const moves: UdlMove[] = [];
-  for (const leaf of plan.leaves) {
-    if ("key" in leaf.step) {
-      moves.push(leaf.step as UdlMove);
-    } else {
-      steps.push(leaf.step as UdlStep);
-    }
-  }
-  return { ...definition, moves, steps };
-}
-
-interface PieceProgress {
-  readonly funded: readonly string[];
-  readonly consumed: readonly string[];
-}
-
-interface PieceProgressExpansion {
-  readonly instrument: UdlInstrument;
-  /** Expanded action name to display name, longest first. */
-  readonly displayNames: readonly (readonly [string, string])[];
-  readonly actionOrigins: ReadonlyMap<
-    string,
-    {
-      readonly action: string;
-      readonly leafOrigins?: readonly (readonly string[])[];
-    }
-  >;
-  readonly stateOrigins: ReadonlyMap<string, string>;
-  readonly originStates: readonly string[];
-}
-
-function progressKey(progress: PieceProgress): string {
-  return `${progress.funded.join(",")}|${progress.consumed.join(",")}`;
-}
-
-/** Mirrors eligiblePieces in the engine's piece-plan dispatcher. */
-function eligiblePieces(
-  plan: NonNullable<UdlInstrument["piecePlan"]>,
-  stage: UdlPieceStageStage,
-  progress: PieceProgress,
-): readonly string[] {
-  return plan[`${stage}_order`].filter((id) =>
-    stage === "fund"
-      ? !progress.funded.includes(id)
-      : progress.funded.includes(id) && !progress.consumed.includes(id),
-  );
-}
-
-/**
- * Unfolds a piece-plan instrument over the runtime's piece progress so the
- * ordinary lifecycle oracle sees exactly the states the dispatcher admits: a
- * piece-stage action moves the next eligible piece of its stage order, the
- * lifecycle state is retained until the stage's last piece moves, funding
- * cannot resume once a piece has left escrow, and an action gated on a drained
- * account is closed while a funded piece is still held. Every expanded state is
- * one (lifecycle state, progress) pair; expanded action names carry the piece
- * and the source state so each has exactly one transition. A quote-commit pair
- * is not carried through the expansion.
- */
-function expandPieceProgress(
-  instrument: UdlInstrument,
-  plans: readonly ResolvedActionPlan[],
-): PieceProgressExpansion | "bound" | undefined {
-  const plan = instrument.piecePlan;
-  if (!plan) return undefined;
-  const stateName = (state: string, progress: PieceProgress): string =>
-    `${state}#${progressKey(progress)}`;
-  const initialProgress: PieceProgress = { funded: [], consumed: [] };
-  const stateOrigins = new Map<string, string>();
-  const actionOrigins = new Map<
-    string,
-    { action: string; leafOrigins?: readonly (readonly string[])[] }
-  >();
-  const displayNames: [string, string][] = [];
-  const actions: Record<string, UdlAction> = {};
-  const transitions: Record<string, { from: string[]; to: string }> = {};
-  const pending: { state: string; progress: PieceProgress }[] = [
-    { state: instrument.lifecycle.initial, progress: initialProgress },
-  ];
-  stateOrigins.set(
-    stateName(instrument.lifecycle.initial, initialProgress),
-    instrument.lifecycle.initial,
-  );
-
-  const visit = (state: string, progress: PieceProgress): void => {
-    const name = stateName(state, progress);
-    if (stateOrigins.has(name)) return;
-    stateOrigins.set(name, state);
-    pending.push({ state, progress });
-  };
-
-  while (pending.length > 0) {
-    const { state, progress } = pending.shift()!;
-    if (stateOrigins.size > UDL_LIMITS.maxActionExpansion) return "bound";
-    const held = progress.funded.filter(
-      (id) => !progress.consumed.includes(id),
-    );
-    for (const [actionName, transition] of Object.entries(
-      instrument.lifecycle.transitions,
-    )) {
-      if (!transition.from.includes(state)) continue;
-      const definition = instrument.actions[actionName];
-      if (!definition) continue;
-      if (definition.requiresDrainedAccount && held.length > 0) continue;
-      const stage = definition.pieceStage;
-      if (!stage) {
-        const expanded = `${actionName}#${state}#${progressKey(progress)}`;
-        const variant = plans.find(
-          (candidate) => candidate.action === actionName,
-        );
-        actions[expanded] = planExpandedAction(definition, variant);
-        transitions[expanded] = {
-          from: [stateName(state, progress)],
-          to: stateName(transition.to, progress),
-        };
-        actionOrigins.set(expanded, {
-          action: actionName,
-          ...(variant && (definition.calls?.length ?? 0) > 0
-            ? { leafOrigins: variant.leaves.map((leaf) => leaf.originPath) }
-            : {}),
-        });
-        displayNames.push([expanded, actionName]);
-        visit(transition.to, progress);
-        continue;
-      }
-      if (stage.plan !== plan.id) continue;
-      if (stage.stage === "fund" && progress.consumed.length > 0) continue;
-      const eligible = eligiblePieces(plan, stage.stage, progress);
-      const pieceId = eligible[0];
-      if (pieceId === undefined) continue;
-      const variant = plans.find(
-        (candidate) =>
-          candidate.action === actionName && candidate.pieceId === pieceId,
-      );
-      if (!variant) continue;
-      const next: PieceProgress =
-        stage.stage === "fund"
-          ? {
-              funded: [...progress.funded, pieceId],
-              consumed: progress.consumed,
-            }
-          : {
-              funded: progress.funded,
-              consumed: [...progress.consumed, pieceId],
-            };
-      const stageComplete =
-        eligiblePieces(plan, stage.stage, next).length === 0;
-      const target = stageComplete ? transition.to : state;
-      const expanded = `${actionName}@${pieceId}#${state}#${progressKey(progress)}`;
-      actions[expanded] = planExpandedAction(definition, variant);
-      transitions[expanded] = {
-        from: [stateName(state, progress)],
-        to: stateName(target, next),
-      };
-      actionOrigins.set(expanded, {
-        action: actionName,
-        leafOrigins: variant.leaves.map((leaf) => leaf.originPath),
-      });
-      displayNames.push([expanded, `${actionName}[${pieceId}]`]);
-      visit(target, next);
-    }
-  }
-
-  for (const [actionName, definition] of Object.entries(instrument.actions)) {
-    if (Object.hasOwn(instrument.lifecycle.transitions, actionName)) continue;
-    actions[actionName] = planExpandedAction(
-      definition,
-      plans.find((candidate) => candidate.action === actionName),
-    );
-    actionOrigins.set(actionName, { action: actionName });
-  }
-
-  return {
-    instrument: {
-      ...instrument,
-      actions,
-      lifecycle: {
-        initial: stateName(instrument.lifecycle.initial, initialProgress),
-        states: [...stateOrigins.keys()],
-        transitions,
-      },
-    },
-    displayNames: [
-      ...displayNames,
-      ...[...stateOrigins.entries()].map(
-        ([expanded, origin]): [string, string] => [expanded, origin],
-      ),
-    ].sort((left, right) => right[0].length - left[0].length),
-    actionOrigins,
-    stateOrigins,
-    originStates: instrument.lifecycle.states,
-  };
-}
-
-function originFinancePath(
-  expansion: PieceProgressExpansion,
-  path: readonly PropertyKey[],
-): readonly PropertyKey[] {
-  const [head, second, third, fourth, ...rest] = path;
-  if (
-    head === "lifecycle" &&
-    second === "states" &&
-    typeof third === "number"
-  ) {
-    const expandedState = expansion.instrument.lifecycle.states[third];
-    const origin =
-      expandedState === undefined
-        ? undefined
-        : expansion.stateOrigins.get(expandedState);
-    const index =
-      origin === undefined ? -1 : expansion.originStates.indexOf(origin);
-    return index >= 0
-      ? ["lifecycle", "states", index]
-      : ["lifecycle", "states"];
-  }
-  if (head === "actions" && typeof second === "string") {
-    const origin = expansion.actionOrigins.get(second);
-    if (!origin) return path;
-    if (
-      third === "moves" &&
-      typeof fourth === "number" &&
-      origin.leafOrigins?.[fourth]
-    ) {
-      return ["actions", ...origin.leafOrigins[fourth], ...rest];
-    }
-    return [
-      "actions",
-      origin.action,
-      ...(third === undefined ? [] : [third]),
-      ...(fourth === undefined ? [] : [fourth]),
-      ...rest,
-    ];
-  }
-  return path;
-}
-
-function validatePiecePlan(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const plan = instrument.piecePlan;
-  if (!plan) return;
-
-  const planBase = [...base, "piecePlan"] as const;
-  const mutableFields = new Set(instrument.update?.fields ?? []);
-  const allUpdatedFields = new Set(
-    Object.values(instrument.actions).flatMap((a) => a.updates ?? []),
-  );
-
-  // Validate total field
-  const totalSchema = instrument.fields[plan.total];
-  if (
-    !totalSchema ||
-    totalSchema.type !== "string" ||
-    !isMoneySchema(totalSchema)
-  ) {
-    add(
-      [...planBase, "total"],
-      `piece plan total ${plan.total} must be a declared money field`,
-      "UDL4002",
-    );
-  }
-  if (!instrument.required.includes(plan.total)) {
-    add(
-      [...planBase, "total"],
-      `piece plan total ${plan.total} must be required`,
-      "UDL4002",
-    );
-  }
-  if (mutableFields.has(plan.total) || allUpdatedFields.has(plan.total)) {
-    add(
-      [...planBase, "total"],
-      `piece plan total ${plan.total} cannot be updated`,
-      "UDL4002",
-    );
-  }
-
-  const pieceIds = new Set<string>();
-  const pieceAmountFields: string[] = [];
-
-  plan.pieces.forEach((piece, index) => {
-    const pieceBase = [...planBase, "pieces", index] as const;
-    if (pieceIds.has(piece.id)) {
-      add(
-        [...pieceBase, "id"],
-        `duplicate piece id ${piece.id} in piece plan`,
-        "UDL4002",
-      );
-    }
-    pieceIds.add(piece.id);
-    pieceAmountFields.push(piece.amount);
-
-    const amountSchema = instrument.fields[piece.amount];
-    if (
-      !amountSchema ||
-      amountSchema.type !== "string" ||
-      !isMoneySchema(amountSchema)
-    ) {
-      add(
-        [...pieceBase, "amount"],
-        `piece amount ${piece.amount} must be a declared money field`,
-        "UDL4002",
-      );
-    }
-    if (!instrument.required.includes(piece.amount)) {
-      add(
-        [...pieceBase, "amount"],
-        `piece amount ${piece.amount} must be required`,
-        "UDL4002",
-      );
-    }
-    if (mutableFields.has(piece.amount) || allUpdatedFields.has(piece.amount)) {
-      add(
-        [...pieceBase, "amount"],
-        `piece amount ${piece.amount} cannot be updated`,
-        "UDL4002",
-      );
-    }
-
-    const releaseSchema = instrument.fields[piece.release_to];
-    if (!releaseSchema || !references.accepts(releaseSchema, "acct")) {
-      add(
-        [...pieceBase, "release_to"],
-        `piece release_to ${piece.release_to} must be a declared account field`,
-        "UDL4002",
-      );
-    }
-    if (!instrument.required.includes(piece.release_to)) {
-      add(
-        [...pieceBase, "release_to"],
-        `piece release_to ${piece.release_to} must be required`,
-        "UDL4002",
-      );
-    }
-    if (
-      mutableFields.has(piece.release_to) ||
-      allUpdatedFields.has(piece.release_to)
-    ) {
-      add(
-        [...pieceBase, "release_to"],
-        `piece release_to ${piece.release_to} cannot be updated`,
-        "UDL4002",
-      );
-    }
-
-    const refundSchema = instrument.fields[piece.refund_to];
-    if (!refundSchema || !references.accepts(refundSchema, "acct")) {
-      add(
-        [...pieceBase, "refund_to"],
-        `piece refund_to ${piece.refund_to} must be a declared account field`,
-        "UDL4002",
-      );
-    }
-    if (!instrument.required.includes(piece.refund_to)) {
-      add(
-        [...pieceBase, "refund_to"],
-        `piece refund_to ${piece.refund_to} must be required`,
-        "UDL4002",
-      );
-    }
-    if (
-      mutableFields.has(piece.refund_to) ||
-      allUpdatedFields.has(piece.refund_to)
-    ) {
-      add(
-        [...pieceBase, "refund_to"],
-        `piece refund_to ${piece.refund_to} cannot be updated`,
-        "UDL4002",
-      );
-    }
-  });
-
-  // Check currency agreement
-  const totalCurrency =
-    totalSchema && typeof totalSchema["x-hyperscale-currency"] === "string"
-      ? totalSchema["x-hyperscale-currency"]
-      : undefined;
-
-  const pieceCurrencies = plan.pieces.map((p) => {
-    const s = instrument.fields[p.amount];
-    return s && typeof s["x-hyperscale-currency"] === "string"
-      ? s["x-hyperscale-currency"]
-      : undefined;
-  });
-
-  const allCurrencies = [totalCurrency, ...pieceCurrencies];
-  const definedCurrencies = allCurrencies.filter(
-    (c): c is string => c !== undefined,
-  );
-
-  if (definedCurrencies.length > 0) {
-    const firstCurrency = definedCurrencies[0]!;
-    if (
-      definedCurrencies.length !== allCurrencies.length ||
-      definedCurrencies.some((c) => c !== firstCurrency)
-    ) {
-      add(
-        planBase,
-        `piece plan money fields must agree on one declared currency`,
-        "UDL4002",
-      );
-    } else if (!/^[A-Z]{3}$/.test(firstCurrency)) {
-      add(
-        planBase,
-        `piece plan currency ${firstCurrency} must be a concrete ISO currency`,
-        "UDL4002",
-      );
-    }
-  } else {
-    const concreteCurrency = ((): string | undefined => {
-      const currencyFields = Object.entries(instrument.fields).filter(
-        ([, schema]) => isCurrencySchema(schema),
-      );
-      if (currencyFields.length === 1) {
-        const [fName, fSchema] = currencyFields[0]!;
-        if (mutableFields.has(fName) || allUpdatedFields.has(fName)) {
-          return undefined;
-        }
-        if (
-          typeof fSchema.const === "string" &&
-          /^[A-Z]{3}$/.test(fSchema.const)
-        ) {
-          return fSchema.const;
-        }
-        if (
-          Array.isArray(fSchema.enum) &&
-          fSchema.enum.length === 1 &&
-          typeof fSchema.enum[0] === "string" &&
-          /^[A-Z]{3}$/.test(fSchema.enum[0])
-        ) {
-          return fSchema.enum[0];
-        }
-      }
-      return undefined;
-    })();
-
-    if (!concreteCurrency) {
-      add(
-        planBase,
-        `piece plan requires an actual single concrete currency via x-hyperscale-currency tags or an immutable concrete instrument currency declaration`,
-        "UDL4002",
-      );
-    }
-  }
-
-  // Disallow updates of the instance currency field
-  const instanceCurrencyFields = Object.entries(instrument.fields)
-    .filter(([, schema]) => isCurrencySchema(schema))
-    .map(([field]) => field);
-  for (const cField of instanceCurrencyFields) {
-    if (mutableFields.has(cField) || allUpdatedFields.has(cField)) {
-      add(
-        [...planBase, "currency"],
-        `piece plan instance currency field ${cField} cannot be updated`,
-        "UDL4002",
-      );
-    }
-  }
-
-  // Check fixed amounts against total
-  const totalVal = getFixedMoneyValue(totalSchema);
-  const pieceVals = plan.pieces.map((p) =>
-    getFixedMoneyValue(instrument.fields[p.amount]),
-  );
-  if (
-    totalVal !== undefined &&
-    pieceVals.every((v): v is bigint => v !== undefined)
-  ) {
-    const sum = pieceVals.reduce((acc, v) => acc + v, 0n);
-    if (sum !== totalVal) {
-      add(
-        [...planBase, "total"],
-        `sum of fixed piece amounts (${sum}) does not equal plan total (${totalVal})`,
-        "UDL4002",
-      );
-    }
-  }
-
-  // Check partition
-  const isSingletonTotal =
-    plan.pieces.length === 1 && plan.pieces[0]!.amount === plan.total;
-
-  if (new Set(pieceAmountFields).size !== pieceAmountFields.length) {
-    add(
-      [...planBase, "pieces"],
-      `piece amount fields must be distinct: [${pieceAmountFields.join(", ")}]`,
-      "UDL4002",
-    );
-  } else if (!isSingletonTotal) {
-    const planAmounts = [...pieceAmountFields].sort();
-    const matchingPartition = (instrument.partitions ?? []).find((p) => {
-      if (p.totalField !== plan.total) return false;
-      const partAmounts = [...p.pieceFields].sort();
-      return (
-        partAmounts.length === planAmounts.length &&
-        partAmounts.every((f, i) => f === planAmounts[i])
-      );
-    });
-
-    if (!matchingPartition) {
-      add(
-        planBase,
-        `piece plan must match a declared partition with totalField ${plan.total} and pieceFields [${pieceAmountFields.join(", ")}]`,
-        "UDL4002",
-      );
-    }
-  }
-
-  // Check orders (UDL5013)
-  const validateOrder = (
-    order: readonly string[],
-    orderName: string,
-    exactSet: boolean,
-  ): void => {
-    const orderPath = [...planBase, orderName] as const;
-    if (new Set(order).size !== order.length) {
-      add(orderPath, `${orderName} contains duplicate piece ids`, "UDL5013");
-    }
-    for (const id of order) {
-      if (!pieceIds.has(id)) {
-        add(
-          orderPath,
-          `${orderName} contains undeclared piece id ${id}`,
-          "UDL5013",
-        );
-      }
-    }
-    if (exactSet) {
-      if (order.length !== pieceIds.size) {
-        add(
-          orderPath,
-          `${orderName} must cover every declared piece id`,
-          "UDL5013",
-        );
-      }
-    }
-  };
-
-  validateOrder(plan.fund_order, "fund_order", true);
-  validateOrder(plan.release_order, "release_order", false);
-  validateOrder(plan.refund_order, "refund_order", false);
-  validateOrder(plan.unfund_order, "unfund_order", true);
-
-  if (
-    plan.fund_order.length === plan.unfund_order.length &&
-    !plan.unfund_order.every(
-      (id, idx) => id === plan.fund_order[plan.fund_order.length - 1 - idx],
-    )
-  ) {
-    add(
-      [...planBase, "unfund_order"],
-      `unfund_order must be the reverse of fund_order`,
-      "UDL5013",
-    );
-  }
-}
-
-function getFixedMoneyValue(schema: unknown): bigint | undefined {
-  if (!schema || typeof schema !== "object") return undefined;
-  const s = schema as Record<string, unknown>;
-  if (typeof s.const === "string" && /^[0-9]+$/.test(s.const)) {
-    return BigInt(s.const);
-  }
-  if (
-    Array.isArray(s.enum) &&
-    s.enum.length === 1 &&
-    typeof s.enum[0] === "string" &&
-    /^[0-9]+$/.test(s.enum[0])
-  ) {
-    return BigInt(s.enum[0]);
-  }
-  return undefined;
-}
-
-function validateFeeRules(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const feeRules = instrument.feeRules ?? [];
-  if (feeRules.length === 0) return;
-  if (Object.keys(instrument.fields).length > 24) {
-    add(
-      [...base, "fields"],
-      "fee-bearing instruments must not declare more than 24 fields",
-      "UDL4001",
-    );
-  }
-  addDuplicateIssues(
-    feeRules.map((fee) => fee.amountField),
-    [...base, "feeRules"],
-    "fee amount field",
-    add,
-  );
-
-  const currencyFields = Object.entries(instrument.fields)
-    .filter(([, schema]) => isCurrencySchema(schema))
-    .map(([field]) => field);
-  const instrumentCurrency =
-    currencyFields.length === 1 ? currencyFields[0] : undefined;
-  const mutableFields = new Set(instrument.update?.fields ?? []);
-  const partitions = instrument.partitions ?? [];
-
-  feeRules.forEach((fee, feeIndex) => {
-    const feeBase = [...base, "feeRules", feeIndex] as const;
-    const amountSchema = instrument.fields[fee.amountField];
-    const baseSchema = instrument.fields[fee.baseField];
-    if (!amountSchema || !isMoneySchema(amountSchema)) {
-      add(
-        [...feeBase, "amountField"],
-        `fee amount ${fee.amountField} must be a declared money field`,
-        "UDL4001",
-      );
-    }
-    if (!baseSchema || !isMoneySchema(baseSchema)) {
-      add(
-        [...feeBase, "baseField"],
-        `fee base ${fee.baseField} must be a declared money field`,
-        "UDL4001",
-      );
-    }
-    if (!instrument.required.includes(fee.baseField)) {
-      add(
-        [...feeBase, "baseField"],
-        `fee base ${fee.baseField} must be required`,
-        "UDL4001",
-      );
-    }
-    if (mutableFields.has(fee.baseField)) {
-      add(
-        [...feeBase, "baseField"],
-        `fee base ${fee.baseField} cannot be mutable`,
-        "UDL4001",
-      );
-    }
-    const bearerSchema = instrument.fields[fee.bearerField];
-    if (!bearerSchema || !references.accepts(bearerSchema, "acct")) {
-      add(
-        [...feeBase, "bearerField"],
-        `fee bearer ${fee.bearerField} must be a declared account-id field`,
-        "UDL4001",
-      );
-    } else if (!instrument.required.includes(fee.bearerField)) {
-      add(
-        [...feeBase, "bearerField"],
-        `fee bearer ${fee.bearerField} must be required`,
-        "UDL4001",
-      );
-    }
-
-    const validateExact = (
-      rule: { readonly field: string; readonly currencyField: string },
-      rulePath: readonly PropertyKey[],
-      direct: boolean,
-    ): void => {
-      if (direct && rule.field !== fee.amountField) {
-        add(
-          [...rulePath, "field"],
-          `exact fee field ${rule.field} must equal amountField ${fee.amountField}`,
-          "UDL4001",
-        );
-      }
-      if (!direct && rule.field === fee.amountField) {
-        add(
-          [...rulePath, "field"],
-          `tiered fee output ${fee.amountField} must differ from exact source ${rule.field}`,
-          "UDL4001",
-        );
-      }
-      const exactSchema = instrument.fields[rule.field];
-      if (!exactSchema || !isMoneySchema(exactSchema)) {
-        add(
-          [...rulePath, "field"],
-          `exact fee field ${rule.field} must be a declared money field`,
-          "UDL4001",
-        );
-      }
-      if (!instrument.required.includes(rule.field)) {
-        add(
-          [...rulePath, "field"],
-          `exact fee field ${rule.field} must be required`,
-          "UDL4001",
-        );
-      }
-      if (mutableFields.has(rule.field)) {
-        add(
-          [...rulePath, "field"],
-          `exact fee field ${rule.field} cannot be mutable`,
-          "UDL4001",
-        );
-      }
-      if (
-        instrumentCurrency === undefined ||
-        rule.currencyField !== instrumentCurrency
-      ) {
-        add(
-          [...rulePath, "currencyField"],
-          `exact fee currency ${rule.currencyField} must equal the fee base currency field`,
-          "UDL4001",
-        );
-      }
-    };
-
-    if (fee.rule.kind === "exact") {
-      validateExact(fee.rule, [...feeBase, "rule"], true);
-    } else {
-      if (instrument.required.includes(fee.amountField)) {
-        add(
-          [...feeBase, "amountField"],
-          `computed fee amount ${fee.amountField} must not be required at create`,
-          "UDL4001",
-        );
-      }
-      if (fee.rule.kind === "tiered") {
-        const tiers = fee.rule.tiers;
-        const openEnded = tiers.filter(
-          (tier) => tier.toExclusive === undefined,
-        ).length;
-        if (openEnded !== 1) {
-          add(
-            [...feeBase, "rule", "tiers"],
-            `tiered fee must declare exactly one open-ended tier; found ${openEnded}`,
-            "UDL4001",
-          );
-        }
-        tiers.forEach((tier, tierIndex) => {
-          const tierPath = [...feeBase, "rule", "tiers", tierIndex] as const;
-          const from = BigInt(tier.fromInclusive);
-          if (tierIndex === 0 && from !== 0n) {
-            add(
-              [...tierPath, "fromInclusive"],
-              "tiered fee coverage must start at 0",
-              "UDL4001",
-            );
-          }
-          if (tier.toExclusive !== undefined) {
-            const to = BigInt(tier.toExclusive);
-            if (to <= from) {
-              add(
-                [...tierPath, "toExclusive"],
-                "tier upper bound must be greater than its lower bound",
-                "UDL4001",
-              );
-            }
-          } else if (tierIndex !== tiers.length - 1) {
-            add(
-              [...tierPath, "toExclusive"],
-              "only the final fee tier may be open-ended",
-              "UDL4001",
-            );
-          }
-          if (tierIndex > 0) {
-            const previous = tiers[tierIndex - 1];
-            if (previous?.toExclusive === undefined) {
-              add(
-                [...tierPath, "fromInclusive"],
-                "a fee tier cannot follow an open-ended tier",
-                "UDL4001",
-              );
-            } else {
-              const previousEnd = BigInt(previous.toExclusive);
-              if (from > previousEnd) {
-                add(
-                  [...tierPath, "fromInclusive"],
-                  `fee tiers have a gap before ${tier.fromInclusive}`,
-                  "UDL4001",
-                );
-              } else if (from < previousEnd) {
-                add(
-                  [...tierPath, "fromInclusive"],
-                  `fee tiers overlap at ${tier.fromInclusive}`,
-                  "UDL4001",
-                );
-              }
-            }
-          }
-          if (tier.rule.kind === "exact") {
-            validateExact(tier.rule, [...tierPath, "rule"], false);
-          }
-        });
-      }
-    }
-
-    const basePartitions = partitions.filter(
-      (partition) => partition.totalField === fee.baseField,
-    );
-    const direct = basePartitions.some((partition) =>
-      partition.pieceFields.includes(fee.amountField),
-    );
-    const nested = partitions.filter(
-      (partition) =>
-        partition.totalField === fee.amountField &&
-        basePartitions.some((basePartition) =>
-          partition.pieceFields.every((piece) =>
-            basePartition.pieceFields.includes(piece),
-          ),
-        ),
-    );
-    const carvedInsideBase = direct || nested.length === 1;
-    if (fee.position === "carved" && !carvedInsideBase) {
-      add(
-        [...feeBase, "position"],
-        `carved fee ${fee.amountField} must form part of a partition of ${fee.baseField}`,
-        "UDL4001",
-      );
-    }
-    if (fee.position === "on_top" && carvedInsideBase) {
-      add(
-        [...feeBase, "position"],
-        `on-top fee ${fee.amountField} must stay outside the partition of ${fee.baseField}`,
-        "UDL4001",
-      );
-    }
-  });
-}
-
-function validateSetsAt(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const writers = new Map<string, string[]>();
-  const markerFields = new Set<string>();
-  for (const [actionName, action] of Object.entries(instrument.actions)) {
-    if (!action.setsAt) continue;
-    const path = [...base, "actions", actionName, "setsAt"] as const;
-    const { field, marker, offset } = action.setsAt;
-    if (marker) markerFields.add(field);
-    if (actionName === "create") {
-      add(
-        path,
-        "setsAt requires a lifecycle transition and cannot run on create",
-        "UDL3001",
-      );
-    }
-    const fieldWriters = writers.get(field) ?? [];
-    if (fieldWriters.length > 0) {
-      const alternatives = [...fieldWriters, actionName];
-      const targets = new Set(
-        alternatives.map(
-          (writer) => instrument.lifecycle.transitions[writer]?.to,
-        ),
-      );
-      const reentrant = alternatives.some((writer) => {
-        const transition = instrument.lifecycle.transitions[writer];
-        return transition?.from.includes(transition.to) === true;
-      });
-      if (targets.size !== 1 || targets.has(undefined) || reentrant) {
-        add(
-          [...path, "field"],
-          `${field} has multiple writers without one shared one-way destination`,
-          "UDL3001",
-        );
-      }
-    }
-    writers.set(field, [...fieldWriters, actionName]);
-
-    const schema = instrument.fields[field];
-    if (!schema) {
-      add(
-        [...path, "field"],
-        `setsAt references unknown field ${field}`,
-        "UDL3001",
-      );
-    } else if (schema.type !== "string" || !isDateTimeFormat(schema.format)) {
-      add(
-        [...path, "field"],
-        "setsAt must target a date-time field",
-        "UDL3001",
-      );
-    }
-    if (instrument.required.includes(field)) {
-      add(
-        [...path, "field"],
-        "setsAt target must be optional at create",
-        "UDL3001",
-      );
-    }
-    if (instrument.update?.fields.includes(field)) {
-      add(
-        [...path, "field"],
-        "setsAt target cannot also be mutable",
-        "UDL3001",
-      );
-    }
-    const offsetMs = fixedIsoDurationMs(offset);
-    if (offsetMs === null || offsetMs <= 0) {
-      add(
-        [...path, "offset"],
-        "setsAt.offset must be a positive fixed ISO-8601 duration",
-        "UDL3001",
-      );
-    }
-
-    const readers = Object.entries(instrument.actions).filter(
-      ([, candidate]) =>
-        candidate.due?.field === field || candidate.deadline?.field === field,
-    );
-    if (marker) {
-      if (readers.length > 0) {
-        add(
-          path,
-          `setsAt marker field ${field} cannot drive a due condition or deadline`,
-          "UDL3001",
-        );
-      }
-      continue;
-    }
-    if (readers.length === 0) {
-      add(
-        path,
-        `setsAt field ${field} must anchor at least one due condition or deadline`,
-        "UDL3001",
-      );
-      continue;
-    }
-  }
-  for (const [field, fieldWriters] of writers) {
-    if (markerFields.has(field)) continue;
-    const readers = Object.entries(instrument.actions).filter(
-      ([, candidate]) =>
-        candidate.due?.field === field || candidate.deadline?.field === field,
-    );
-    for (const [readerName] of readers) {
-      if (!actionGroupDominatesReader(instrument, fieldWriters, readerName)) {
-        add(
-          [...base, "actions", readerName],
-          `action ${readerName} can read ${field} before writers ${fieldWriters.join(" or ")}`,
-          "UDL3001",
-        );
-      }
-    }
-  }
-}
-
-function actionGroupDominatesReader(
-  instrument: UdlInstrument,
-  writers: readonly string[],
-  reader: string,
-): boolean {
-  if (writers.length === 0) return false;
-  const readerTransition = instrument.lifecycle.transitions[reader];
-  if (!readerTransition) return false;
-  const removed = new Set(writers);
-  const reachable = new Set([instrument.lifecycle.initial]);
-  const pending = [instrument.lifecycle.initial];
-  while (pending.length > 0) {
-    const state = pending.shift() as string;
-    for (const [action, transition] of Object.entries(
-      instrument.lifecycle.transitions,
-    )) {
-      if (
-        removed.has(action) ||
-        !transition.from.includes(state) ||
-        reachable.has(transition.to)
-      ) {
-        continue;
-      }
-      reachable.add(transition.to);
-      pending.push(transition.to);
-    }
-  }
-  return readerTransition.from.every((state) => !reachable.has(state));
-}
-
-function validateReachability(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const reachable = new Set([instrument.lifecycle.initial]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const transition of Object.values(instrument.lifecycle.transitions)) {
-      if (
-        transition.from.some((state) => reachable.has(state)) &&
-        !reachable.has(transition.to)
-      ) {
-        reachable.add(transition.to);
-        changed = true;
-      }
-    }
-  }
-  instrument.lifecycle.states.forEach((state, stateIndex) => {
-    if (!reachable.has(state)) {
-      add(
-        [...base, "lifecycle", "states", stateIndex],
-        `lifecycle state ${state} is unreachable from ${instrument.lifecycle.initial}`,
-        "UDL3001",
-      );
-    }
-  });
-}
-
-function validateParties(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  if (!instrument.parties) return;
-  const entries = Object.entries(instrument.parties).filter(
-    (entry): entry is [string, string] => typeof entry[1] === "string",
-  );
-  if (entries.length === 0) {
-    add(
-      [...base, "parties"],
-      "parties must contain at least one declaration",
-      "UDL2002",
-    );
-    return;
-  }
-  if (instrument.distinctParties && entries.length < 2) {
-    add(
-      [...base, "distinctParties"],
-      "distinctParties requires at least two declared party roles",
-      "UDL2002",
-    );
-  }
-  addDuplicateIssues(
-    entries.map(([, field]) => field),
-    [...base, "parties"],
-    "party field",
-    add,
-  );
-  for (const [role, field] of entries) {
-    const schema = instrument.fields[field];
-    if (!schema) {
-      add(
-        [...base, "parties", role],
-        `party role ${role} references unknown field ${field}`,
-        "UDL2002",
-      );
-    } else if (!references.accepts(schema, "acct")) {
-      add(
-        [...base, "parties", role],
-        `party role ${role} must reference an account-id field`,
-        "UDL2002",
-      );
-    }
-  }
-}
-
-function validateUpdate(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  states: ReadonlySet<string>,
-  add: AddIssue,
-): void {
-  if (!instrument.update) return;
-  addDuplicateIssues(
-    instrument.update.fields,
-    [...base, "update", "fields"],
-    "field",
-    add,
-  );
-  addDuplicateIssues(
-    instrument.update.states,
-    [...base, "update", "states"],
-    "state",
-    add,
-  );
-  instrument.update.fields.forEach((field, index) => {
-    if (!Object.hasOwn(instrument.fields, field)) {
-      add(
-        [...base, "update", "fields", index],
-        `update references unknown field ${field}`,
-        "UDL2002",
-      );
-    }
-  });
-  instrument.update.states.forEach((state, index) => {
-    if (!states.has(state)) {
-      add(
-        [...base, "update", "states", index],
-        `update references unknown state ${state}`,
-        "UDL2002",
-      );
-    }
-  });
-  if (instrument.update.examples) {
-    addDuplicateIssues(
-      instrument.update.examples.map((example) => example.name),
-      [...base, "update", "examples"],
-      "example name",
-      add,
-    );
-    const schema: Schema = {
-      additionalProperties: false,
-      properties: Object.fromEntries(
-        instrument.update.fields.flatMap((field) => {
-          const fieldSchema = instrument.fields[field];
-          return fieldSchema ? [[field, fieldSchema]] : [];
-        }),
-      ),
-      type: "object",
-    };
-    instrument.update.examples.forEach((example, exampleIndex) => {
-      const input = exampleInputForUdlValidation(instrument, example.input);
-      for (const error of validateUdlSchemaValue(schema, input).errors) {
-        add(
-          [...base, "update", "examples", exampleIndex, "input"],
-          `example ${example.name} input ${error.error} at ${error.instanceLocation || "/"}`,
-          "UDL2002",
-        );
-      }
-    });
-  }
-}
-
-function validateCallerParkedStates(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  states: ReadonlySet<string>,
-  add: AddIssue,
-): void {
-  const parked = instrument.callerParkedStates;
-  if (parked === undefined) return;
-  const exitsByState = new Map(
-    instrument.lifecycle.states.map((state) => [state, [] as string[]]),
-  );
-  for (const [action, transition] of Object.entries(
-    instrument.lifecycle.transitions,
-  )) {
-    const stationary =
-      instrument.actions[action]?.due?.every !== undefined &&
-      transition.from.includes(transition.to);
-    if (stationary) continue;
-    for (const state of transition.from) {
-      if (state !== transition.to) exitsByState.get(state)?.push(action);
-    }
-  }
-  const isUnconditionallyTimeDriven = (action: string): boolean => {
-    const due = instrument.actions[action]?.due;
-    if (!due || !isDateTimeFormat(instrument.fields[due.field]?.format)) {
-      return false;
-    }
-    if (instrument.required.includes(due.field)) return true;
-    const writers = Object.entries(instrument.actions).flatMap(
-      ([writer, definition]) =>
-        definition.setsAt?.field === due.field ? [writer] : [],
-    );
-    return actionGroupDominatesReader(instrument, writers, action);
-  };
-  for (const state of Object.keys(parked)) {
-    const stateBase = [...base, "callerParkedStates", state] as const;
-    if (!states.has(state)) {
-      add(
-        stateBase,
-        `callerParkedStates references unknown state ${state}`,
-        "UDL3001",
-      );
-      continue;
-    }
-    const exits = exitsByState.get(state) ?? [];
-    if (exits.length === 0) {
-      add(
-        stateBase,
-        `terminal state ${state} cannot be caller-parked`,
-        "UDL3001",
-      );
-    } else if (exits.some(isUnconditionallyTimeDriven)) {
-      add(
-        stateBase,
-        `caller-parked state ${state} has a time-driven exit`,
-        "UDL3001",
-      );
-    }
-  }
-  for (const [state, exits] of exitsByState) {
-    if (
-      exits.length > 0 &&
-      !exits.some(isUnconditionallyTimeDriven) &&
-      !Object.hasOwn(parked, state)
-    ) {
-      add(
-        [...base, "callerParkedStates"],
-        `state ${state} has only caller-driven exits and needs a caller-parked reason`,
-        "UDL3001",
-      );
-    }
-  }
-}
-
-/**
- * Composition dials sit on the document, not on an instrument: a confirmation
- * threshold is a property of the whole product. Keys are unique across the
- * document the same way instrument dial keys are unique within an instrument.
- */
-function validateCompositionDials(document: UdlDocument, add: AddIssue): void {
-  const dials = document.dials ?? [];
-  addDuplicateIssues(
-    dials.map((dial) => dial.key),
-    ["dials"],
-    "composition dial key",
-    add,
-  );
-  const kinds = new Map<string, number>();
-  dials.forEach((dial, dialIndex) => {
-    const prior = kinds.get(dial.kind);
-    if (prior !== undefined) {
-      add(
-        ["dials", dialIndex, "kind"],
-        `composition dial kind ${dial.kind} duplicates dials[${prior}]`,
-        "UDL2001",
-      );
-      return;
-    }
-    kinds.set(dial.kind, dialIndex);
-  });
-}
-
-function validateDials(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const dials = instrument.dials ?? [];
-  addDuplicateIssues(
-    dials.map((dial) => dial.key),
-    [...base, "dials"],
-    "dial key",
-    add,
-  );
-  const targets = new Map<string, number>();
-  dials.forEach((dial, dialIndex) => {
-    const dialBase = [...base, "dials", dialIndex] as const;
-    const target =
-      dial.kind === "window"
-        ? `window:${dial.field}`
-        : dial.kind === "decision_deadline_ms"
-          ? `decision:${dial.action}`
-          : dial.kind === "reconcile_tolerance"
-            ? `reconcile_tolerance:${dial.key}`
-            : "unwind_penalty";
-    const prior = targets.get(target);
-    if (prior !== undefined) {
-      add(
-        [...dialBase, "key"],
-        `dial target ${target} duplicates dials[${prior}]`,
-        "UDL5008",
-      );
-    } else {
-      targets.set(target, dialIndex);
-    }
-
-    if (dial.kind === "window") {
-      const anchorsAction = Object.values(instrument.actions).some(
-        (definition) =>
-          definition.due?.field === dial.field ||
-          definition.deadline?.field === dial.field,
-      );
-      if (!anchorsAction) {
-        add(
-          [...dialBase, "field"],
-          `window dial field ${dial.field} anchors no action deadline or due condition`,
-          "UDL5008",
-        );
-      }
-      const min =
-        dial.minOffset === undefined
-          ? undefined
-          : fixedIsoDurationMs(dial.minOffset);
-      const max =
-        dial.maxOffset === undefined
-          ? undefined
-          : fixedIsoDurationMs(dial.maxOffset);
-      if (dial.minOffset !== undefined && min === null) {
-        add(
-          [...dialBase, "minOffset"],
-          "dial minOffset must be a fixed ISO-8601 duration",
-          "UDL5008",
-        );
-      }
-      if (dial.maxOffset !== undefined && max === null) {
-        add(
-          [...dialBase, "maxOffset"],
-          "dial maxOffset must be a fixed ISO-8601 duration",
-          "UDL5008",
-        );
-      }
-      if (
-        min !== undefined &&
-        min !== null &&
-        max !== undefined &&
-        max !== null &&
-        min > max
-      ) {
-        add(
-          [...dialBase, "maxOffset"],
-          "dial minOffset exceeds maxOffset",
-          "UDL5008",
-        );
-      }
-      return;
-    }
-    if (dial.kind === "decision_deadline_ms") {
-      if (!instrument.actions[dial.action]?.decision) {
-        add(
-          [...dialBase, "action"],
-          `decision deadline dial action ${dial.action} declares no decision`,
-          "UDL5008",
-        );
-      }
-      if (
-        dial.minMs !== undefined &&
-        dial.maxMs !== undefined &&
-        dial.minMs > dial.maxMs
-      ) {
-        add([...dialBase, "maxMs"], "dial minMs exceeds maxMs", "UDL5008");
-      }
-      return;
-    }
-    if (dial.kind === "reconcile_tolerance") {
-      const forgives = Object.values(instrument.actions).some((action) =>
-        (action.reconcile ?? []).some(
-          (reconcile) =>
-            reconcile.match.law === "tolerance" &&
-            reconcile.match.dial === dial.key,
-        ),
-      );
-      if (!forgives) {
-        add(
-          dialBase,
-          `reconcile tolerance dial ${dial.key} bounds no reconcile`,
-          "UDL5008",
-        );
-      }
-      return;
-    }
-    if (!Object.values(instrument.actions).some((action) => action.quote)) {
-      add(dialBase, "unwind penalty dial requires a quoting action", "UDL5008");
-    }
-  });
-}
-
-function validateActionUpdates(
-  instrument: UdlInstrument,
-  action: string,
-  definition: UdlAction,
-  actionBase: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  if (!definition.updates) return;
-  if (action === "create") {
-    add([...actionBase, "updates"], "create cannot declare updates", "UDL5008");
-  }
-  addDuplicateIssues(
-    definition.updates,
-    [...actionBase, "updates"],
-    "updated field",
-    add,
-  );
-  const inputFields = recordValue(definition.input?.properties);
-  const stepBoundFields = new Set(
-    Object.values(instrument.actions).flatMap((candidate) =>
-      [...candidate.steps, ...candidate.moves].flatMap((step) =>
-        Object.values(step.bind).flatMap((binding) =>
-          binding.from === "instance" && binding.path.startsWith("fields.")
-            ? [binding.path.slice("fields.".length)]
-            : [],
-        ),
-      ),
-    ),
-  );
-  const setsAtFields = new Set(
-    Object.values(instrument.actions).flatMap((candidate) =>
-      candidate.setsAt ? [candidate.setsAt.field] : [],
-    ),
-  );
-  const partitionFields = new Set(
-    (instrument.partitions ?? []).flatMap((partition) => [
-      partition.totalField,
-      ...partition.pieceFields,
-    ]),
-  );
-  const aggregateFields = new Set(
-    (instrument.aggregateInvariants ?? []).map(
-      (invariant) => invariant.parentField,
-    ),
-  );
-  definition.updates.forEach((field, fieldIndex) => {
-    const fieldPath = [...actionBase, "updates", fieldIndex] as const;
-    if (!Object.hasOwn(inputFields, field)) {
-      add(
-        fieldPath,
-        `updated field ${field} is not declared by action input`,
-        "UDL5008",
-      );
-    }
-    if (!Object.hasOwn(instrument.fields, field)) {
-      add(
-        fieldPath,
-        `updated field ${field} is not an instrument field`,
-        "UDL5008",
-      );
-    }
-    if (stepBoundFields.has(field)) {
-      add(
-        fieldPath,
-        `updated field ${field} is bound by a kernel step`,
-        "UDL5008",
-      );
-    }
-    if (setsAtFields.has(field)) {
-      add(fieldPath, `updated field ${field} is owned by setsAt`, "UDL5008");
-    }
-    if (partitionFields.has(field)) {
-      add(
-        fieldPath,
-        `updated field ${field} participates in a partition`,
-        "UDL5008",
-      );
-    }
-    if (aggregateFields.has(field)) {
-      add(fieldPath, `updated field ${field} is an aggregate cap`, "UDL5008");
-    }
-  });
-  if (
-    definition.moves.length > 0 ||
-    definition.allocate ||
-    definition.contributionStage
-  ) {
-    add(
-      [...actionBase, "updates"],
-      "an action cannot update fields while moving money",
-      "UDL5008",
-    );
-  }
-}
-
-function validateCheckRequirements(
-  instrument: UdlInstrument,
-  definition: UdlAction,
-  actionBase: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const checks = definition.requiresChecks ?? [];
-  addDuplicateIssues(
-    checks.map((check) => `${check.family}:${check.checkKind}`),
-    [...actionBase, "requiresChecks"],
-    "check requirement",
-    add,
-  );
-  checks.forEach((check, checkIndex) => {
-    const checkBase = [...actionBase, "requiresChecks", checkIndex] as const;
-    if (!Object.hasOwn(instrument.fields, check.subjectField)) {
-      add(
-        [...checkBase, "subjectField"],
-        `check subjectField ${check.subjectField} is not declared`,
-        "UDL5002",
-      );
-    }
-    addDuplicateIssues(
-      check.statuses,
-      [...checkBase, "statuses"],
-      "accepted check status",
-      add,
-    );
-    if (check.maxAge && fixedIsoDurationMs(check.maxAge) === null) {
-      add(
-        [...checkBase, "maxAge"],
-        "check maxAge must be a fixed ISO-8601 duration",
-        "UDL5002",
-      );
-    }
-  });
-}
-
-function validateRemainder(
-  instrument: UdlInstrument,
-  action: string,
-  definition: UdlAction,
-  actionBase: readonly PropertyKey[],
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const remainder = definition.remainder;
-  if (!remainder) return;
-  const remainderBase = [...actionBase, "remainder"] as const;
-  if (action === "create") {
-    add(remainderBase, "create cannot declare remainder", "UDL4001");
-  }
-  if (definition.distribute || definition.signedSum) {
-    add(
-      remainderBase,
-      "remainder cannot combine with distribute or signedSum",
-      "UDL4001",
-    );
-  }
-  if (
-    remainder.accumulateRef !== undefined &&
-    remainder.accumulateRef === remainder.amountRef
-  ) {
-    add(
-      [...remainderBase, "accumulateRef"],
-      "remainder accumulateRef must differ from amountRef",
-      "UDL4001",
-    );
-  }
-  addDuplicateIssues(
-    remainder.subtractPaths ?? [],
-    [...remainderBase, "subtractPaths"],
-    "remainder operand",
-    add,
-  );
-  for (const path of remainder.subtractPaths ?? []) {
-    const [root, key] = path.split(".");
-    const declared =
-      root === "fields" &&
-      key !== undefined &&
-      isMoneySchema(instrument.fields[key] ?? {}) &&
-      !instrument.update?.fields.includes(key) &&
-      !Object.values(instrument.actions).some((action) =>
-        action.updates?.includes(key),
-      );
-    if (
-      !declared ||
-      path === remainder.totalPath ||
-      path === `refs.${remainder.amountRef}`
-    )
-      add(
-        [...remainderBase, "subtractPaths"],
-        `remainder subtraction ${path} must name distinct immutable money`,
-        "UDL4001",
-      );
-  }
-  const [totalRoot, totalKey] = remainder.totalPath.split(".");
-  const totalDeclared =
-    (totalRoot === "fields" &&
-      totalKey !== undefined &&
-      isMoneySchema(instrument.fields[totalKey] ?? {})) ||
-    (totalRoot === "refs" &&
-      totalKey !== undefined &&
-      Object.values(instrument.actions).some(
-        (candidate) => candidate.remainder?.accumulateRef === totalKey,
-      ));
-  if (!totalDeclared) {
-    add(
-      [...remainderBase, "totalPath"],
-      `remainder total ${remainder.totalPath} is not declared money`,
-      "UDL4001",
-    );
-  }
-  if (
-    remainder.inputKey !== undefined &&
-    !Object.hasOwn(
-      recordValue(definition.input?.properties),
-      remainder.inputKey,
-    )
-  ) {
-    add(
-      [...remainderBase, "inputKey"],
-      `remainder inputKey ${remainder.inputKey} is not declared by action input`,
-      "UDL4001",
-    );
-  }
-  const transfers = definition.moves.filter(
-    (move) =>
-      move.operation === "internal_transfer.create" &&
-      move.bind.amount?.from === "instance" &&
-      move.bind.amount.path === `refs.${remainder.amountRef}`,
-  );
-  if (transfers.length !== 1) {
-    add(
-      remainderBase,
-      `remainder requires exactly one internal transfer whose amount is refs.${remainder.amountRef}`,
-      "UDL4001",
-    );
-  }
-  (remainder.collected ?? []).forEach((collected, collectedIndex) => {
-    const collectedBase = [
-      ...remainderBase,
-      "collected",
-      collectedIndex,
-    ] as const;
-    addDuplicateIssues(
-      collected.statuses,
-      [...collectedBase, "statuses"],
-      "collected status",
-      add,
-    );
-    const child = instruments.get(collected.instrumentId);
-    if (!child) {
-      add(
-        [...collectedBase, "instrumentId"],
-        `remainder references unknown instrument ${collected.instrumentId}`,
-        "UDL4001",
-      );
-      return;
-    }
-    const refSchema = child.fields[collected.refField];
-    if (!refSchema || !references.accepts(refSchema, instrument.idPrefix)) {
-      add(
-        [...collectedBase, "refField"],
-        `${child.id}.${collected.refField} must reference ${instrument.id}`,
-        "UDL4001",
-      );
-    }
-    const amountDeclared =
-      collected.path === "refs"
-        ? Object.values(child.actions).some(
-            (candidate) =>
-              candidate.remainder?.amountRef === collected.amountField ||
-              candidate.remainder?.accumulateRef === collected.amountField,
-          )
-        : isMoneySchema(child.fields[collected.amountField] ?? {});
-    if (!amountDeclared) {
-      add(
-        [...collectedBase, "amountField"],
-        `${child.id}.${collected.amountField} is not declared money`,
-        "UDL4001",
-      );
-    }
-    if (
-      collected.path !== "refs" &&
-      !(instrument.aggregateInvariants ?? []).some(
-        (invariant) =>
-          invariant.childInstrumentId === collected.instrumentId &&
-          invariant.childRefField === collected.refField &&
-          "childField" in invariant &&
-          invariant.childField === collected.amountField,
-      )
-    ) {
-      add(
-        collectedBase,
-        `remainder collection ${collected.instrumentId}.${collected.amountField} has no congruent aggregate invariant`,
-        "UDL4001",
-      );
-    }
-    collected.statuses.forEach((status, statusIndex) => {
-      if (!child.lifecycle.states.includes(status)) {
-        add(
-          [...collectedBase, "statuses", statusIndex],
-          `remainder status ${status} is not declared by ${child.id}`,
-          "UDL4001",
-        );
-      }
-    });
-  });
-}
-
-function validateActions(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  validatePayoutsAndSettlement(instrument, base, instruments, references, add);
-  for (const [action, definition] of Object.entries(instrument.actions)) {
-    const actionBase = [...base, "actions", action] as const;
-    if (action === "create" && definition.input) {
-      add(
-        [...actionBase, "input"],
-        "create already consumes instrument fields and must not declare input",
-        "UDL5008",
-      );
-    }
-    if (definition.input && definition.input.type !== "object") {
-      add(
-        [...actionBase, "input", "type"],
-        "action input must declare an object-shaped JSON Schema",
-        "UDL5008",
-      );
-    }
-    const inputFields = recordValue(definition.input?.properties);
-    for (const [refKey, inputKey] of Object.entries(
-      definition.captureInput ?? {},
-    )) {
-      if (!Object.hasOwn(inputFields, inputKey)) {
-        add(
-          [...actionBase, "captureInput", refKey],
-          `captured receipt input references undeclared action input field ${inputKey}`,
-          "UDL5008",
-        );
-      }
-    }
-
-    validateDecidedAmount(instrument, action, actionBase, add);
-    validateActionUpdates(instrument, action, definition, actionBase, add);
-    validateCheckRequirements(instrument, definition, actionBase, add);
-    validateRemainder(
-      instrument,
-      action,
-      definition,
-      actionBase,
-      instruments,
-      references,
-      add,
-    );
-
-    addDuplicateIssues(
-      definition.moves.map((move) => move.key),
-      [...actionBase, "moves"],
-      "move key",
-      add,
-    );
-    if (definition.earnable && definition.moves.length === 0) {
-      add(actionBase, "earnable requires a money move", "UDL5008");
-    }
-    definition.steps.forEach((step, stepIndex) =>
-      validateStep(
-        instrument,
-        definition,
-        step,
-        [...actionBase, "steps", stepIndex],
-        add,
-      ),
-    );
-    definition.moves.forEach((move, moveIndex) =>
-      validateStep(
-        instrument,
-        definition,
-        move,
-        [...actionBase, "moves", moveIndex],
-        add,
-      ),
-    );
-
-    if (definition.requiresRefs) {
-      const boundFields = new Map<string, string>();
-      for (const gate of definition.requiresRefs) {
-        for (const [field, path] of Object.entries(gate.bind ?? {})) {
-          const source = `${gate.field}:${path}`;
-          const previous = boundFields.get(field);
-          if (previous !== undefined && previous !== source)
-            add(
-              [...actionBase, "requiresRefs"],
-              `reference gates bind ${field} from conflicting sources`,
-              "UDL5001",
-            );
-          boundFields.set(field, source);
-        }
-      }
-      addDuplicateIssues(
-        definition.requiresRefs.map((gate) => JSON.stringify(sortObject(gate))),
-        [...actionBase, "requiresRefs"],
-        "gate",
-        add,
-      );
-      definition.requiresRefs.forEach((gate, gateIndex) => {
-        addDuplicateIssues(
-          gate.statuses,
-          [...actionBase, "requiresRefs", gateIndex, "statuses"],
-          "gate status",
-          add,
-        );
-        const schema = instrument.fields[gate.field];
-        if (!schema) {
-          add(
-            [...actionBase, "requiresRefs", gateIndex, "field"],
-            `gate references unknown field ${gate.field}`,
-            "UDL5001",
-          );
-          return;
-        }
-        const targets = [...instruments.values()].filter((target) =>
-          references.accepts(schema, target.idPrefix),
-        );
-        if (targets.length !== 1) {
-          add(
-            [...actionBase, "requiresRefs", gateIndex, "field"],
-            `gate field ${gate.field} must identify exactly one instrument (found ${targets.length})`,
-            "UDL5001",
-          );
-          return;
-        }
-        const target = targets[0] as UdlInstrument;
-        gate.statuses.forEach((status, statusIndex) => {
-          if (!target.lifecycle.states.includes(status)) {
-            add(
-              [
-                ...actionBase,
-                "requiresRefs",
-                gateIndex,
-                "statuses",
-                statusIndex,
-              ],
-              `gate status ${status} is not declared by ${target.id}`,
-              "UDL5008",
-            );
-          }
-        });
-        validateGateShape(
-          instrument,
-          action,
-          gate,
-          target,
-          [...actionBase, "requiresRefs", gateIndex],
-          add,
-        );
-      });
-    }
-
-    if (definition.requiresDrainedAccount) {
-      const drainBase = [...actionBase, "requiresDrainedAccount"] as const;
-      if (action === "create") {
-        add(
-          [...drainBase],
-          "requiresDrainedAccount cannot gate create: no account exists yet",
-          "UDL5008",
-        );
-      }
-      const path = definition.requiresDrainedAccount.path;
-      const declared =
-        (path.startsWith("fields.") &&
-          Object.hasOwn(instrument.fields, path.slice("fields.".length))) ||
-        (path.startsWith("refs.") &&
-          declaredRefKeys(instrument).has(path.slice("refs.".length)));
-      if (!declared) {
-        add(
-          [...drainBase, "path"],
-          `requiresDrainedAccount reads ${path}, which is not declared`,
-          "UDL5008",
-        );
-      }
-    }
-
-    if (definition.signedSum) {
-      const sumBase = [...actionBase, "signedSum"] as const;
-      if (action === "create") {
-        add(
-          sumBase,
-          "signedSum cannot run on create: no parent row exists yet",
-          "UDL5008",
-        );
-      }
-      const generatedRefs = [
-        {
-          key: definition.signedSum.amountRef,
-          path: [...sumBase, "amountRef"] as const,
-        },
-        ...definition.signedSum.sources.map((source, sourceIndex) => ({
-          key: source.subtotalRef,
-          path: [...sumBase, "sources", sourceIndex, "subtotalRef"] as const,
-        })),
-      ];
-      addDuplicateIssues(
-        generatedRefs.map((ref) => ref.key),
-        sumBase,
-        "signed sum ref",
-        add,
-      );
-      const existingRefs = new Set([
-        ...Object.entries(instrument.actions).flatMap(
-          ([candidateAction, candidate]) => [
-            ...Object.keys(candidate.captureInput ?? {}),
-            ...Object.keys(candidate.captureEngine ?? {}),
-            ...[...candidate.steps, ...candidate.moves].flatMap((step) =>
-              Object.keys(step.capture ?? {}),
-            ),
-            ...(candidateAction !== action && candidate.signedSum
-              ? [
-                  candidate.signedSum.amountRef,
-                  ...candidate.signedSum.sources.map(
-                    (source) => source.subtotalRef,
-                  ),
-                ]
-              : []),
-          ],
-        ),
-        ...quoteRefKeys(instrument),
-        ...(instrument.subject ? ["subject"] : []),
-      ]);
-      for (const ref of generatedRefs) {
-        if (existingRefs.has(ref.key)) {
-          add(
-            ref.path,
-            `signed sum ref ${ref.key} collides with an existing instrument ref key`,
-            "UDL5008",
-          );
-        }
-      }
-      if (
-        !definition.signedSum.sources.some((source) => source.sign === "add")
-      ) {
-        add(
-          [...sumBase, "sources"],
-          "signedSum needs at least one add source",
-          "UDL5008",
-        );
-      }
-      const parentCurrencies = Object.entries(instrument.fields).filter(
-        ([, schema]) => isCurrencySchema(schema),
-      );
-      if (parentCurrencies.length !== 1) {
-        add(
-          sumBase,
-          `signedSum parent ${instrument.id} needs exactly one currency field`,
-          "UDL5008",
-        );
-      }
-      const sourceKeys = definition.signedSum.sources.map(
-        (source) =>
-          `${source.instrumentId}:${source.refField}:${source.amountField}:${source.sign}:${[...source.statuses].sort().join(",")}`,
-      );
-      addDuplicateIssues(
-        sourceKeys,
-        [...sumBase, "sources"],
-        "signed sum source",
-        add,
-      );
-      definition.signedSum.sources.forEach((source, sourceIndex) => {
-        for (let priorIndex = 0; priorIndex < sourceIndex; priorIndex += 1) {
-          const prior = definition.signedSum?.sources[priorIndex];
-          if (
-            !prior ||
-            prior.instrumentId !== source.instrumentId ||
-            prior.refField !== source.refField ||
-            prior.amountField !== source.amountField ||
-            prior.sign !== source.sign
-          ) {
-            continue;
-          }
-          const priorStatuses = new Set(prior.statuses);
-          const overlap = source.statuses.filter((status) =>
-            priorStatuses.has(status),
-          );
-          if (overlap.length === 0) continue;
-          add(
-            [...sumBase, "sources", sourceIndex, "statuses"],
-            `signed sum source overlaps source ${priorIndex} on statuses ${overlap.join(", ")}`,
-            "UDL5008",
-          );
-        }
-      });
-      definition.signedSum.sources.forEach((source, sourceIndex) => {
-        const sourceBase = [...sumBase, "sources", sourceIndex] as const;
-        const child = instruments.get(source.instrumentId);
-        if (!child) {
-          add(
-            [...sourceBase, "instrumentId"],
-            `signedSum references unknown instrument ${source.instrumentId}`,
-            "UDL5008",
-          );
-          return;
-        }
-        const refSchema = child.fields[source.refField];
-        if (!refSchema || !references.accepts(refSchema, instrument.idPrefix)) {
-          add(
-            [...sourceBase, "refField"],
-            `${source.instrumentId}.${source.refField} must reference ${instrument.id}`,
-            "UDL5008",
-          );
-        }
-        const amountSchema = child.fields[source.amountField];
-        if (!amountSchema || !isMoneySchema(amountSchema)) {
-          add(
-            [...sourceBase, "amountField"],
-            `${source.instrumentId}.${source.amountField} must be a money field`,
-            "UDL5008",
-          );
-        }
-        const childCurrencies = Object.entries(child.fields).filter(
-          ([, schema]) => isCurrencySchema(schema),
-        );
-        if (childCurrencies.length !== 1) {
-          add(
-            [...sourceBase, "instrumentId"],
-            `signedSum source ${source.instrumentId} needs exactly one currency field`,
-            "UDL5008",
-          );
-        }
-        addDuplicateIssues(
-          source.statuses,
-          [...sourceBase, "statuses"],
-          "signed sum status",
-          add,
-        );
-        source.statuses.forEach((status, statusIndex) => {
-          if (!child.lifecycle.states.includes(status)) {
-            add(
-              [...sourceBase, "statuses", statusIndex],
-              `signedSum status ${status} is not declared by ${source.instrumentId}`,
-              "UDL5008",
-            );
-          }
-        });
-      });
-      const amountPath = `refs.${definition.signedSum.amountRef}`;
-      const payoutMoves = Object.values(instrument.actions).flatMap(
-        (candidate) =>
-          candidate.moves.filter(
-            (move) =>
-              move.operation === "internal_transfer.create" &&
-              move.bind.amount?.from === "instance" &&
-              move.bind.amount.path === amountPath,
-          ),
-      );
-      const payouts = Object.values(instrument.actions).filter(
-        (candidate) => candidate.payout?.amount === amountPath,
-      );
-      if (payoutMoves.length + payouts.length !== 1) {
-        add(
-          sumBase,
-          `signedSum requires exactly one payout or instrument transfer whose amount is ${amountPath}`,
-          "UDL5008",
-        );
-      }
-    }
-
-    if (definition.due) {
-      if (definition.publicAction) {
-        add(
-          [...actionBase, "publicAction"],
-          "a system due action cannot declare a public action",
-          "UDL3001",
-        );
-      }
-      const transition = instrument.lifecycle.transitions[action];
-      if (definition.due.every) {
-        const serialLiability = definition.due.every.liability === "one_open";
-        if (
-          !transition ||
-          (serialLiability
-            ? transition.from.includes(transition.to)
-            : !transition.from.includes(transition.to))
-        ) {
-          add(
-            [...actionBase, "due"],
-            serialLiability
-              ? "a one-open recurring due action must leave its source states while the period liability is open"
-              : "a recurring due action must be stationary: its transition's to must name one of its from states",
-            "UDL5008",
-          );
-        }
-      } else if (!transition || transition.from.includes(transition.to)) {
-        add(
-          [...actionBase, "due"],
-          "a due action must leave every source state so the maintenance loop fires its anchor exactly once",
-          "UDL3001",
-        );
-      }
-      const schema = instrument.fields[definition.due.field];
-      if (!schema) {
-        add(
-          [...actionBase, "due", "field"],
-          `due condition references unknown field ${definition.due.field}`,
-          "UDL3001",
-        );
-      } else if (!isDateTimeFormat(schema.format)) {
-        add(
-          [...actionBase, "due", "field"],
-          "due field must be a date-time field",
-          "UDL5008",
-        );
-      }
-      if (
-        typeof definition.due.offset === "string" &&
-        fixedIsoDurationMs(definition.due.offset) === null
-      ) {
-        add(
-          [...actionBase, "due", "offset"],
-          "due.offset must be a fixed ISO-8601 duration using weeks, days, hours, minutes, or seconds",
-          "UDL3001",
-        );
-      }
-      validateDueRecurrence(instrument, action, actionBase, add);
-    }
-
-    if (definition.deadline) {
-      if (definition.due) {
-        add(
-          [...actionBase, "deadline"],
-          "a action cannot declare both a due condition and a deadline",
-          "UDL3001",
-        );
-      }
-      const schema = instrument.fields[definition.deadline.field];
-      if (!schema) {
-        add(
-          [...actionBase, "deadline", "field"],
-          `deadline references unknown field ${definition.deadline.field}`,
-          "UDL3001",
-        );
-      } else if (!isDateTimeFormat(schema.format)) {
-        add(
-          [...actionBase, "deadline", "field"],
-          "deadline field must be a date-time field",
-          "UDL5008",
-        );
-      }
-      if (
-        typeof definition.deadline.offset === "string" &&
-        fixedIsoDurationMs(definition.deadline.offset) === null
-      ) {
-        add(
-          [...actionBase, "deadline", "offset"],
-          "deadline.offset must be a fixed ISO-8601 duration using weeks, days, hours, minutes, or seconds",
-          "UDL3001",
-        );
-      }
-    }
-
-    if (definition.examples) {
-      addDuplicateIssues(
-        definition.examples.map((example) => example.name),
-        [...actionBase, "examples"],
-        "example name",
-        add,
-      );
-      const inputSchema = exampleInputSchema(instrument, action, definition);
-      definition.examples.forEach((example, exampleIndex) => {
-        const input = exampleInputForUdlValidation(instrument, example.input);
-        for (const error of validateUdlSchemaValue(inputSchema, input).errors) {
-          add(
-            [...actionBase, "examples", exampleIndex, "input"],
-            `example ${example.name} input ${error.error} at ${error.instanceLocation || "/"}`,
-            "UDL5008",
-          );
-        }
-      });
-    }
-  }
-  validateRecurringLiabilityOverlap(instrument, base, add);
-}
-
-function validateDueRecurrence(
-  instrument: UdlInstrument,
-  action: string,
-  actionBase: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const definition = instrument.actions[action];
-  const every = definition?.due?.every;
-  if (!definition || !every) return;
-
-  const recurrenceBase = [...actionBase, "due", "every"] as const;
-  if (
-    typeof every.period === "string" &&
-    fixedIsoDurationMs(every.period) === null
-  ) {
-    add(
-      [...recurrenceBase, "period"],
-      "recurrence period must be a fixed ISO-8601 duration using weeks, days, hours, minutes, or seconds",
-      "UDL3001",
-    );
-  }
-
-  const terminations = [
-    every.countField === undefined ? undefined : "countField",
-    every.untilField === undefined ? undefined : "untilField",
-    every.untilAction === undefined ? undefined : "untilAction",
-  ].filter((value): value is string => value !== undefined);
-  if (terminations.length === 0) {
-    add(
-      recurrenceBase,
-      "recurrence must declare a termination using countField, untilField, or untilAction",
-      "UDL3001",
-    );
-  } else if (terminations.length > 1) {
-    add(
-      recurrenceBase,
-      `recurrence termination is ambiguous: ${terminations.join(", ")}`,
-      "UDL3001",
-    );
-  }
-  if (
-    (every.untilField !== undefined || every.untilAction !== undefined) &&
-    every.liability !== "one_open"
-  ) {
-    add(
-      [...recurrenceBase, "liability"],
-      "open-ended recurrence must declare liability one_open",
-      "UDL3001",
-    );
-  }
-  if (every.liability === "one_open" && every.delinquency !== "parent_policy") {
-    add(
-      [...recurrenceBase, "delinquency"],
-      "one-open recurrence must reuse delinquency parent_policy",
-      "UDL3001",
-    );
-  }
-  if (
-    (every.untilField !== undefined || every.untilAction !== undefined) &&
-    every.drainAction === undefined
-  ) {
-    add(
-      [...recurrenceBase, "drainAction"],
-      "open-ended recurrence must declare its drain action",
-      "UDL3001",
-    );
-  }
-
-  if (every.countField) {
-    const count = instrument.fields[every.countField];
-    if (!count) {
-      add(
-        [...recurrenceBase, "countField"],
-        `recurrence count references unknown field ${every.countField}`,
-        "UDL3001",
-      );
-    } else if (count.type !== "integer") {
-      add(
-        [...recurrenceBase, "countField"],
-        "recurrence count field must be an integer field",
-        "UDL3001",
-      );
-    } else if (!instrument.required.includes(every.countField)) {
-      add(
-        [...recurrenceBase, "countField"],
-        "recurrence count field must be required",
-        "UDL3001",
-      );
-    } else if (instrument.update?.fields.includes(every.countField)) {
-      add(
-        [...recurrenceBase, "countField"],
-        "recurrence count field cannot be mutable",
-        "UDL3001",
-      );
-    }
-  }
-
-  if (every.untilField) {
-    const until = instrument.fields[every.untilField];
-    if (!until) {
-      add(
-        [...recurrenceBase, "untilField"],
-        `recurrence termination references unknown field ${every.untilField}`,
-        "UDL3001",
-      );
-    } else if (!isDateTimeFormat(until.format)) {
-      add(
-        [...recurrenceBase, "untilField"],
-        "recurrence termination field must be a date-time field",
-        "UDL3001",
-      );
-    } else if (!instrument.required.includes(every.untilField)) {
-      add(
-        [...recurrenceBase, "untilField"],
-        "recurrence termination field must be required",
-        "UDL3001",
-      );
-    } else if (instrument.update?.fields.includes(every.untilField)) {
-      add(
-        [...recurrenceBase, "untilField"],
-        "recurrence termination field cannot be mutable",
-        "UDL3001",
-      );
-    }
-  }
-
-  if (
-    every.liability === "one_open" &&
-    (definition.moves.length > 0 || definition.payout !== undefined)
-  ) {
-    add(
-      [...actionBase, "moves"],
-      "a recurring due action cannot move money; it may only open one period or invoke a declared system action",
-      "UDL3001",
-    );
-  }
-
-  if (every.untilAction) {
-    if (every.drainAction && every.drainAction !== every.untilAction) {
-      add(
-        [...recurrenceBase, "drainAction"],
-        "port recurrence termination must use untilAction as its drainAction",
-        "UDL3001",
-      );
-    }
-    validateRecurrenceTerminationAction(
-      instrument,
-      action,
-      every.untilAction,
-      recurrenceBase,
-      add,
-    );
-  } else if (every.untilField) {
-    const drainAction = every.drainAction;
-    const drainDefinition = drainAction
-      ? instrument.actions[drainAction]
-      : undefined;
-    if (
-      drainAction &&
-      (!drainDefinition ||
-        drainDefinition.due?.every !== undefined ||
-        drainDefinition.due?.field !== every.untilField ||
-        !recurrenceActionExits(instrument, action, drainAction))
-    ) {
-      add(
-        [...recurrenceBase, "drainAction"],
-        `stored-date recurrence drain action ${drainAction} must be a one-shot due action on ${every.untilField} that exits every recurring state`,
-        "UDL3001",
-      );
-    } else if (
-      drainAction &&
-      drainDefinition &&
-      instrumentOwnsReservation(instrument) &&
-      !actionDrains(drainDefinition)
-    ) {
-      add(
-        [...actionPath(recurrenceBase, drainAction), "moves"],
-        `recurrence termination action ${drainAction} must drain its reserved money`,
-        "UDL3001",
-      );
-    }
-    if (
-      drainAction &&
-      drainDefinition &&
-      (drainDefinition.payout !== undefined ||
-        drainDefinition.moves.some(
-          (move) => move.operation !== "internal_transfer.void",
-        ))
-    ) {
-      add(
-        [...actionPath(recurrenceBase, drainAction), "moves"],
-        "a stored-date recurrence termination may only void reserved money; no timeout creates, reserves, posts, or pays out money",
-        "UDL3001",
-      );
-    }
-  }
-}
-
-function validateRecurrenceTerminationAction(
-  instrument: UdlInstrument,
-  recurringAction: string,
-  terminationAction: string,
-  recurrenceBase: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const definition = instrument.actions[terminationAction];
-  const terminationPath = actionPath(recurrenceBase, terminationAction);
-  if (!definition) {
-    add(
-      [...recurrenceBase, "untilAction"],
-      `recurrence termination references unknown action ${terminationAction}`,
-      "UDL3001",
-    );
-    return;
-  }
-  if (!definition.port) {
-    add(
-      [...recurrenceBase, "untilAction"],
-      `recurrence termination action ${terminationAction} must declare a port`,
-      "UDL3001",
-    );
-  }
-  if (!recurrenceActionExits(instrument, recurringAction, terminationAction)) {
-    add(
-      [...recurrenceBase, "untilAction"],
-      `recurrence termination action ${terminationAction} must exit every recurring source state`,
-      "UDL3001",
-    );
-  }
-  if (instrumentOwnsReservation(instrument) && !actionDrains(definition)) {
-    add(
-      [...terminationPath, "moves"],
-      `recurrence termination action ${terminationAction} must drain its reserved money`,
-      "UDL3001",
-    );
-  }
-}
-
-function actionPath(
-  recurrenceBase: readonly PropertyKey[],
-  action: string,
-): readonly PropertyKey[] {
-  return [...recurrenceBase.slice(0, -3), action];
-}
-
-function recurrenceActionExits(
-  instrument: UdlInstrument,
-  recurringAction: string,
-  terminationAction: string,
-): boolean {
-  const recurring = instrument.lifecycle.transitions[recurringAction];
-  const termination = instrument.lifecycle.transitions[terminationAction];
-  if (!recurring || !termination) return false;
-  const recurringStates = new Set([...recurring.from, recurring.to]);
-  return (
-    [...recurringStates].every((state) => termination.from.includes(state)) &&
-    !recurringStates.has(termination.to)
-  );
-}
-
-function actionDrains(definition: UdlAction): boolean {
-  return (
-    definition.requiresDrainedAccount !== undefined ||
-    definition.moves.some((move) => move.operation === "internal_transfer.void")
-  );
-}
-
-function instrumentOwnsReservation(instrument: UdlInstrument): boolean {
-  return Object.values(instrument.actions).some((definition) =>
-    definition.moves.some(
-      (move) => move.operation === "internal_transfer.reserve",
-    ),
-  );
-}
-
-function validateRecurringLiabilityOverlap(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const recurring = Object.entries(instrument.actions).filter(
-    ([, definition]) => definition.due?.every?.liability === "one_open",
-  );
-  for (const [index, [action, definition]] of recurring.entries()) {
-    const transition = instrument.lifecycle.transitions[action];
-    if (!transition || !definition.due) continue;
-    for (let priorIndex = 0; priorIndex < index; priorIndex += 1) {
-      const [priorAction, priorDefinition] = recurring[
-        priorIndex
-      ] as (typeof recurring)[number];
-      const priorTransition = instrument.lifecycle.transitions[priorAction];
-      if (
-        !priorTransition ||
-        priorDefinition.due?.field !== definition.due.field
-      ) {
-        continue;
-      }
-      const priorStates = new Set(priorTransition.from);
-      const overlap = transition.from.filter((state) => priorStates.has(state));
-      if (overlap.length === 0) continue;
-      add(
-        [...base, "actions", action, "due", "every"],
-        `recurring due actions ${priorAction} and ${action} overlap period liability in states ${overlap.join(", ")}`,
-        "UDL3001",
-      );
-    }
-  }
-}
-
-function validateDecidedAmount(
-  instrument: UdlInstrument,
-  action: string,
-  actionBase: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  const definition = instrument.actions[action];
-  const clause = definition?.decidedAmount;
-  if (!definition || !clause) return;
-
-  const clauseBase = [...actionBase, "decidedAmount"] as const;
-  const inputField = recordValue(definition.input?.properties)[clause.field];
-  if (!inputField || !isMoneySchema(recordValue(inputField))) {
-    add(
-      [...clauseBase, "field"],
-      `decided amount field ${clause.field} must be a declared action input money field`,
-      "UDL4001",
-    );
-  }
-  const inputRequired = definition.input?.required;
-  if (!Array.isArray(inputRequired) || !inputRequired.includes(clause.field)) {
-    add(
-      [...clauseBase, "field"],
-      `decided amount field ${clause.field} must be required by the action input`,
-      "UDL2002",
-    );
-  }
-
-  const boundSchema = instrument.fields[clause.boundField];
-  if (!boundSchema || !isMoneySchema(boundSchema)) {
-    add(
-      [...clauseBase, "boundField"],
-      `decided amount bound ${clause.boundField} must be a declared instrument money field`,
-      "UDL4001",
-    );
-  }
-  if (!instrument.required.includes(clause.boundField)) {
-    add(
-      [...clauseBase, "boundField"],
-      `decided amount bound ${clause.boundField} must be required`,
-      "UDL2002",
-    );
-  }
-  if (instrument.update?.fields.includes(clause.boundField)) {
-    add(
-      [...clauseBase, "boundField"],
-      `decided amount bound ${clause.boundField} cannot be mutable`,
-      "UDL5008",
-    );
-  }
-
-  const decidedMoves = definition.moves.filter(
-    (move) =>
-      move.operation === "internal_transfer.post" &&
-      move.bind.amount?.from === "input" &&
-      move.bind.amount.path === clause.field,
-  );
-  if (decidedMoves.length !== 1) {
-    add(
-      [...clauseBase, "field"],
-      `decided amount field ${clause.field} must fund exactly one internal_transfer.post move`,
-      "UDL4001",
-    );
-  }
-  const decidedMove = decidedMoves.length === 1 ? decidedMoves[0] : undefined;
-  if (decidedMove) {
-    const moveIndex = definition.moves.indexOf(decidedMove);
-    const postMode = decidedMove.bind.postMode;
-    if (postMode?.from !== "const" || postMode.value !== "partial_only") {
-      add(
-        [...actionBase, "moves", moveIndex, "bind", "postMode"],
-        "decided amount post must use partial_only so the remainder stays reserved",
-        "UDL5008",
-      );
-    }
-    const currencyFields = Object.entries(instrument.fields).filter(
-      ([, schema]) => isCurrencySchema(schema),
-    );
-    const currency = decidedMove.bind.currency;
-    if (
-      currencyFields.length !== 1 ||
-      currency?.from !== "instance" ||
-      currency.path !== `fields.${currencyFields[0]?.[0]}`
-    ) {
-      add(
-        [...actionBase, "moves", moveIndex, "bind", "currency"],
-        "decided amount post must bind the instrument currency",
-        "UDL5008",
-      );
-    }
-  }
-
-  const remainderMoves = definition.moves.filter(
-    (move) => move.key === "remainder",
-  );
-  if (remainderMoves.length !== 1) {
-    add(
-      [...actionBase, "moves"],
-      `decided amount action must declare exactly one remainder move; found ${remainderMoves.length}`,
-      "UDL5008",
-    );
-  }
-  const remainderMove =
-    remainderMoves.length === 1 ? remainderMoves[0] : undefined;
-  if (remainderMove && remainderMove.operation !== "internal_transfer.void") {
-    add(
-      [
-        ...actionBase,
-        "moves",
-        definition.moves.indexOf(remainderMove),
-        "operation",
-      ],
-      "decided amount remainder move must drain the reservation with internal_transfer.void",
-      "UDL4001",
-    );
-  }
-
-  const remainderDefinition = instrument.actions[clause.remainderAction];
-  if (!remainderDefinition) {
-    add(
-      [...clauseBase, "remainderAction"],
-      `decided amount remainder action ${clause.remainderAction} is not declared`,
-      "UDL4001",
-    );
-    return;
-  }
-  if (clause.remainderAction === action) {
-    add(
-      [...clauseBase, "remainderAction"],
-      "decided amount remainder action must be a distinct action",
-      "UDL4001",
-    );
-  }
-
-  const transition = instrument.lifecycle.transitions[action];
-  const remainderTransition =
-    instrument.lifecycle.transitions[clause.remainderAction];
-  if (
-    transition &&
-    remainderTransition &&
-    (transition.from.length !== remainderTransition.from.length ||
-      transition.from.some(
-        (state) => !remainderTransition.from.includes(state),
-      ))
-  ) {
-    add(
-      [...clauseBase, "remainderAction"],
-      `decided amount remainder action ${clause.remainderAction} must start from the same lifecycle states as ${action}`,
-      "UDL4001",
-    );
-  }
-
-  const namedDrains = remainderDefinition.moves.filter(
-    (move) => move.operation === "internal_transfer.void",
-  );
-  if (namedDrains.length !== 1 || remainderDefinition.moves.length !== 1) {
-    add(
-      [...actionBase.slice(0, -1), clause.remainderAction, "moves"],
-      `decided amount remainder action ${clause.remainderAction} must declare exactly one reservation drain; found ${namedDrains.length}`,
-      "UDL4001",
-    );
-  }
-  const namedDrain =
-    namedDrains.length === 1 && remainderDefinition.moves.length === 1
-      ? namedDrains[0]
-      : undefined;
-  if (!remainderMove || !namedDrain) return;
-
-  const decidedTransfer = decidedMove?.bind.transferId;
-  const remainderTransfer = remainderMove.bind.transferId;
-  const namedTransfer = namedDrain.bind.transferId;
-  if (
-    !sameInstanceBinding(decidedTransfer, remainderTransfer) ||
-    !sameInstanceBinding(remainderTransfer, namedTransfer)
-  ) {
-    add(
-      [...clauseBase, "remainderAction"],
-      `decided amount and remainder action ${clause.remainderAction} must drain the same reservation`,
-      "UDL4001",
-    );
-  }
-}
-
-function sameInstanceBinding(
-  left: UdlMove["bind"][string] | undefined,
-  right: UdlMove["bind"][string] | undefined,
-): boolean {
-  return (
-    left?.from === "instance" &&
-    right?.from === "instance" &&
-    left.path.startsWith("refs.") &&
-    left.path === right.path
-  );
-}
-
-function validatePayoutsAndSettlement(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const payoutEntries = Object.entries(instrument.actions).filter(
-    ([, definition]) => definition.payout !== undefined,
-  );
-  const reconcilingEntries = Object.entries(instrument.actions).filter(
-    ([, definition]) => definition.reconcile !== undefined,
-  );
-  if (payoutEntries.length > 0 && reconcilingEntries.length !== 1) {
-    add(
-      [...base, "actions"],
-      `payout-owning instrument must declare exactly one reconciling action; found ${reconcilingEntries.length}`,
-      "UDL5005",
-    );
-  }
-  if (payoutEntries.length > 0) {
-    // The bank's own line is the only evidence that a payout left the estate.
-    // A provider confirmation is our row read back to us, and a credit is
-    // money arriving, so neither closes a payout. The match law stays the
-    // author's call.
-    for (const [action, definition] of reconcilingEntries) {
-      (definition.reconcile ?? []).forEach((reconcile, index) => {
-        if (
-          reconcile.evidence === "statement_line" &&
-          reconcile.direction === "debit"
-        ) {
-          return;
-        }
-        add(
-          [...base, "actions", action, "reconcile", index, "evidence"],
-          `payout-owning instrument ${instrument.id} action ${action} must reconcile against a debit statement_line; found ${reconcile.direction} ${reconcile.evidence}`,
-          "UDL5005",
-        );
-      });
-    }
-  }
-  const soleReconciles =
-    reconcilingEntries.length === 1
-      ? reconcilingEntries[0]?.[1].reconcile
-      : undefined;
-  if (soleReconciles) {
-    const expected = new Set(
-      soleReconciles.map((reconcile) => reconcile.counterpartyRef),
-    );
-    for (const [action, definition] of payoutEntries) {
-      if (definition.payout && expected.has(definition.payout.capture)) {
-        continue;
-      }
-      add(
-        [...base, "actions", action, "payout", "capture"],
-        `action ${action} payout capture ${definition.payout?.capture} is expected by no reconcile`,
-        "UDL5005",
-      );
-    }
-  }
-
-  const reservedRefs = new Set([
-    ...Object.values(instrument.actions).flatMap((action) => [
-      ...Object.keys(action.captureInput ?? {}),
-      ...Object.keys(action.captureEngine ?? {}),
-    ]),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      [...action.steps, ...action.moves].flatMap((step) =>
-        Object.keys(step.capture ?? {}),
-      ),
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.signedSum
-        ? [
-            action.signedSum.amountRef,
-            ...action.signedSum.sources.map((source) => source.subtotalRef),
-          ]
-        : [],
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.distribute ? [action.distribute.amountRef] : [],
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.remainder
-        ? [
-            action.remainder.amountRef,
-            ...(action.remainder.accumulateRef
-              ? [action.remainder.accumulateRef]
-              : []),
-          ]
-        : [],
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.allocate ? [action.allocate.capture] : [],
-    ),
-    ...quoteRefKeys(instrument),
-    ...(instrument.subject ? ["subject"] : []),
-  ]);
-  const moneyWriters = moneyRefWriters(instrument);
-  const payoutWriters = new Map<string, string[]>();
-  for (const [action, definition] of Object.entries(instrument.actions)) {
-    if (!definition.payout) continue;
-    const payout = definition.payout;
-    const payoutBase = [...base, "actions", action, "payout"] as const;
-    if (action === "create") {
-      add(payoutBase, "create cannot declare a payout intent", "UDL5005");
-    }
-    if (definition.steps.length > 0 || definition.moves.length > 0) {
-      add(
-        payoutBase,
-        `action ${action} payout intent cannot combine with kernel steps or moves`,
-        "UDL5005",
-      );
-    }
-    const prior = payoutWriters.get(payout.capture) ?? [];
-    if (reservedRefs.has(payout.capture) || prior.length > 0) {
-      add(
-        [...payoutBase, "capture"],
-        `payout capture ${payout.capture} collides with an existing instrument ref key`,
-        "UDL5005",
-      );
-    }
-    payoutWriters.set(payout.capture, [...prior, action]);
-
-    const amount = payout.amount;
-    const [scope, key] = amount.split(".") as [string, string];
-    const amountWriters = moneyWriters.get(key) ?? [];
-    const amountDeclared =
-      scope === "fields"
-        ? isMoneySchema(instrument.fields[key] ?? {})
-        : scope === "refs" && amountWriters.length > 0;
-    if (!amountDeclared) {
-      add(
-        [...payoutBase, "amount"],
-        `payout amount ${amount} must name a declared money field or money ref`,
-        "UDL5005",
-      );
-    } else if (
-      scope === "refs" &&
-      !amountWriters.includes(action) &&
-      !amountWriters.includes("create") &&
-      !actionGroupDominatesReader(instrument, amountWriters, action)
-    ) {
-      add(
-        [...payoutBase, "amount"],
-        `payout amount ${amount} can be read before money writers ${amountWriters.join(" or ")}`,
-        "UDL5005",
-      );
-    }
-
-    const currency = instrument.fields[payout.currencyField];
-    if (!currency || !isCurrencySchema(currency)) {
-      add(
-        [...payoutBase, "currencyField"],
-        `payout currencyField ${payout.currencyField} must name a currency field`,
-        "UDL5005",
-      );
-    }
-    const source = instrument.fields[payout.sourceAccountField];
-    if (!source || !references.accepts(source, "acct")) {
-      add(
-        [...payoutBase, "sourceAccountField"],
-        `payout sourceAccountField ${payout.sourceAccountField} must name an account-id field`,
-        "UDL5005",
-      );
-    }
-    const beneficiary = instrument.fields[payout.beneficiaryField];
-    if (!beneficiary || !references.accepts(beneficiary, "ben")) {
-      add(
-        [...payoutBase, "beneficiaryField"],
-        `payout beneficiaryField ${payout.beneficiaryField} must name a beneficiary-id field`,
-        "UDL5005",
-      );
-    }
-    const beneficiaryPartyField = instrument.parties?.beneficiary;
-    if (!beneficiaryPartyField) {
-      add(
-        [...payoutBase, "beneficiaryPartyField"],
-        "payout requires parties.beneficiary to bind its destination party",
-        "UDL5005",
-      );
-    } else if (payout.beneficiaryPartyField !== beneficiaryPartyField) {
-      add(
-        [...payoutBase, "beneficiaryPartyField"],
-        `payout beneficiaryPartyField ${payout.beneficiaryPartyField} must equal parties.beneficiary ${beneficiaryPartyField}`,
-        "UDL5005",
-      );
-    }
-  }
-
-  validateReconciles(
-    instrument,
-    base,
-    instruments,
-    reservedRefs,
-    payoutWriters,
-    moneyWriters,
-    references,
-    add,
-  );
-}
-
-/**
- * The five reconcile laws. An expectation names money the instrument can
- * describe but cannot yet see, so every part of it has to be checkable before
- * an instance exists: the expected fields carry money, one source answers one
- * counterparty row, the window closes under a sweep that is actually declared,
- * the forgiveness is bounded by a dial, and the unmatched case has a capped
- * child to land in.
- */
-function validateReconciles(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  reservedRefs: ReadonlySet<string>,
-  payoutWriters: ReadonlyMap<string, string[]>,
-  moneyWriters: ReadonlyMap<string, string[]>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const captures = new Set<string>();
-  for (const [action, definition] of Object.entries(instrument.actions)) {
-    if (!definition.reconcile) continue;
-    const counterparties = new Set<string>();
-    definition.reconcile.forEach((reconcile, index) => {
-      const path = [...base, "actions", action, "reconcile", index] as const;
-
-      // Law: the expectation is money this instrument can already describe,
-      // read the same way a payout intent reads its amount.
-      const [amountScope, amountKey] = reconcile.amount.split(".") as [
-        string,
-        string,
-      ];
-      const amountDeclared =
-        amountScope === "fields"
-          ? isMoneySchema(instrument.fields[amountKey] ?? {})
-          : amountScope === "refs" &&
-            (moneyWriters.get(amountKey) ?? []).length > 0;
-      if (!amountDeclared) {
-        add(
-          [...path, "amount"],
-          `reconcile amount ${reconcile.amount} must name a declared money field or money ref`,
-          "UDL5005",
-        );
-      }
-      const currency = instrument.fields[reconcile.currencyField];
-      if (!currency) {
-        add(
-          [...path, "currencyField"],
-          `reconcile expects unknown field ${reconcile.currencyField}`,
-          "UDL5005",
-        );
-      } else if (
-        currency.type !== "string" ||
-        !instrument.required.includes(reconcile.currencyField)
-      ) {
-        add(
-          [...path, "currencyField"],
-          `${instrument.id}.${reconcile.currencyField} must be a required text field to carry the expected currency`,
-          "UDL5005",
-        );
-      }
-
-      // Law: one evidence source answers one counterparty row. Two
-      // expectations over the same row would match the same money twice.
-      if (counterparties.has(reconcile.counterpartyRef)) {
-        add(
-          [...path, "counterpartyRef"],
-          `action ${action} expects ${reconcile.counterpartyRef} twice; one counterparty row answers one reconcile`,
-          "UDL5005",
-        );
-      }
-      counterparties.add(reconcile.counterpartyRef);
-      const writers = payoutWriters.get(reconcile.counterpartyRef) ?? [];
-      if (reconcile.evidence === "statement_line") {
-        if (writers.length === 0) {
-          add(
-            [...path, "counterpartyRef"],
-            `reconcile counterpartyRef ${reconcile.counterpartyRef} is not captured by a payout intent`,
-            "UDL5005",
-          );
-        } else if (!actionGroupDominatesReader(instrument, writers, action)) {
-          add(
-            path,
-            `reconcile can read ${reconcile.counterpartyRef} before payout writers ${writers.join(" or ")}`,
-            "UDL5005",
-          );
-        }
-      }
-
-      // Law: the window is a fixed duration or a stored deadline, and the due
-      // sweep that closes it is declared on the same action. A window nothing
-      // fires is a wait with no end.
-      const due = definition.due;
-      if ("offset" in reconcile.within) {
-        const offset = reconcile.within.offset;
-        if (fixedIsoDurationMs(offset) === null) {
-          add(
-            [...path, "within", "offset"],
-            `reconcile window ${offset} is not a fixed ISO-8601 duration`,
-            "UDL5005",
-          );
-        } else if (!due || due.offset !== offset) {
-          add(
-            [...path, "within", "offset"],
-            `reconcile window ${offset} is closed by no due condition on ${action}`,
-            "UDL5005",
-          );
-        }
-      } else {
-        const deadline = instrument.fields[reconcile.within.field];
-        if (!deadline || !isDateTimeFormat(deadline.format)) {
-          add(
-            [...path, "within", "field"],
-            `reconcile window ${reconcile.within.field} must be a stored date-time field`,
-            "UDL5005",
-          );
-        } else if (
-          !due ||
-          due.field !== reconcile.within.field ||
-          due.offset !== undefined
-        ) {
-          add(
-            [...path, "within", "field"],
-            `reconcile window ${reconcile.within.field} is closed by no due condition on ${action}`,
-            "UDL5005",
-          );
-        }
-      }
-
-      // Law: tolerance never exceeds its dial. The authored number is the
-      // forgiveness; the dial is the ceiling a tenant may not raise past.
-      const match = reconcile.match;
-      if (match.law === "tolerance") {
-        const dial = instrument.dials?.find(
-          (candidate) => candidate.key === match.dial,
-        );
-        if (!dial || dial.kind !== "reconcile_tolerance") {
-          add(
-            [...path, "match", "dial"],
-            `reconcile tolerance names no reconcile_tolerance dial ${match.dial}`,
-            "UDL5005",
-          );
-        } else if (match.minorUnits > dial.maxMinorUnits) {
-          add(
-            [...path, "match", "minorUnits"],
-            `reconcile tolerance ${match.minorUnits} exceeds dial ${dial.key} ceiling ${dial.maxMinorUnits}`,
-            "UDL5005",
-          );
-        }
-      }
-
-      // Law: matched or exception. The break lands in a child of this
-      // instrument that points back at it, never in a status nobody reads.
-      const child = instruments.get(reconcile.exception.childInstrumentId);
-      if (!child) {
-        add(
-          [...path, "exception", "childInstrumentId"],
-          `reconcile raises unknown exception instrument ${reconcile.exception.childInstrumentId}`,
-          "UDL5007",
-        );
-      } else {
-        const exception = reconcile.exception as typeof reconcile.exception & {
-          readonly amountField: string;
-          readonly reasonField: string;
-        };
-        for (const problem of reconcileExceptionChildProblems(
-          instrument.idPrefix,
-          child,
-          exception,
-          references,
-        )) {
-          const field =
-            problem === "UDL5009" || problem === "UDL5010"
-              ? "amountField"
-              : problem === "UDL5011" || problem === "UDL5012"
-                ? "reasonField"
-                : "refField";
-          add(
-            [...path, "exception", field],
-            reconcileExceptionProblemMessage(
-              problem,
-              instrument,
-              child,
-              exception,
-            ),
-            problem,
-          );
-        }
-      }
-
-      if (
-        reservedRefs.has(reconcile.capture) ||
-        payoutWriters.has(reconcile.capture) ||
-        captures.has(reconcile.capture)
-      ) {
-        add(
-          [...path, "capture"],
-          `reconcile capture ${reconcile.capture} collides with an existing instrument ref key`,
-          "UDL5005",
-        );
-      }
-      captures.add(reconcile.capture);
-    });
-
-    if (!instrument.lifecycle.transitions[action]) {
-      add(
-        [...base, "actions", action, "reconcile"],
-        "a reconciling action needs a lifecycle transition and cannot run on create",
-        "UDL5005",
-      );
-    }
-    const callerFacets = [
-      definition.port ? "port" : undefined,
-      definition.publicAction ? "publicAction" : undefined,
-      definition.input ? "input" : undefined,
-      definition.captureInput ? "captureInput" : undefined,
-      definition.deadline ? "deadline" : undefined,
-    ].filter((facet): facet is string => facet !== undefined);
-    for (const facet of callerFacets) {
-      add(
-        [...base, "actions", action, facet],
-        `a reconciling action is system-only and cannot declare ${facet}`,
-        "UDL5005",
-      );
-    }
-    if (definition.steps.length > 0) {
-      add(
-        [...base, "actions", action, "steps"],
-        "a reconciling action cannot add kernel steps",
-        "UDL5005",
-      );
-    }
-    if (definition.moves.length > 0) {
-      add(
-        [...base, "actions", action, "moves"],
-        "a reconciling action cannot move money",
-        "UDL5005",
-      );
-    }
-  }
-}
-
-function moneyRefWriters(
-  instrument: UdlInstrument,
-): ReadonlyMap<string, string[]> {
-  const writers = new Map<string, string[]>();
-  for (const [actionName, action] of Object.entries(instrument.actions)) {
-    const refs = [
-      ...(action.signedSum
-        ? [
-            action.signedSum.amountRef,
-            ...action.signedSum.sources.map((source) => source.subtotalRef),
-          ]
-        : []),
-      ...[...action.steps, ...action.moves].flatMap((step) =>
-        Object.entries(step.capture ?? {}).flatMap(([ref, output]) =>
-          output === "postedAmount" ? [ref] : [],
-        ),
-      ),
-    ];
-    for (const ref of refs) {
-      writers.set(ref, [...(writers.get(ref) ?? []), actionName]);
-    }
-  }
-  return writers;
-}
-
-/**
- * Shape rules for one resolved reference gate: derived bindings and the
- * uniqueness claim are create-only, bind keys must be declared immutable
- * fields, and every referenced path must name declared target structure. The
- * exact mirror of the Hyperscale contract registry's rules, so a document that loads
- * open-grammar clean also loads registry clean.
- */
-function validateGateShape(
-  instrument: UdlInstrument,
-  action: string,
-  gate: UdlGate,
-  target: UdlInstrument,
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  if (gate.unique && action !== "create") {
-    add([...base, "unique"], "unique is a create admission gate", "UDL5001");
-  }
-  if (gate.bind && action !== "create") {
-    add([...base, "bind"], "bind derives fields at create only", "UDL5001");
-  }
-  if (gate.bind && Object.keys(gate.bind).length === 0) {
-    add([...base, "bind"], "bind must not be empty", "UDL5001");
-  }
-  if (gate.match && Object.keys(gate.match).length === 0) {
-    add([...base, "match"], "match must not be empty", "UDL5001");
-  }
-  if (gate.optional && instrument.required.includes(gate.field)) {
-    add(
-      [...base, "optional"],
-      `optional declares an opt-out on ${gate.field}, which required lists`,
-      "UDL5001",
-    );
-  }
-  for (const [key, path] of Object.entries(gate.bind ?? {})) {
-    if (gate.optional && instrument.required.includes(key)) {
-      add(
-        [...base, "bind", key],
-        `an optional reference can only bind optional fields; required lists ${key}`,
-        "UDL5001",
-      );
-    }
-    if (!Object.hasOwn(instrument.fields, key)) {
-      add(
-        [...base, "bind", key],
-        `bind targets unknown field ${key}`,
-        "UDL5001",
-      );
-    }
-    if (key === gate.field) {
-      add(
-        [...base, "bind", key],
-        "bind cannot target the gate field itself",
-        "UDL5001",
-      );
-    }
-    if (instrument.update?.fields.includes(key)) {
-      add(
-        [...base, "bind", key],
-        `bind targets ${key}, which update declares mutable`,
-        "UDL5001",
-      );
-    }
-    if (path === "instrumentInstanceId") {
-      add(
-        [...base, "bind", key],
-        "the gate field already carries the referenced id",
-        "UDL5001",
-      );
-    } else if (!referencedPathDeclared(target, path)) {
-      add(
-        [...base, "bind", key],
-        `bind reads ${path}, which ${target.id} does not declare`,
-        "UDL5001",
-      );
-    }
-  }
-  for (const [localPath, path] of Object.entries(gate.match ?? {})) {
-    const localOk =
-      action === "create"
-        ? localPath.startsWith("fields.") &&
-          Object.hasOwn(instrument.fields, localPath.slice("fields.".length))
-        : localPath === "instrumentInstanceId" ||
-          (localPath.startsWith("fields.") &&
-            Object.hasOwn(
-              instrument.fields,
-              localPath.slice("fields.".length),
-            )) ||
-          (localPath.startsWith("refs.") &&
-            declaredRefKeys(instrument).has(localPath.slice("refs.".length)));
-    if (!localOk) {
-      add(
-        [...base, "match", localPath],
-        action === "create"
-          ? "a create match may only read the instrument's own declared fields"
-          : `match reads unknown local path ${localPath}`,
-        "UDL5001",
-      );
-    }
-    if (!referencedPathDeclared(target, path)) {
-      add(
-        [...base, "match", localPath],
-        `match reads ${path}, which ${target.id} does not declare`,
-        "UDL5001",
-      );
-    }
-  }
-  if (gate.dateComparison) {
-    const { localPath, referencedPath } = gate.dateComparison;
-    const localFieldName = localPath.startsWith("fields.")
-      ? localPath.slice("fields.".length)
-      : undefined;
-    const localField = localFieldName
-      ? instrument.fields[localFieldName]
-      : undefined;
-    const isLocalDate =
-      localField?.type === "string" &&
-      typeof localField.format === "string" &&
-      ["hyperscale-date-time", "hyperscale-date", "date-time", "date"].includes(
-        localField.format,
-      );
-    if (!isLocalDate) {
-      add(
-        [...base, "dateComparison", "localPath"],
-        `dateComparison localPath ${localPath} must target a declared date or date-time field`,
-        "UDL5001",
-      );
-    }
-    const referencedFieldName = referencedPath.startsWith("fields.")
-      ? referencedPath.slice("fields.".length)
-      : undefined;
-    const referencedField = referencedFieldName
-      ? target.fields[referencedFieldName]
-      : undefined;
-    const isReferencedDate =
-      referencedField?.type === "string" &&
-      typeof referencedField.format === "string" &&
-      ["hyperscale-date-time", "hyperscale-date", "date-time", "date"].includes(
-        referencedField.format,
-      );
-    if (!isReferencedDate) {
-      add(
-        [...base, "dateComparison", "referencedPath"],
-        `dateComparison referencedPath ${referencedPath} must target a declared date or date-time field on ${target.id}`,
-        "UDL5001",
-      );
-    }
-  }
-}
-
-/** Every `refs.<key>` a instrument's instances can legitimately carry. */
-function declaredRefKeys(instrument: UdlInstrument): ReadonlySet<string> {
-  return new Set([
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.payout ? [action.payout.capture] : [],
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      (action.reconcile ?? []).map((reconcile) => reconcile.capture),
-    ),
-    ...Object.values(instrument.actions).flatMap((action) => [
-      ...Object.keys(action.captureInput ?? {}),
-      ...Object.keys(action.captureEngine ?? {}),
-    ]),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      [...action.steps, ...action.moves].flatMap((step) =>
-        Object.keys(step.capture ?? {}),
-      ),
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.signedSum
-        ? [
-            action.signedSum.amountRef,
-            ...action.signedSum.sources.map((source) => source.subtotalRef),
-          ]
-        : [],
-    ),
-    ...Object.values(instrument.actions).flatMap((action) =>
-      action.allocate ? [action.allocate.capture] : [],
-    ),
-    ...quoteRefKeys(instrument),
-    ...(instrument.subject ? ["subject"] : []),
-  ]);
-}
-
-/** Whether a bind/match referenced path names declared target structure. */
-function referencedPathDeclared(target: UdlInstrument, path: string): boolean {
-  if (path === "instrumentInstanceId") return true;
-  if (path.startsWith("fields.")) {
-    return Object.hasOwn(target.fields, path.slice("fields.".length));
-  }
-  if (path.startsWith("refs.")) {
-    return declaredRefKeys(target).has(path.slice("refs.".length));
-  }
-  return false;
-}
-
-function validateStep(
-  instrument: UdlInstrument,
-  action: UdlAction,
-  step: ResolvedActionPlan["leaves"][number]["step"],
-  base: readonly PropertyKey[],
-  add: AddIssue,
-): void {
-  if (Object.keys(step.bind).length === 0) {
-    add(
-      [...base, "bind"],
-      "a kernel step must bind at least one value",
-      "UDL5008",
-    );
-  }
-  if (step.capture && Object.keys(step.capture).length === 0) {
-    add([...base, "capture"], "capture must not be empty", "UDL5008");
-  }
-  const inputFields = recordValue(action.input?.properties);
-  for (const [field, binding] of Object.entries(step.bind)) {
-    if (binding.from === "const") continue;
-    if (binding.from === "input") {
-      const root = binding.path.split(".")[0] as string;
-      if (!Object.hasOwn(inputFields, root)) {
-        add(
-          [...base, "bind", field, "path"],
-          `input binding references undeclared action input field ${root}`,
-          "UDL5008",
-        );
-      }
-      continue;
-    }
-    if (binding.path.startsWith("fields.")) {
-      const root = binding.path.split(".")[1] as string;
-      if (!Object.hasOwn(instrument.fields, root)) {
-        add(
-          [...base, "bind", field, "path"],
-          `instance binding references unknown instrument field ${root}`,
-          "UDL5008",
-        );
-      }
-      continue;
-    }
-    if (
-      binding.path !== "instrumentInstanceId" &&
-      binding.path !== "productId" &&
-      !binding.path.startsWith("refs.")
-    ) {
-      add(
-        [...base, "bind", field, "path"],
-        `instance binding path ${binding.path} must read instrumentInstanceId, productId, fields.*, or refs.*`,
-        "UDL5008",
-      );
-    }
-  }
-  if (
-    step.operation === "account.freeze" ||
-    step.operation === "account.unfreeze"
-  ) {
-    // Freeze steps act on an account the instance already carries and move no
-    // money: the account must come from instance state, never caller input,
-    // and a monetary leg on a freeze step is a contradiction in terms.
-    const accountId = step.bind.accountId;
-    if (!accountId || accountId.from !== "instance") {
-      add(
-        [...base, "bind", "accountId"],
-        `${step.operation} must bind accountId from an instance path`,
-        "UDL5008",
-      );
-    }
-    for (const monetary of ["amount", "currency"] as const) {
-      if (Object.hasOwn(step.bind, monetary)) {
-        add(
-          [...base, "bind", monetary],
-          `${step.operation} must not bind ${monetary}`,
-          "UDL5008",
-        );
-      }
-    }
-  }
-  if (
-    step.operation === "internal_transfer.create" ||
-    step.operation === "internal_transfer.reserve"
-  ) {
-    const source = step.bind.sourceAccountId;
-    const destination = step.bind.destinationAccountId;
-    if (
-      source?.from === "instance" &&
-      destination?.from === "instance" &&
-      source.path === destination.path
-    ) {
-      add(
-        [...base, "bind", "destinationAccountId"],
-        "transfer source and destination must be different accounts",
-        "UDL4001",
-      );
-    }
-  }
-}
-
-/**
- * Every ref a quoting action seeds: the charge and the net the author named,
- * plus the expiry and fingerprint the machinery derives from the net ref.
- */
-function quoteRefKeys(instrument: UdlInstrument): readonly string[] {
-  return Object.values(instrument.actions).flatMap((action) =>
-    action.quote ? quoteSeededRefKeys(action.quote) : [],
-  );
-}
-
-function validateQuoteCommit(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const quotingActions = Object.entries(instrument.actions).filter(
-    ([, action]) => action.quote,
-  );
-  for (const [actionName, action] of quotingActions) {
-    const quote = action.quote;
-    if (!quote) continue;
-    const quoteBase = [...base, "actions", actionName, "quote"] as const;
-    if (action.earnable) {
-      add(
-        [...base, "actions", actionName, "earnable"],
-        `quoting action ${actionName} prices a refund and cannot be earnable`,
-        "UDL5006",
-      );
-    }
-    for (const [slot, field] of [
-      ["baseField", quote.baseField],
-      ["netDestinationField", quote.netDestinationField],
-      ...quote.fixes.map((fixed, index) => [`fixes.${index}`, fixed] as const),
-    ] as const) {
-      if (Object.hasOwn(instrument.fields, field)) continue;
-      add(
-        [...quoteBase, slot],
-        `quote references unknown field ${field}`,
-        "UDL5006",
-      );
-    }
-    const priced = instrument.fields[quote.baseField];
-    if (priced && !isMoneySchema(priced)) {
-      add(
-        [...quoteBase, "baseField"],
-        "baseField must be a money field",
-        "UDL5006",
-      );
-    }
-    const destination = instrument.fields[quote.netDestinationField];
-    if (destination && !references.accepts(destination, "acct")) {
-      add(
-        [...quoteBase, "netDestinationField"],
-        "netDestinationField must be an account-id field",
-        "UDL5006",
-      );
-    }
-    for (const [slot, label, field] of [
-      ["baseField", "base field", quote.baseField],
-      [
-        "netDestinationField",
-        "net destination field",
-        quote.netDestinationField,
-      ],
-    ] as const) {
-      if (quote.fixes.includes(field)) continue;
-      add(
-        [...quoteBase, slot],
-        `quoting action ${actionName} must freeze its ${label} ${field}`,
-        "UDL5006",
-      );
-    }
-    for (const field of action.updates ?? []) {
-      if (!quote.fixes.includes(field)) continue;
-      add(
-        [...base, "actions", actionName, "updates"],
-        `quoting action ${actionName} freezes ${field} and writes it in the same action`,
-        "UDL5006",
-      );
-    }
-    if (quote.anchorField !== undefined) {
-      const anchor = instrument.fields[quote.anchorField];
-      if (!anchor) {
-        add(
-          [...quoteBase, "anchorField"],
-          `quote references unknown field ${quote.anchorField}`,
-          "UDL5006",
-        );
-      } else if (!isDateTimeFormat(anchor.format)) {
-        add(
-          [...quoteBase, "anchorField"],
-          "anchorField must be a date-time field",
-          "UDL5006",
-        );
-      } else if (!instrument.required.includes(quote.anchorField)) {
-        add(
-          [...quoteBase, "anchorField"],
-          "anchorField must be required",
-          "UDL5006",
-        );
-      }
-    }
-    if ("offset" in quote.expires) {
-      if (fixedIsoDurationMs(quote.expires.offset) === null) {
-        add(
-          [...quoteBase, "expires", "offset"],
-          "the offer's life must be a fixed ISO-8601 duration using weeks, days, hours, minutes, or seconds",
-          "UDL5006",
-        );
-      }
-    } else {
-      const deadline = instrument.fields[quote.expires.field];
-      if (!deadline) {
-        add(
-          [...quoteBase, "expires", "field"],
-          `quote references unknown field ${quote.expires.field}`,
-          "UDL5006",
-        );
-      } else if (!isDateTimeFormat(deadline.format)) {
-        add(
-          [...quoteBase, "expires", "field"],
-          "the offer's deadline field must be a date-time field",
-          "UDL5006",
-        );
-      } else if (!instrument.required.includes(quote.expires.field)) {
-        add(
-          [...quoteBase, "expires", "field"],
-          "the offer's deadline field must be required",
-          "UDL5006",
-        );
-      }
-    }
-    addDuplicateIssues(
-      quote.fixes,
-      [...quoteBase, "fixes"],
-      "frozen field",
-      add,
-    );
-    const offsets = quote.charges.flatMap((tier) =>
-      tier.withinOffset ? [tier.withinOffset] : [],
-    );
-    addDuplicateIssues(
-      offsets,
-      [...quoteBase, "charges"],
-      "charge offset",
-      add,
-    );
-    if (
-      quote.charges.filter((tier) => tier.withinOffset === undefined).length > 1
-    ) {
-      add(
-        [...quoteBase, "charges"],
-        "a quote may declare at most one floor tier",
-        "UDL5006",
-      );
-    }
-    quote.charges.forEach((tier, index) => {
-      if (tier.withinOffset && fixedIsoDurationMs(tier.withinOffset) === null) {
-        add(
-          [...quoteBase, "charges", index, "withinOffset"],
-          "withinOffset must be a fixed ISO-8601 duration using weeks, days, hours, minutes, or seconds",
-          "UDL5006",
-        );
-      }
-    });
-    const committing = Object.entries(instrument.actions).filter(
-      ([, candidate]) => candidate.commit === actionName,
-    );
-    if (committing.length !== 1) {
-      add(
-        [...quoteBase],
-        `quoting action ${actionName} must be committed by exactly one action, not ${committing.length}`,
-        "UDL5006",
-      );
-    }
-    if (quote.chargeRetainedBy !== undefined) {
-      const retainedRole = quote.chargeRetainedBy;
-      // Own keys only: a role named after a prototype member is undeclared.
-      const partyField = Object.hasOwn(instrument.parties ?? {}, retainedRole)
-        ? instrument.parties?.[retainedRole]
-        : undefined;
-      if (!partyField) {
-        add(
-          [...quoteBase, "chargeRetainedBy"],
-          `quoting action ${actionName} retains charge by undeclared party role ${retainedRole}`,
-          "UDL5006",
-        );
-      } else {
-        const partySchema = instrument.fields[partyField];
-        if (!partySchema || !references.accepts(partySchema, "acct")) {
-          add(
-            [...quoteBase, "chargeRetainedBy"],
-            `charge-retaining party field ${partyField} must be an account field`,
-            "UDL5006",
-          );
-        }
-        if (!instrument.required.includes(partyField)) {
-          add(
-            [...quoteBase, "chargeRetainedBy"],
-            `charge-retaining party field ${partyField} must be required`,
-            "UDL5006",
-          );
-        }
-        if (!quote.fixes.includes(partyField)) {
-          add(
-            [...quoteBase, "chargeRetainedBy"],
-            `quoting action ${actionName} must freeze its charge-retaining party field ${partyField}`,
-            "UDL5006",
-          );
-        }
-      }
-      const chargePath = `refs.${quote.chargeRef}`;
-      for (const [consumerName, candidateAction] of Object.entries(
-        instrument.actions,
-      )) {
-        for (const [moveIndex, move] of (
-          candidateAction.moves ?? []
-        ).entries()) {
-          for (const [target, binding] of Object.entries(move.bind)) {
-            if (binding.from === "instance" && binding.path === chargePath) {
-              add(
-                [
-                  ...base,
-                  "actions",
-                  consumerName,
-                  "moves",
-                  moveIndex,
-                  "bind",
-                  target,
-                ],
-                `charge ${chargePath} is retained by ${retainedRole} and cannot be consumed by an action`,
-                "UDL5006",
-              );
-            }
-          }
-        }
-      }
-    }
-  }
-
-  const seededBy = new Map<string, string>();
-  for (const [actionName, action] of quotingActions) {
-    const quote = action.quote;
-    if (!quote) continue;
-    const quoteBase = [...base, "actions", actionName, "quote"] as const;
-    for (const [slot, label, key] of [
-      ["chargeRef", "charge", quote.chargeRef],
-      ["netRef", "net", quote.netRef],
-      ["netRef", "expiry stamp", quoteExpiresAtRefKey(quote)],
-      ["netRef", "frozen fingerprint", quoteFrozenRefKey(quote)],
-    ] as const) {
-      const owner = seededBy.get(key);
-      if (owner === undefined) {
-        seededBy.set(key, `${actionName} ${label}`);
-        continue;
-      }
-      add(
-        [...quoteBase, slot],
-        `quote ref ${key} is seeded twice: ${owner} and ${actionName} ${label}`,
-        "UDL5006",
-      );
-    }
-  }
-
-  for (const [actionName, action] of Object.entries(instrument.actions)) {
-    const quotingName = action.commit;
-    if (quotingName === undefined) continue;
-    const commitBase = [...base, "actions", actionName, "commit"] as const;
-    if (quotingName === actionName) {
-      add(commitBase, "an action cannot commit its own quote", "UDL5006");
-      continue;
-    }
-    const quoting = instrument.actions[quotingName];
-    if (!quoting) {
-      add(
-        commitBase,
-        `commit references unknown action ${quotingName}`,
-        "UDL5006",
-      );
-      continue;
-    }
-    const quote = quoting.quote;
-    if (!quote) {
-      add(
-        commitBase,
-        `action ${quotingName} declares no quote to commit`,
-        "UDL5006",
-      );
-      continue;
-    }
-    if (action.earnable) {
-      add(
-        [...base, "actions", actionName, "earnable"],
-        `commit action ${actionName} spends a quoted refund and cannot be earnable`,
-        "UDL5006",
-      );
-    }
-    const transfers = action.moves.filter(
-      (move) => move.operation === "internal_transfer.create",
-    );
-    const net = transfers[0];
-    const amount = net?.bind.amount;
-    const sourceBinding = net?.bind.sourceAccountId;
-    const destinationBinding = net?.bind.destinationAccountId;
-    if (
-      transfers.length !== 1 ||
-      amount?.from !== "instance" ||
-      amount.path !== `refs.${quote.netRef}` ||
-      sourceBinding?.from !== "instance" ||
-      destinationBinding?.from !== "instance" ||
-      destinationBinding.path !== `fields.${quote.netDestinationField}`
-    ) {
-      add(
-        [...base, "actions", actionName, "moves"],
-        `commit action ${actionName} must contain exactly one internal transfer whose source comes from the instrument instance, amount is refs.${quote.netRef}, and destination is fields.${quote.netDestinationField}`,
-        "UDL5006",
-      );
-    }
-    if (quote.chargeRetainedBy !== undefined) {
-      const partyField = instrument.parties?.[quote.chargeRetainedBy];
-      let sourceField: string | undefined;
-      if (sourceBinding?.from === "instance") {
-        if (sourceBinding.path.startsWith("fields.")) {
-          sourceField = sourceBinding.path.slice("fields.".length);
-        } else if (sourceBinding.path.startsWith("party.")) {
-          const role = sourceBinding.path.slice("party.".length);
-          sourceField = instrument.parties?.[role];
-        }
-      }
-      if (
-        sourceBinding?.from !== "instance" ||
-        !sourceField ||
-        sourceField !== partyField
-      ) {
-        add(
-          [
-            ...base,
-            "actions",
-            actionName,
-            "moves",
-            0,
-            "bind",
-            "sourceAccountId",
-          ],
-          `commit action ${actionName} refund source must come from charge-retaining party field ${partyField ?? quote.chargeRetainedBy}`,
-          "UDL5006",
-        );
-      }
-    }
-  }
-}
-
-function validateAggregates(
-  instrument: UdlInstrument,
-  base: readonly PropertyKey[],
-  instruments: ReadonlyMap<string, UdlInstrument>,
-  references: ReferenceShapeBudget,
-  add: AddIssue,
-): void {
-  const aggregates = instrument.aggregateInvariants;
-  if (!aggregates) return;
-  addDuplicateIssues(
-    aggregates.map(
-      (aggregate) =>
-        `${aggregate.childInstrumentId}:${aggregate.childRefField}:${aggregateMeasureKey(aggregate)}:${aggregate.parentField}`,
-    ),
-    [...base, "aggregateInvariants"],
-    "aggregate invariant",
-    add,
-  );
-  aggregates.forEach((aggregate, aggregateIndex) => {
-    const aggregateBase = [
-      ...base,
-      "aggregateInvariants",
-      aggregateIndex,
-    ] as const;
-    const sum = "childField" in aggregate ? aggregate : undefined;
-    const parentField = instrument.fields[aggregate.parentField];
-    const child = instruments.get(aggregate.childInstrumentId);
-    const childField = sum && child ? child.fields[sum.childField] : undefined;
-    const isIntegerSum =
-      sum !== undefined &&
-      parentField?.type === "integer" &&
-      instrument.required.includes(aggregate.parentField) &&
-      childField?.type === "integer";
-    if (!parentField) {
-      add(
-        [...aggregateBase, "parentField"],
-        `aggregate references unknown parent field ${aggregate.parentField}`,
-        "UDL5004",
-      );
-    } else if (sum && !isMoneySchema(parentField) && !isIntegerSum) {
-      add(
-        [...aggregateBase, "parentField"],
-        `${instrument.id}.${aggregate.parentField} must be a money field`,
-        "UDL5004",
-      );
-    } else if (
-      !sum &&
-      (parentField.type !== "integer" ||
-        !instrument.required.includes(aggregate.parentField))
-    ) {
-      add(
-        [...aggregateBase, "parentField"],
-        `${instrument.id}.${aggregate.parentField} must be a required integer field to cap a count`,
-        "UDL5004",
-      );
-    } else if (instrument.update?.fields.includes(aggregate.parentField)) {
-      add(
-        [...aggregateBase, "parentField"],
-        `${instrument.id}.${aggregate.parentField} cannot be updateable while it caps an aggregate`,
-        "UDL5004",
-      );
-    }
-    if (!child) {
-      add(
-        [...aggregateBase, "childInstrumentId"],
-        `aggregate references unknown child instrument ${aggregate.childInstrumentId}`,
-        "UDL5004",
-      );
-      return;
-    }
-    if (sum) {
-      if (!childField) {
-        add(
-          [...aggregateBase, "childField"],
-          `aggregate references unknown child field ${sum.childField}`,
-          "UDL5004",
-        );
-      } else if (!isMoneySchema(childField) && !isIntegerSum) {
-        add(
-          [...aggregateBase, "childField"],
-          `${child.id}.${sum.childField} must be a money field`,
-          "UDL5004",
-        );
-      } else if (child.update?.fields.includes(sum.childField)) {
-        add(
-          [...aggregateBase, "childField"],
-          `${child.id}.${sum.childField} cannot be updateable while it contributes to an aggregate`,
-          "UDL5004",
-        );
-      }
-    }
-    const window = "count" in aggregate ? aggregate.window : undefined;
-    if (window) {
-      const windowField = child.fields[window.field];
-      if (!windowField) {
-        add(
-          [...aggregateBase, "window", "field"],
-          `aggregate window references unknown child field ${window.field}`,
-          "UDL5004",
-        );
-      } else if (
-        !isDateTimeFormat(windowField.format) ||
-        !child.required.includes(window.field)
-      ) {
-        add(
-          [...aggregateBase, "window", "field"],
-          `${child.id}.${window.field} must be a required date-time field to window a count`,
-          "UDL5004",
-        );
-      } else if (child.update?.fields.includes(window.field)) {
-        add(
-          [...aggregateBase, "window", "field"],
-          `${child.id}.${window.field} cannot be updateable while it windows an aggregate`,
-          "UDL5004",
-        );
-      }
-    }
-    const refField = child.fields[aggregate.childRefField];
-    if (!refField) {
-      add(
-        [...aggregateBase, "childRefField"],
-        `aggregate references unknown child ref field ${aggregate.childRefField}`,
-        "UDL5004",
-      );
-    } else if (!references.accepts(refField, instrument.idPrefix)) {
-      add(
-        [...aggregateBase, "childRefField"],
-        `${child.id}.${aggregate.childRefField} must reference ${instrument.id}`,
-        "UDL5004",
-      );
-    } else if (child.update?.fields.includes(aggregate.childRefField)) {
-      add(
-        [...aggregateBase, "childRefField"],
-        `${child.id}.${aggregate.childRefField} cannot be updateable while it links an aggregate`,
-        "UDL5004",
-      );
-    }
-    addDuplicateIssues(
-      aggregate.childStatuses,
-      [...aggregateBase, "childStatuses"],
-      "child status",
-      add,
-    );
-    aggregate.childStatuses.forEach((status, statusIndex) => {
-      if (!child.lifecycle.states.includes(status)) {
-        add(
-          [...aggregateBase, "childStatuses", statusIndex],
-          `aggregate consumes unknown ${child.id} status ${status}`,
-          "UDL5004",
-        );
-      }
-    });
-  });
-}
-
-function exampleInputSchema(
-  instrument: UdlInstrument,
-  action: string,
-  definition: UdlAction,
-): Schema {
-  if (action !== "create") {
-    return (definition.input ?? {
-      additionalProperties: false,
-      properties: {},
-      type: "object",
-    }) as Schema;
-  }
-  // Derived and machine-computed fields leave the authorable create surface:
-  // the runtime writes them from referenced instances or lifecycle events.
-  const boundKeys = new Set([
-    ...(definition.requiresRefs ?? []).flatMap((gate) =>
-      Object.keys(gate.bind ?? {}),
-    ),
-    ...Object.values(instrument.actions).flatMap((candidate) =>
-      candidate.setsAt ? [candidate.setsAt.field] : [],
-    ),
-    ...(instrument.derivedAmounts ?? []).map((amount) => amount.field),
-    ...(instrument.feeRules ?? []).flatMap((fee) =>
-      fee.rule.kind === "exact" ? [] : [fee.amountField],
-    ),
-  ]);
-  const properties: Record<string, unknown> = Object.fromEntries(
-    Object.entries(instrument.fields).filter(([key]) => !boundKeys.has(key)),
-  );
-  const required = instrument.required.filter((key) => !boundKeys.has(key));
-  if (instrument.subject) {
-    properties.subject = { minLength: 1, type: "string" };
-    required.push("subject");
-  }
-  return {
-    additionalProperties: false,
-    properties,
-    required,
-    type: "object",
-  } as Schema;
-}
-
-function exampleInputForUdlValidation(
-  instrument: UdlInstrument,
-  input: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  const camelId = instrument.id.replaceAll(/_([a-z])/g, (_, letter: string) =>
-    letter.toUpperCase(),
-  );
-  const envelopeKeys = new Set([
-    "actorAccountId",
-    "tenantId",
-    "productId",
-    `${camelId}Id`,
-  ]);
-  return Object.fromEntries(
-    Object.entries(input).filter(([key]) => !envelopeKeys.has(key)),
-  );
-}
-
-/** The measure half of an aggregate's identity: summed field, or count(+window). */
-function aggregateMeasureKey(aggregate: UdlAggregate): string {
-  return "childField" in aggregate
-    ? aggregate.childField
-    : `count${aggregate.window ? `[${aggregate.window.field} per ${aggregate.window.days}d]` : ""}`;
-}
-
-function isMoneySchema(schema: Readonly<Record<string, unknown>>): boolean {
-  return (
-    schema.pattern === positiveMoneyPattern ||
-    schema.pattern === nonNegativeMoneyPattern
-  );
-}
-
-function isCurrencySchema(schema: Readonly<Record<string, unknown>>): boolean {
-  return schema.pattern === currencyPattern;
-}
-
-/**
- * One budget's worth of reference-shape classification: the memo of the answers
- * already bought and what is left of the probe budget. What is guaranteed is
- * that separate opens are independent — each {@link openReferenceShapeBudget}
- * call returns its own memo and its own counter, and nothing resets either
- * afterwards. Sharing is the caller's call, and both choices are made today:
- * `validateUdl` opens one budget for its semantic pass, while the engine's
- * `checkComposerDocument` deliberately runs its instrument-composition and
- * gate-deadlock passes on a single shared budget.
- */
-export interface ReferenceShapeBudget {
-  /**
-   * Does this field schema identify exactly one instrument family, by accepting that
-   * family's scoped id and refusing a foreign one? Answering compiles two JSON
-   * Schema validators, and the question is asked once per declared instrument per
-   * reference gate — a product a document controls both factors of. The answer
-   * is pure in (schema, prefix), so each pair is paid for once per budget.
-   *
-   * Once {@link UDL_LIMITS.maxSchemaProbes} answers have been bought this
-   * budget stops buying: {@link exhausted} is true from that moment on, and a
-   * pair not already in the memo answers "no" without being asked (memoized
-   * pairs go on answering truthfully). Nothing in this type forces
-   * a caller to notice that: reading {@link exhausted} and refusing instead of
-   * trusting a dropped "no" is a convention each consumer keeps by hand. The
-   * two that exist keep it — `validateUdl` below, and the engine's
-   * `checkComposerDocument` — and a third would have to be written to.
-   */
-  accepts(schema: Readonly<Record<string, unknown>>, prefix: string): boolean;
-  /**
-   * True once the probe budget is spent — which is the moment the last answer
-   * is bought, before any answer has been dropped. A consumer that refuses
-   * here refuses a document that fit the budget exactly.
-   */
-  readonly exhausted: boolean;
-}
-
-/** Whether a reconcile exception child owns a reference back to its parent. */
-export function reconcileExceptionChildProblems(
-  parentIdPrefix: string,
-  child: {
-    readonly fields: Readonly<
-      Record<string, Readonly<Record<string, unknown>>>
-    >;
-    readonly required: readonly string[];
-  },
-  exception: {
-    readonly amountField: string;
-    readonly reasonField: string;
-    readonly refField: string;
-  },
-  references: ReferenceShapeBudget,
-): readonly UdlIssueCode[] {
-  const problems: UdlIssueCode[] = [];
-  const refSchema = child.fields[exception.refField];
-  if (refSchema === undefined || !references.accepts(refSchema, parentIdPrefix))
-    problems.push("UDL5007");
-  const amountSchema = child.fields[exception.amountField];
-  if (
-    amountSchema === undefined ||
-    !child.required.includes(exception.amountField)
-  )
-    problems.push("UDL5009");
-  else if (!isMoneySchema(amountSchema)) problems.push("UDL5010");
-  const reasonSchema = child.fields[exception.reasonField];
-  if (
-    reasonSchema === undefined ||
-    !child.required.includes(exception.reasonField)
-  )
-    problems.push("UDL5011");
-  else if (
-    reasonSchema.type !== "string" ||
-    isMoneySchema(reasonSchema) ||
-    "pattern" in reasonSchema ||
-    "format" in reasonSchema ||
-    "enum" in reasonSchema
-  )
-    problems.push("UDL5012");
-  return problems;
-}
-
-export function isReconcileExceptionChild(
-  parentIdPrefix: string,
-  child: {
-    readonly fields: Readonly<
-      Record<string, Readonly<Record<string, unknown>>>
-    >;
-    readonly required: readonly string[];
-  },
-  exception: {
-    readonly amountField: string;
-    readonly reasonField: string;
-    readonly refField: string;
-  },
-  references: ReferenceShapeBudget,
-): boolean {
-  return (
-    reconcileExceptionChildProblems(
-      parentIdPrefix,
-      child,
-      exception,
-      references,
-    ).length === 0
-  );
-}
-
-function reconcileExceptionProblemMessage(
-  code: UdlIssueCode,
-  parent: UdlInstrument,
-  child: UdlInstrument,
-  exception: {
-    readonly amountField: string;
-    readonly reasonField: string;
-    readonly refField: string;
-  },
-): string {
-  switch (code) {
-    case "UDL5007":
-      return `${child.id}.${exception.refField} must reference ${parent.id} to carry its breaks`;
-    case "UDL5009":
-      return `${child.id}.${exception.amountField} must be a required child money field`;
-    case "UDL5010":
-      return `${child.id}.${exception.amountField} must be a money field`;
-    case "UDL5011":
-      return `${child.id}.${exception.reasonField} must be a required child text field`;
-    case "UDL5012":
-      return `${child.id}.${exception.reasonField} must be a text field`;
-    default:
-      return "reconcile exception child is invalid";
-  }
-}
-
-/**
- * One sample id per prefix, built here and nowhere else. The probe below asks
- * a schema two questions and the answers are only comparable while both
- * samples differ in the prefix alone, so the environment segment and the body
- * are written once. The value is disposable: no document ever carries it, and
- * a host's real id grammar stays the host's business.
- */
-/** Classify the sealed ID pattern without compiling document-authored regexes. */
-export function openReferenceShapeBudget(): ReferenceShapeBudget {
-  const answers = new WeakMap<object, Map<string, boolean>>();
-  let probes = 0;
-  let exhausted = false;
-  return {
-    accepts(schema, prefix) {
-      const seen = answers.get(schema);
-      const cached = seen?.get(prefix);
-      if (cached !== undefined) return cached;
-      if (probes >= UDL_LIMITS.maxSchemaProbes) {
-        exhausted = true;
-        return false;
-      }
-      probes += 1;
-      const answer = referencePatternPrefix(schema) === prefix;
-      if (seen) seen.set(prefix, answer);
-      else answers.set(schema, new Map([[prefix, answer]]));
-      return answer;
-    },
-    get exhausted() {
-      return exhausted;
-    },
-  };
-}
-
-const sealedFormatValidators: Readonly<
-  Record<string, (value: string) => boolean>
-> = {
-  "hyperscale-date": (value) => z.iso.date().safeParse(value).success,
-  "hyperscale-date-time": (value) =>
-    z.iso.datetime({ offset: true }).safeParse(value).success,
-  "hyperscale-email": (value) => z.email().safeParse(value).success,
-  "hyperscale-uri": (value) => z.url().safeParse(value).success,
-};
-
-function sealedFormatErrors(
-  instance: unknown,
-  schema: Schema,
-  instanceLocation = "",
-  schemaLocation = "",
-): readonly OutputUnit[] {
-  const errors: OutputUnit[] = [];
-  const format =
-    typeof schema.format === "string"
-      ? sealedFormatValidators[schema.format]
-      : undefined;
-  if (format && typeof instance === "string" && !format(instance)) {
-    errors.push({
-      error: `String does not match format "${schema.format}".`,
-      instanceLocation,
-      keyword: "format",
-      keywordLocation: `${schemaLocation}/format`,
-    });
-  }
-  if (
-    schema.properties &&
-    instance !== null &&
-    typeof instance === "object" &&
-    !Array.isArray(instance)
-  ) {
-    for (const [key, childSchema] of Object.entries(schema.properties)) {
-      if (
-        childSchema === false ||
-        childSchema === true ||
-        !Object.hasOwn(instance, key)
-      ) {
-        continue;
-      }
-      errors.push(
-        ...sealedFormatErrors(
-          (instance as Readonly<Record<string, unknown>>)[key],
-          childSchema,
-          `${instanceLocation}/${jsonPointerSegment(key)}`,
-          `${schemaLocation}/properties/${jsonPointerSegment(key)}`,
-        ),
-      );
-    }
-  }
-  if (
-    schema.additionalProperties &&
-    typeof schema.additionalProperties === "object" &&
-    !Array.isArray(schema.additionalProperties) &&
-    instance !== null &&
-    typeof instance === "object" &&
-    !Array.isArray(instance)
-  ) {
-    const declared = new Set(Object.keys(schema.properties ?? {}));
-    for (const [key, value] of Object.entries(instance)) {
-      if (declared.has(key)) continue;
-      errors.push(
-        ...sealedFormatErrors(
-          value,
-          schema.additionalProperties,
-          `${instanceLocation}/${jsonPointerSegment(key)}`,
-          `${schemaLocation}/additionalProperties`,
-        ),
-      );
-    }
-  }
-  const itemSchema = schema.items;
-  if (
-    itemSchema !== undefined &&
-    typeof itemSchema === "object" &&
-    !Array.isArray(itemSchema) &&
-    Array.isArray(instance)
-  ) {
-    instance.forEach((value, index) => {
-      errors.push(
-        ...sealedFormatErrors(
-          value,
-          itemSchema,
-          `${instanceLocation}/${index}`,
-          `${schemaLocation}/items`,
-        ),
-      );
-    });
-  }
-  return errors;
-}
-
-function isDateTimeFormat(format: unknown): boolean {
-  return format === sealedDateTimeFormat;
-}
-
-function jsonPointerSegment(value: string): string {
-  return value.replaceAll("~", "~0").replaceAll("/", "~1");
-}
-
-function recordValue(value: unknown): Readonly<Record<string, unknown>> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : {};
-}
-
-function addDuplicateIssues(
-  values: readonly string[],
-  path: readonly PropertyKey[],
-  label: string,
-  add: AddIssue,
-): void {
-  const firstIndex = new Map<string, number>();
-  values.forEach((value, index) => {
-    const previous = firstIndex.get(value);
-    if (previous === undefined) firstIndex.set(value, index);
-    else
-      add(
-        [...path, index],
-        `duplicate ${label} ${value}; first declared at index ${previous}`,
-        "UDL2001",
-      );
-  });
-}
-
-function jsonPath(path: readonly PropertyKey[]): string {
-  let result = "$";
-  for (const segment of path) {
-    if (typeof segment === "number") result += `[${segment}]`;
-    else if (
-      typeof segment === "string" &&
-      /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)
-    ) {
-      result += `.${segment}`;
-    } else result += `[${JSON.stringify(String(segment))}]`;
-  }
-  return result;
-}
-
-function sortObject(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortObject);
-  if (value !== null && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, sortObject(item)]),
-    );
-  return value;
 }

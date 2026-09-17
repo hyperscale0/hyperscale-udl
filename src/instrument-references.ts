@@ -81,11 +81,12 @@ export function referencedUdlInstrumentIds(
   const found = new Set<string>();
   mapUdlInstrumentReferences(
     {
-      udl: 1,
+      udl: 3,
       version: 1,
       product: "references",
       title: "References",
-      subjects: [],
+      currency: "SAR",
+      parties: {},
       instruments: [instrument],
     },
     (id) => {

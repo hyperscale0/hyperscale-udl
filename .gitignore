@@ -1,6 +1,2 @@
-/docs/reference/clauses.md
-/docs/reference/diagnostics.md
-/docs/reference/cli.md
-/docs/llms*.txt
 node_modules/
 dist/

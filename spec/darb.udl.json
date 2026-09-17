@@ -1,0 +1,249 @@
+{
+  "udl": 3,
+  "version": 1,
+  "product": "darb_cars",
+  "title": "Darb Cars",
+  "currency": "SAR",
+  "parties": {
+    "buyer": {
+      "kind": "person"
+    },
+    "seller": {
+      "kind": "business"
+    },
+    "operator": {
+      "kind": "business"
+    },
+    "tax": {
+      "kind": "business"
+    }
+  },
+  "instruments": [
+    {
+      "id": "sale",
+      "title": "Sale",
+      "summary": "Capped seller fee and VAT on held purchase money",
+      "fields": [
+        {
+          "name": "price",
+          "type": "money",
+          "minimum": "1"
+        },
+        {
+          "name": "held",
+          "type": "account",
+          "owner": "self",
+          "book": "cash"
+        },
+        {
+          "name": "deliveredAt",
+          "type": "date"
+        },
+        {
+          "name": "returnVerified",
+          "type": "boolean"
+        },
+        {
+          "name": "uncappedFee",
+          "type": "money"
+        },
+        {
+          "name": "sellerFee",
+          "type": "money"
+        },
+        {
+          "name": "serviceTax",
+          "type": "money"
+        },
+        {
+          "name": "sellerNet",
+          "type": "money"
+        }
+      ],
+      "calculate": [
+        {
+          "target": "uncappedFee",
+          "op": "rate",
+          "base": {
+            "field": "self.price"
+          },
+          "bps": {
+            "literal": 100
+          },
+          "rounding": "floor"
+        },
+        {
+          "target": "sellerFee",
+          "op": "minimum",
+          "values": [
+            {
+              "field": "self.uncappedFee"
+            },
+            {
+              "literal": "75000"
+            }
+          ]
+        },
+        {
+          "target": "serviceTax",
+          "op": "rate",
+          "base": {
+            "field": "self.sellerFee"
+          },
+          "bps": {
+            "literal": 1500
+          },
+          "rounding": "floor"
+        },
+        {
+          "target": "sellerNet",
+          "op": "subtract",
+          "base": {
+            "field": "self.price"
+          },
+          "subtract": [
+            {
+              "field": "self.sellerFee"
+            },
+            {
+              "field": "self.serviceTax"
+            }
+          ]
+        }
+      ],
+      "lifecycle": {
+        "states": ["created", "funded", "accepted", "released", "refunded"],
+        "initial": "created",
+        "transitions": {
+          "fund": {
+            "from": ["created"],
+            "to": "funded"
+          },
+          "accept": {
+            "from": ["funded"],
+            "to": "accepted"
+          },
+          "release": {
+            "from": ["accepted"],
+            "to": "released"
+          },
+          "refund": {
+            "from": ["funded", "accepted"],
+            "to": "refunded"
+          }
+        }
+      },
+      "actions": {
+        "create": {
+          "summary": "Open a sale hold",
+          "event": "sale.create",
+          "actor": "caller",
+          "input": [],
+          "requires": [],
+          "moves": [],
+          "publicAction": "createSale"
+        },
+        "fund": {
+          "summary": "Fund the purchase",
+          "event": "sale.fund",
+          "actor": "caller",
+          "input": [],
+          "requires": [],
+          "moves": [
+            {
+              "key": "fund",
+              "operation": "internal_transfer.create",
+              "amount": {
+                "field": "self.price"
+              },
+              "from": "party.buyer",
+              "to": "self.held"
+            }
+          ],
+          "publicAction": "fundSale"
+        },
+        "accept": {
+          "summary": "Accept delivery",
+          "event": "sale.accept",
+          "actor": "caller",
+          "input": [],
+          "requires": [],
+          "moves": [],
+          "deadline": {
+            "at": "self.deliveredAt",
+            "offset": 172800000
+          },
+          "publicAction": "acceptSale"
+        },
+        "release": {
+          "summary": "Pay seller net, fee and VAT",
+          "event": "sale.release",
+          "actor": "caller",
+          "input": [],
+          "requires": [],
+          "moves": [
+            {
+              "key": "seller",
+              "operation": "internal_transfer.create",
+              "amount": {
+                "field": "self.sellerNet"
+              },
+              "from": "self.held",
+              "to": "party.seller"
+            },
+            {
+              "key": "fee",
+              "operation": "internal_transfer.create",
+              "amount": {
+                "field": "self.sellerFee"
+              },
+              "from": "self.held",
+              "to": "party.operator"
+            },
+            {
+              "key": "tax",
+              "operation": "internal_transfer.create",
+              "amount": {
+                "field": "self.serviceTax"
+              },
+              "from": "self.held",
+              "to": "party.tax"
+            }
+          ],
+          "publicAction": "releaseSale"
+        },
+        "refund": {
+          "summary": "Refund after verified return",
+          "event": "sale.refund",
+          "actor": "caller",
+          "input": [],
+          "requires": [
+            {
+              "kind": "compare",
+              "left": {
+                "field": "self.returnVerified"
+              },
+              "operator": "==",
+              "right": {
+                "literal": true
+              }
+            }
+          ],
+          "moves": [
+            {
+              "key": "refund",
+              "operation": "internal_transfer.create",
+              "amount": {
+                "field": "self.price"
+              },
+              "from": "self.held",
+              "to": "party.buyer"
+            }
+          ],
+          "publicAction": "refundSale"
+        }
+      },
+      "actionOrder": ["create", "fund", "accept", "release", "refund"]
+    }
+  ]
+}

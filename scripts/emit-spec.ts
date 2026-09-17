@@ -43,7 +43,7 @@ function emitSpec(): string {
     description:
       "Generated from the Zod grammar in src/schema.ts by scripts/emit-spec.ts. " +
       "Edits belong in the grammar. This schema pins document shape only; the " +
-      "semantic laws it cannot express are pinned by conformance/.",
+      "semantic laws it cannot express are checked by src/validation.ts and test/.",
     ...body,
   };
   return `${JSON.stringify(spec, null, 2)}\n`;

@@ -1,164 +1,151 @@
-# The UDL specification
+# UDL 3
 
-A UDL document describes one product in business terms: its subjects, its
-instruments, each instrument's lifecycle, the actions that move instances through it, and how
-money moves while they do. Everything generated from a document (SDKs, docs,
-tool surfaces, the running engine) is downstream of what is written here.
+UDL is the typed contract between an HSX program and its executor. The grammar
+lives in `src/schema.ts`. Generate `udl.schema.json` with
+`bun scripts/emit-spec.ts --write`. There is no migration reader for earlier UDL.
 
-UDL is the platform's header files and driver framework. Its grammar is the
-complete instrument vocabulary and the ABI between authored programs and the
-engine. An instrument definition can round-trip through UDL without dropping a
-clause.
+## Accounts and money
 
-## The schema is the authority
+A document declares SAR once. Money is a nonnegative minor-unit decimal string
+of at most 18 digits. Percentages are basis points, durations are positive integer
+milliseconds, and dates are timestamps with explicit offsets.
 
-`udl.schema.json` in this directory is JSON Schema 2020-12, generated from the
-Zod grammar in `src/schema.ts` by `scripts/emit-spec.ts`. It is checked in so
-that an implementation in any language can read it, and `bun run spec:check`
-fails the build when the committed bytes stop matching the generator.
+An account field either binds a party or declares an account owned by the
+instrument. `owner: "self"` replaces the separate custody concept. Wallet, pool,
+receivable and entitlement are uses of accounts, not different field types.
+An external account is marked `external: true`. Its bank binding belongs to the
+executor; programs and callers never supply bank beneficiary ids. Account
+creation and binding are executor work, not caller-controlled instructions.
+Accounts declare `book: "cash" | "claim"`, defaulting to cash. Moves never cross books.
+Only claim accounts may declare `contra: true` and permit a negative balance.
+An external account must bind a party and use the cash book. A party-bound field
+is keyed by owner, book and key across the product. Its optional key defaults
+to `balance`, so payer and borrower can alias the same party account. An account
+owned by self defaults its key to the field name and is provisioned per instance.
+Named capital, profit income, debt and loss accounts declare explicit keys. `party.buyer` is the buyer's default cash account.
 
-Prose copies of a machine-checked format drift. This document therefore carries
-no grammar tables and no field lists. Where anything below disagrees with
-`udl.schema.json`, the schema wins.
+Disbursement moves cash from lender to borrower and claims from borrower debt to
+principal and profit receivables. Repayment moves borrower cash to lender cash and
+the same claim amounts from receivables back to borrower debt. Unearned profit is
+cancelled by the claim move alone. Write-off moves the principal claim to the
+lender's loss account, with no cash movement. Profit is earned when a piece is paid.
+These are ordinary paired moves in HSX, not executor loan rules.
 
-The schema is generated from the _input_ view of the grammar, so it describes a
-document as an author writes it, before any default is filled in. A action may
-omit `moves`; a parser hands it back as `[]`.
+A value is `{literal: value}` or `{field: path}`. Paths start with `self`, `input`
+or `party`. Reference fields allow typed traversal. Account paths expose locked,
+read-only `.balance` and `.reserved` money values. `self.id`, `self.status`,
+`self.createdAt` and `self.now` are sealed executor values. Callers cannot set
+constants, calculated fields, account bindings or capture fields. Create supplies
+declared typed references; later actions cannot replace them. A ref target is one
+instrument id or a list of 1 to 16 distinct instrument ids. The stored value is
+one instance id from any listed instrument. Path traversal exposes only fields
+with compatible types on every target. Nested refs combine their target sets;
+accounts must agree on owner, key, book, contra and external flags, and enums must
+have the same values. A comparison or selection anchor must share a possible
+reference target. An invoked input must accept every possible supplied target.
+The executor checks the actual instance type at admission.
 
-## The ten laws
+## Calculation and movement
 
-These are judgment, not shape. They explain why the schema refuses what it
-refuses.
+Calculations form a finite dependency graph. `sum`, `subtract` and `minimum`
+operate on money or integer fields, with operands of the same type as the target.
+`rate`, `multiply`, `divide` and `shift` retain their typed operands. Rate and
+division round down. Weighted shares also round down; residual minor units go
+to the declared residual account. Cash and loss use this one rounding rule.
+There is no largest-remainder allocation. Subtraction refuses a negative result. Integer results must
+be safe integers. No calculation evaluates source text.
 
-1. **One-sentence law.** Every concept in UDL is explainable in one sentence to
-   someone who has never seen it. A concept that needs a paragraph is
-   machinery, and machinery does not belong in the language.
-2. **Purity law.** No bank or provider legacy enters UDL: no provider statement
-   schemas, file drops, polling, batch windows, cutoff times, scheme names,
-   currency reconciliation rules, or ISO or SWIFT message types. A `reconcile`
-   clause names settlement evidence against a declared provider-side row. It
-   does not model the provider file, transport, or matching machinery.
-3. **Event law.** Every state change emits an event. Names derive from the instrument
-   and the action's past tense (`escrow_order.released`); the optional
-   `eventName` overrides only where the honest past tense is irregular.
-4. **One-spine law.** Internal ledger money moves through four instructions and no others:
-   `internal_transfer.create`, `.reserve`, `.post`, `.void`. Three account
-   instructions (`account.escrow.provision`, `account.freeze`,
-   `account.unfreeze`) complete the sealed kernel set. A `payout` intent hands
-   a stored amount and beneficiary reference to the execution core. It is not
-   a kernel instruction and cannot disguise an internal ledger move.
-5. **Uniform object law.** Every instance carries an opaque prefixed id (from
-   the instrument's `idPrefix`), a `status` drawn from its declared lifecycle, a
-   creation timestamp, and a caller-owned metadata bag. Amounts are
-   string-encoded integer minor units paired with a currency code, never JSON
-   numbers.
-6. **Requirements-as-data law.** Anything a caller must satisfy before a action
-   unlocks is declared data: `due`, `deadline`, `requiresRefs`,
-   `requiresChecks`, `requiresExposure`, `requiresAggregate`, `remainder`,
-   `requiresDrainedAccount`, `commit`, `reconcile`. A reconcile declares one
-   expectation: the amount, the currency, `credit` or `debit`, the ref naming
-   the provider-side row, exactly one evidence source, a match law of `exact`,
-   `tolerance` bounded by a named dial, or `window`, and a window given as a
-   fixed duration or a stored deadline field. It ends matched or as a capped
-   exception child, never as a silent wait; the child is declared and validated
-   at admission rather than materialized, so past the window the transition
-   refuses naming it. Settlement evidence for a payout is one reconcile against
-   a debit statement line under any match law, reading the reference an earlier
-   payout intent captured. No caller may assert that match. An action that carries `quote` prices a base into a charge
-   and a net, names the fields the price depends on, and declares when the offer
-   dies, as a fixed duration or a stored deadline field. Exactly one other
-   action names it back through `commit`, and that action is the only one that
-   may move the net. A `commit` gate reads the offer the quoting action priced
-   and refuses once its deadline has passed or any frozen field has changed. It
-   spends what the quote wrote instead of pricing again, so the number a caller
-   is shown is the number they pay.
-7. **Append-only evolution law.** Once a definition has live instances, adding
-   states, transitions, optional fields, and actions is legal; removing,
-   renaming, tightening, or changing a money step is not.
-   `diffValidatedUdlEvolution` decides, on two documents the validator has
-   already admitted; `udl diff` parses both files and then calls it. Evolution
-   snapshots retain navigation, update examples, and parked-state reasons for
-   complete inspection. The diff treats their prose as editable presentation
-   and protects the parked state keys that carry lifecycle meaning.
-8. **Naming law.** Instruments are `snake_case`, singular, plain business English.
-   Actions are single words in imperative present. Operations are `instrument.action`.
-   Fields are `camelCase`. The patterns live in the schema.
-9. **Time law.** Delays the world imposes (settlement windows, activation
-   periods, renewal cycles, retries) surface as honest statuses and timestamps
-   on objects, never as processes the caller has to operate.
-10. **Closure law.** A document is self-contained. Every lifecycle state is
-    reachable from `create`, every reference resolves inside the document,
-    every gate names a state that exists, and every funded balance is drained
-    on every terminal path.
+The only move instructions are `internal_transfer.create`,
+`internal_transfer.reserve`, `internal_transfer.post` and `internal_transfer.void`.
+Create and reserve declare an amount, from account and to account. Reserve captures
+its executor-produced transfer identity into a declared self text field. Post and
+void consume that identity. Callers cannot create or replace captured identities.
+An external destination uses the same move vocabulary.
 
-## Admission budgets and derived effects
+A loan, refund, payoff, write-off or distribution is library behavior built from
+accounts, calculations and ordered moves. None has a privileged executor clause.
+Outstanding principal is an account balance. A schedule consists of explicit
+dated child records, with positions 1 through n in declaration order. The library
+uses ordinary comparisons and aggregates to constrain those records. There is no
+recurrence process, allocation bucket, partition expander or schedule requirement
+in the UDL kernel.
 
-The 10,000-node limit bounds authored program complexity. The compiler derives
-`effects` rows from action clauses, so the node counter excludes every action
-`effects` subtree. Admission still checks those subtrees for shape, exact
-agreement with the clauses including row order, nesting depth, string limits,
-JSON-only values, and cycles.
+## Admission and lifecycle
 
-The canonical 33-instrument catalog measured 10,270 nodes with derived effects
-and 9,321 authored nodes without the effect subtrees on 2026-09-02. The fixed
-10,000-node limit therefore leaves 679 authored nodes of headroom. The full
-effectful document validates as one document.
+Actions declare typed input lists, requirements, an actor and an event. Lifecycle
+edges name their source and destination states. Requirements and effects execute
+atomically under the same account and reference locks. `set` copies typed values
+to mutable fields. Action calculations read the locked snapshot and populate the
+action draft before requirements. Ordered moves and invocations follow admission;
+invariants check the completed transaction. A due instant
+is inclusive; a deadline is exclusive. Clock delays never extend deadlines.
 
-## What the schema cannot say
+Requirements are compare, state, unique, aggregate, approval, evidence and hours.
+A typed selection names one instrument or a bounded union, a reference field,
+anchor, accepted states and row limit. Exceeding the limit refuses rather than
+truncates. Optional equality filters apply to every selected type. An optional
+window selects date values between `self.now - milliseconds` and `self.now`.
+Aggregate sums use typed paths on the selected records, including account
+balances. An invariant holds before and after every affected transaction.
 
-JSON Schema pins shape. It does not pin meaning, and four classes of law live
-outside it:
+`hours` converts a date path to its literal IANA timezone and accepts `[start,end)`.
+A start greater than end wraps midnight; equal endpoints admit no time.
+`evidence` declares subject, family, check, result and maxAge. The subject is an
+account or text id. The executor selects the newest completed check for that
+subject, family and kind, refuses stale evidence and requires the declared result.
 
-- **Blankness.** The schema says `"type": "string"` where the grammar says a
-  string whose trimmed length is non-zero. A title of `"   "` passes the schema
-  and is refused by the parser.
-- **Closure and reference resolution.** Reachability, gate targets, party
-  bindings, aggregate links, and authored-example validation are whole-document
-  properties.
-- **Money-graph admission.** Whether a debit can be reached before its funding,
-  and whether any terminal path strands value, is decided by walking the
-  lifecycle.
-- **Evolution.** The legality of a change is a property of two documents, not
-  one.
+An approval freezes target, action, material input, authenticated party, expiry
+and Build identity. The executor produces the digest. A requirement consumes the
+matching approved or declined decision once in the same transaction. `target`
+defaults to self and `action` to the current action. `invoke` supplies typed inputs
+to a linked action or bounded selection. Its graph is acyclic and bounded.
+Public names grant no authority; clock and parent actors remain executor-owned.
 
-All four are pinned as data in `../conformance/`. An implementation that reads
-only `udl.schema.json` will admit documents this one refuses; the conformance
-suite is what makes two implementations agree.
+A captured move exposes a sealed `.status` path with reserved, posted, settled,
+reversed or voided. Voided means a reservation was released. Settled means the outbox received provider confirmation. Reversed
+means provider failure produced a reversal move. A library payout reconciliation
+compares that status with settled at its deadline. Account balances reflect the
+immediate internal ledger and cannot prove an individual bank completion.
+Aggregate bank reconciliation is an operations concern outside the contract.
+There is no special reconciliation or exception-creation clause.
 
-## Issue codes
+## Ten laws
 
-A refusal reports one or more issues, each with a stable `UDL####` code, a
-category, a fix, and a JSON path. Codes and paths form the conformance
-contract. Messages may become clearer. The generated
-[diagnostic reference](../docs/reference/diagnostics.md) lists every code.
+1. Each concept has one concrete meaning.
+2. Provider transport and credentials stay outside the contract.
+3. Every state change emits its declared event.
+4. Four transfer instructions are the only money movement vocabulary.
+5. Instances have an opaque identity and money uses integer minor units.
+6. Typed requirements and effects execute atomically.
+7. Live additions preserve existing meaning; development estates may recreate.
+8. Business names identify instruments and their public actions.
+9. Waiting uses lifecycle states and clocks. Before admission, the executor
+   catches up actor: clock actions with due instants on the locked instance,
+   references and selected rows, in chronological order. Catch-up commits its
+   own transaction and events before the caller request is evaluated. A refused
+   caller request rolls back only its own drafts. Caller deadlines are refusal
+   boundaries; they never execute the caller action. Separate clock actions
+   carry expiry consequences. Requirements and selections observe the resulting
+   clock state.
+10. References close, states are reachable, captures are linear, and terminal
+    instances have no remaining owned-account balances or reservations.
 
-Paths are `$`-rooted with dotted keys and bracketed array indices:
-`$.instruments[0].lifecycle.states[2]`.
+## Clause inventory
 
-## Canonical form
+Document: `udl`, `version`, `product`, `title`, `currency`, `parties`, `instruments`.
+Instrument: `id`, `title`, `summary`, `fields`, `calculate`, `lifecycle`, `actions`,
+`actionOrder`, `invariants`, `examples`.
+Action: `summary`, `publicAction`, `event`, `actor`, `input`, `requires`, `due`,
+`deadline`, `set`, `calculate`, `moves`, `invoke`, `approval`.
 
-Every admitted document has one canonical byte sequence. The normative
-[canonical bytes law](../docs/reference/canonical.md) defines key and array
-order, number and string encoding, empty containers, the trailing line feed,
-and the SHA-256 digest. Serialization validates first, so an invalid document
-has no canonical form.
+The owner reduced the kernel on 17 September 2026. `allocation`, `allocate`,
+`distribute`, `payout`, `reconcile`, `partitions`, `steps`, `drained`, the allocation
+requirement and the schedule requirement were removed. They described library
+work or duplicated accounts, comparisons and moves. The earlier UDL dialect's
+JSON Schema fields, x-extensions, bind maps, pieceStage, contributionStage,
+templateBinding, piecePlan, signedSum, engineOwned and captureEngine are absent.
+Typed fields, calculations, account ownership and linear captures replace them.
 
-## Two version numbers
+`calculate.aggregate` reads a typed selection and yields its count or a money sum. `calculate.ratio` computes floor(amount * numerator / denominator) with arbitrary-precision intermediates and refuses a zero denominator. Numerator and denominator share a numeric type. Selection order is a list of typed ascending paths, followed by identity as the final tie-break. `invoke {instrument, action: "create", input}` creates a child record in the same transaction; its inputs resolve in the caller, and the ordinary create actor and requirements still apply.
 
-**Format version** is what a document declares, as the literal `"udl": 1`. A
-document that declares any other value is refused. Format 1 is the only format
-that exists.
-
-**Package version** is the semver of `@hyperscale0/udl`, declared in
-`package.json`.
-
-They move independently. In development mode, contract and schema shapes change
-without deprecation paths or frozen compatibility promises.
-
-The evolution diff API (`diffValidatedUdlEvolution` and `diffInstrumentEvolution`)
-evaluates append-only rules between two admitted documents. The evolution codes
-are explicit. `UDL7001` protects stored identities, subjects, instruments, fields,
-lifecycles, actions, money clauses, gates, and policy against removal, renaming,
-or tightening. `UDL7002` requires a version increase for a semantic change.
-Evolution comparison admits the previous document first. A stored document
-that fails admission is `invalid_previous`, not an evolution issue.
+`calculate.at` reads a typed list at a one-based position and refuses an out-of-range index. Its result has the list item type. Integer divide accepts integer operands and rounds down. Every move may capture its transfer identity into a declared self text field; reserve requires a capture. Captures and their status paths are executor-owned.

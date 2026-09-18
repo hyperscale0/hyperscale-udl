@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "description": "The Universal Domain Language: format spec, parser, validator, canonical serializer, and evolution diff.",
   "keywords": [
     "udl",
@@ -19,7 +19,7 @@
     "type": "git",
     "url": "git+https://github.com/hyperscale0/hyperscale-udl.git"
   },
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE.md",
   "author": "Hyperscale LLC",
   "type": "module",
   "sideEffects": false,
@@ -35,13 +35,12 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "LICENSE.md",
+    "NOTICE.md",
     "AUTHORS",
     "CHANGELOG.md",
-    "LICENSE",
-    "LICENSING.md",
     "README.md",
     "SECURITY.md",
-    "TRADEMARKS.md",
     "docs",
     "dist",
     "spec",

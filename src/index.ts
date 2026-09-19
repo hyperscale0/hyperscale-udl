@@ -22,3 +22,9 @@ export {
 } from "./instrument-references.js";
 export { diffValidatedUdlEvolution } from "./evolution.js";
 export { fixedIsoDurationMs } from "./duration.js";
+
+export * from "./reporting.js";
+export {
+  validateReportDefinition,
+  reportExpressionTypes,
+} from "./reporting-validation.js";

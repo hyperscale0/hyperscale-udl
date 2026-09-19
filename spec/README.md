@@ -150,3 +150,29 @@ Typed fields, calculations, account ownership and linear captures replace them.
 `calculate.aggregate` reads a typed selection and yields its count or a money sum. `calculate.ratio` computes floor(amount * numerator / denominator) with arbitrary-precision intermediates and refuses a zero denominator. Numerator and denominator share a numeric type. Selection order is a list of typed ascending paths, followed by identity as the final tie-break. `invoke {instrument, action: "create", input}` creates a child record in the same transaction; its inputs resolve in the caller, and the ordinary create actor and requirements still apply.
 
 `calculate.at` reads a typed list at a one-based position and refuses an out-of-range index. Its result has the list item type. Integer divide accepts integer operands and rounds down. Every move may capture its transfer identity into a declared self text field; reserve requires a capture. Captures and their status paths are executor-owned.
+
+## Reporting definitions
+
+An instrument may declare `reports`, a bounded array of strict ReportDefinition
+values. Each definition contains identity/version, scope, datasets, time,
+selection, calculation, validation, output and authority. The JSON schema defines
+all fields. Expressions form an ordered graph with backward references, typed
+money in integer minor units, explicit ratios and date operations. Source fields
+must exist in every bound instrument. Company instrument reports require
+cross-Build bindings and are not admitted in this version.
+
+Joins declare one-or-many cardinality, missing-record policy and aggregates;
+implicit row multiplication is forbidden. Compilation checks currencies, column
+and expression types, output columns and sort keys. Execution must check complete
+source populations, required facts, unique row and sort identities, reconciliation
+and declared limits before publishing any result. Empty-population behavior and
+unavailable facts are definition data. Request, read and release roles are
+separate. Independent activation and retained deterministic replay belong to the
+host; language acceptance alone does not authorize an artifact or external release.
+
+Reporting source selections and foreign join keys must be computable from
+PostgreSQL facts; ledger balances and ratios belong after capture. Aggregate
+names are unique across stages. `average` requires an explicit `rounding` policy
+(`floor` or `halfUp`) to retain integer and money minor-unit types. Numeric and
+min/max aggregates skip nulls, return null for all-null inputs, and emit per-row
+`_skippedNulls_<name>` counters in JSON and CSV. Required facts still refuse nulls.

@@ -1,5 +1,6 @@
 import {
   udlDocumentSchema,
+  MAX_ACTION_EXPANSION,
   type UdlDocument,
   type UdlField,
   type UdlInstrument,
@@ -8,6 +9,7 @@ import {
   type UdlSelection,
 } from "./schema.js";
 import { issue, type UdlIssue } from "./diagnostics.js";
+import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
 
 export type UdlValidationResult =
@@ -149,6 +151,7 @@ function resolvePath(
     if (key === "id") return { name: key, type: "ref", target: instrument.id };
     if (key === "now" || key === "createdAt")
       return { name: key, type: "date" };
+    if (key === "productRevision") return { name: key, type: "text" };
     if (key === "status")
       return { name: key, type: "enum", values: instrument.lifecycle.states };
   }
@@ -239,6 +242,23 @@ export function validateUdl(value: unknown): UdlValidationResult {
     document.instruments.map((i) => i.id),
     "$.instruments",
   );
+  const reportIds = new Set<string>();
+  for (const [index, instrument] of document.instruments.entries()) {
+    for (const report of instrument.reports ?? []) {
+      const path = `$.instruments[${index}].reports`;
+      if (reportIds.has(report.identity.id))
+        add(path, `duplicate report ${report.identity.id}`);
+      reportIds.add(report.identity.id);
+      try {
+        validateReportDefinition(report, document);
+      } catch (error) {
+        add(
+          path,
+          error instanceof Error ? error.message : "Invalid report definition",
+        );
+      }
+    }
+  }
   const byId = new Map(document.instruments.map((i) => [i.id, i]));
   const calls = new Map<string, { targets: string[]; count: number }[]>();
   for (const [index, inst] of document.instruments.entries()) {
@@ -294,8 +314,23 @@ export function validateUdl(value: unknown): UdlValidationResult {
             where,
             "contra accounts require the claim book; external accounts require a cash party owner",
           );
-        if (["id", "status", "createdAt", "now"].includes(f.name))
+        if (
+          ["id", "status", "createdAt", "now", "productRevision"].includes(
+            f.name,
+          )
+        )
           add(where, `${f.name} is a sealed instance field`);
+        if (f.type === "text") {
+          if ((f.minLength ?? 1) > (f.maxLength ?? 2048))
+            add(where, "text minimum exceeds maximum");
+          if (f.pattern) {
+            try {
+              new RegExp(f.pattern);
+            } catch {
+              add(where, "invalid text character class");
+            }
+          }
+        }
         if (f.type === "ref") {
           duplicate(targetIds(f.target), where);
           for (const id of targetIds(f.target))
@@ -561,6 +596,8 @@ export function validateUdl(value: unknown): UdlValidationResult {
     };
     checkCalculations(inst.calculate, `${base}.calculate`);
     const states = new Set(inst.lifecycle.states);
+    if (states.has("preserve"))
+      add(base, "preserve is a reserved transition destination", "UDL3001");
     duplicate(inst.lifecycle.states, `${base}.lifecycle.states`);
     if (!states.has(inst.lifecycle.initial) || !inst.actions.create)
       add(base, "declare create and a declared initial state", "UDL3001");
@@ -575,14 +612,15 @@ export function validateUdl(value: unknown): UdlValidationResult {
       if (
         !inst.actions[action] ||
         action === "create" ||
-        !states.has(edge.to) ||
+        (edge.to !== "preserve" && !states.has(edge.to)) ||
         edge.from.some((s) => !states.has(s))
       )
         add(base, `invalid transition ${action}`, "UDL3001");
     }
     for (let pass = 0; pass < states.size; pass++)
       for (const edge of Object.values(inst.lifecycle.transitions))
-        if (edge.from.some((s) => reachable.has(s))) reachable.add(edge.to);
+        if (edge.to !== "preserve" && edge.from.some((s) => reachable.has(s)))
+          reachable.add(edge.to);
     for (const state of states)
       if (!reachable.has(state))
         add(base, `unreachable state ${state}`, "UDL3001");
@@ -696,6 +734,18 @@ export function validateUdl(value: unknown): UdlValidationResult {
       if (actionName !== "create" && !inst.lifecycle.transitions[actionName])
         add(where, "action needs a lifecycle transition", "UDL3001");
       checkFields(action.input, `${where}.input`);
+      if (action.reminder) {
+        expect(action.reminder.installment, "ref", where, action.input);
+        expect(action.reminder.recipient, "account", where, action.input);
+        expect(action.reminder.dueAt, "date", where, action.input);
+        if (action.reminder.startHour >= action.reminder.endHour)
+          add(where, "reminder sending window is empty");
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: action.reminder.timezone });
+        } catch {
+          add(where, "reminder requires an IANA timezone");
+        }
+      }
       for (const input of action.input) {
         if (input.type === "account")
           add(where, "account bindings cannot be caller inputs");
@@ -734,13 +784,24 @@ export function validateUdl(value: unknown): UdlValidationResult {
       if (
         typeof action.actor === "object" &&
         "parent" in action.actor &&
-        !byId.has(action.actor.parent)
+        targetIds(action.actor.parent).some((id) => !byId.has(id))
       )
         add(where, "actor names an undeclared parent");
       if (action.actor === "clock" && !action.due)
         add(where, "clock action needs a due instant");
       for (const clock of [action.due, action.deadline])
-        if (clock) expect(clock.at, "date", where, action.input);
+        if (clock) {
+          expect(clock.at, "date", where, action.input);
+          if (clock.localDay) {
+            try {
+              new Intl.DateTimeFormat("en", {
+                timeZone: clock.localDay.timezone,
+              }).format(0);
+            } catch {
+              add(where, "clock timezone must be an IANA timezone");
+            }
+          }
+        }
       for (const move of action.moves) {
         if ("amount" in move) {
           checkValue(move.amount, "money", where, action.input);
@@ -790,6 +851,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
         targetId: string | undefined,
         actionName: string,
         values: Record<string, UdlValue>,
+        binding?: string,
       ) => {
         const target = targetId
           ? byId.get(targetId)?.actions[actionName]
@@ -806,6 +868,11 @@ export function validateUdl(value: unknown): UdlValidationResult {
           const declared = target.input.find((f) => f.name === name);
           if (!declared) {
             add(where, `unknown target input ${name}`);
+            continue;
+          }
+          if (binding && "field" in value && value.field === binding) {
+            if (declared.type !== "integer")
+              add(where, "range binding requires an integer target input");
             continue;
           }
           checkValue(value, declared.type, where, action.input);
@@ -844,6 +911,20 @@ export function validateUdl(value: unknown): UdlValidationResult {
       }
       const targets: { targets: string[]; count: number }[] = [];
       for (const call of action.invoke ?? []) {
+        if (call.guard) checkRequirements([call.guard], where, action.input);
+        const range = "instrument" in call ? call.range : undefined;
+        if (range) {
+          checkValue(range.count, "integer", where, action.input);
+          if (["self", "input", "party"].includes(range.bind))
+            add(where, "range binding cannot shadow a reserved scope");
+          if (
+            "literal" in range.count &&
+            (typeof range.count.literal !== "number" ||
+              range.count.literal < 1 ||
+              range.count.literal > range.maximum)
+          )
+            add(where, "range count must be between one and its maximum");
+        }
         if ("selection" in call)
           checkSelection(call.selection, where, action.input);
         const target =
@@ -863,7 +944,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             : [];
         if (!ids.length) add(where, "invocation needs a declared target");
         for (const targetId of ids) {
-          checkArguments(targetId, call.action, call.input);
+          checkArguments(targetId, call.action, call.input, range?.bind);
           if (call.action === "create" && !("instrument" in call))
             add(
               where,
@@ -874,7 +955,8 @@ export function validateUdl(value: unknown): UdlValidationResult {
         }
         targets.push({
           targets: ids.map((id) => `${id}.${call.action}`),
-          count: "selection" in call ? call.selection.limit : 1,
+          count:
+            "selection" in call ? call.selection.limit : (range?.maximum ?? 1),
         });
       }
       calls.set(`${inst.id}.${actionName}`, targets);
@@ -891,7 +973,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
   const visit = (key: string): number => {
     if (active.has(key)) {
       add("$.instruments", `invocation cycle at ${key}`, "UDL2010");
-      return 4097;
+      return MAX_ACTION_EXPANSION + 1;
     }
     const known = depths.get(key);
     if (known !== undefined) return known;
@@ -904,8 +986,16 @@ export function validateUdl(value: unknown): UdlValidationResult {
       );
     active.delete(key);
     depths.set(key, size);
-    if (size > 4096)
-      add("$.instruments", `invocation ${key} exceeds 4096 actions`, "UDL2010");
+    const [id, action] = key.split(".");
+    const limit =
+      document.instruments.find((item) => item.id === id)?.actions[action!]
+        ?.expansionLimit ?? MAX_ACTION_EXPANSION;
+    if (size > limit)
+      add(
+        "$.instruments",
+        `invocation ${key} exceeds ${limit} actions`,
+        "UDL2010",
+      );
     return size;
   };
   for (const key of calls.keys()) visit(key);

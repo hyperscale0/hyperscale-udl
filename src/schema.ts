@@ -1,6 +1,9 @@
 import * as z from "zod";
+import { reportDefinitionSchema } from "./reporting.js";
 
 export const UDL_FORMAT_VERSION = 3 as const;
+/** Counts the root and every nested invocation, including selected and ranged children. */
+export const MAX_ACTION_EXPANSION = 4096;
 const name = z
   .string()
   .regex(/^[a-z][a-zA-Z0-9_]*$/)
@@ -62,7 +65,13 @@ export const udlFieldSchema = z.discriminatedUnion("type", [
     ...fieldBase,
     type: z.literal("text"),
     value: text.optional(),
+    minLength: integer.positive().max(2048).optional(),
     maxLength: integer.positive().max(2048).optional(),
+    // One anchored ASCII character class and a fixed repetition. No executable patterns.
+    pattern: z
+      .string()
+      .regex(/^\^\[[A-Za-z0-9-]+\]\{[1-9][0-9]{0,3}\}\$$/)
+      .optional(),
   }),
   z.strictObject({
     ...fieldBase,
@@ -183,6 +192,13 @@ export const udlCalculationSchema = z.discriminatedUnion("op", [
   }),
 ]);
 
+const comparisonRequirement = z.strictObject({
+  kind: z.literal("compare"),
+  left: value,
+  operator: z.enum(["==", "!=", "<", "<=", ">", ">="]),
+  right: value,
+});
+
 export const udlRequirementSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("hours"),
@@ -191,12 +207,7 @@ export const udlRequirementSchema = z.discriminatedUnion("kind", [
     end: integer.min(0).max(23),
     timezone: text,
   }),
-  z.strictObject({
-    kind: z.literal("compare"),
-    left: value,
-    operator: z.enum(["==", "!=", "<", "<=", ">", ">="]),
-    right: value,
-  }),
+  comparisonRequirement,
   z.strictObject({
     kind: z.literal("state"),
     reference: path,
@@ -267,16 +278,46 @@ export const udlMoveSchema = z.discriminatedUnion("operation", [
     transfer: path,
   }),
 ]);
-const clock = z.strictObject({ at: path, offset: integer.optional() });
+const clock = z.strictObject({
+  at: path,
+  offset: integer.optional(),
+  localDay: z
+    .strictObject({
+      days: integer.min(0).max(366),
+      direction: z.enum(["before", "after"]),
+      hour: integer.min(0).max(23),
+      timezone: text,
+    })
+    .optional(),
+});
 export const udlActionSchema = z.strictObject({
   summary: text,
   publicAction: name.optional(),
+  expansionLimit: z.literal(8192).optional(),
+  humanApproval: z.literal("distinct_member").optional(),
+  reminder: z
+    .strictObject({
+      installment: path,
+      recipient: path,
+      dueAt: path,
+      channel: z.literal("email"),
+      template: z.literal("payment_reminder"),
+      beforeDays: integer.min(0).max(366),
+      overdueDays: integer.min(1).max(366),
+      maxPerDay: integer.min(1).max(10),
+      startHour: integer.min(0).max(23),
+      endHour: integer.min(1).max(24),
+      timezone: text,
+    })
+    .optional(),
   event: text,
   actor: z.union([
     z.literal("caller"),
     z.literal("clock"),
     z.strictObject({ party: name }),
-    z.strictObject({ parent: instrumentId }),
+    z.strictObject({
+      parent: z.union([instrumentId, z.array(instrumentId).min(1).max(16)]),
+    }),
   ]),
   input: z.array(udlFieldSchema).max(128),
   requires: z.array(udlRequirementSchema).max(128),
@@ -292,16 +333,26 @@ export const udlActionSchema = z.strictObject({
           instrument: instrumentId,
           action: z.literal("create"),
           input: z.record(name, value),
+          guard: comparisonRequirement.optional(),
+          range: z
+            .strictObject({
+              count: value,
+              maximum: integer.min(1).max(366),
+              bind: name,
+            })
+            .optional(),
         }),
         z.strictObject({
           reference: path,
           action: name,
           input: z.record(name, value),
+          guard: comparisonRequirement.optional(),
         }),
         z.strictObject({
           selection,
           action: name,
           input: z.record(name, value),
+          guard: comparisonRequirement.optional(),
         }),
       ]),
     )
@@ -327,6 +378,8 @@ export const udlLifecycleSchema = z.strictObject({
   ),
 });
 export const udlInstrumentSchema = z.strictObject({
+  reports: z.array(reportDefinitionSchema).max(16).optional(),
+  revisioned: z.literal(true).optional(),
   id: instrumentId,
   title: text,
   summary: text,

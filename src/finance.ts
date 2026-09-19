@@ -315,7 +315,7 @@ export function analyzeInstrumentFinance(
       const action = instrument.actions[name];
       if (!action) continue;
       const next = copy(state);
-      next.status = edge.to;
+      if (edge.to !== "preserve") next.status = edge.to;
       apply(next, action, name);
       pending.push(next);
     }

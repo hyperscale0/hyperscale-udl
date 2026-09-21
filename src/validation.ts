@@ -61,10 +61,6 @@ function moneyParty(
       (!instrument?.subject && document.parties[name]?.kind === "person"))
   );
 }
-function approvalParty(document: UdlDocument, name: string): boolean {
-  const party = document.parties[name];
-  return party?.kind === "staff" && !!party.role;
-}
 
 export type UdlValidationResult =
   | { ok: true; value: UdlDocument }
@@ -1039,38 +1035,6 @@ export function validateUdl(value: unknown): UdlValidationResult {
           for (const p of req.fields)
             if (!field(p, input, act))
               add(where, `unknown identity field ${p}`);
-        } else if (req.kind === "approval") {
-          const request = expect(
-            req.protectedRequest,
-            "ref",
-            where,
-            input,
-            act,
-          );
-          if (request?.type === "ref" && request.targetKind !== "instrument")
-            add(
-              where,
-              "protectedRequest must reference an instrument",
-              "UDL5001",
-            );
-          const target = expect(req.target, "ref", where, input, act);
-          if (!approvalParty(document, req.party))
-            add(
-              where,
-              `approval requires staff with a role: ${req.party}`,
-              hasParty(document, inst, req.party)
-                ? "party_kind_mismatch"
-                : "subject_party_unbound",
-            );
-          if (
-            req.action &&
-            target?.type === "ref" &&
-            target.targetKind === "instrument" &&
-            targetIds(target.target).some(
-              (id) => !byId.get(id)?.actions[req.action!],
-            )
-          )
-            add(where, `unknown approved action ${req.action}`);
         } else if (req.kind === "evidence") {
           if (req.instruction) {
             expect(req.instruction, "text", where, input, act);
@@ -1376,48 +1340,6 @@ export function validateUdl(value: unknown): UdlValidationResult {
           }
         }
       };
-      if (action.approval) {
-        const request = expect(
-          action.approval.protectedRequest,
-          "ref",
-          where,
-          action.input,
-          action,
-        );
-        if (request?.type === "ref" && request.targetKind !== "instrument")
-          add(
-            where,
-            "protectedRequest must reference an instrument",
-            "UDL5001",
-          );
-        const reference = expect(
-          action.approval.target,
-          "ref",
-          where,
-          action.input,
-          action,
-        );
-        if (
-          reference?.type === "ref" &&
-          reference.targetKind === "instrument" &&
-          targetIds(reference.target).some(
-            (id) => !byId.get(id)?.actions[action.approval!.action],
-          )
-        )
-          add(where, "approval target action does not exist");
-        if (reference?.type === "ref" && reference.targetKind === "instrument")
-          for (const id of targetIds(reference.target))
-            checkArguments(id, action.approval.action, action.approval.input);
-        expect(action.approval.expires, "date", where, action.input, action);
-        if (!approvalParty(document, action.approval.party))
-          add(
-            where,
-            "approval requires staff with a role",
-            hasParty(document, inst, action.approval.party)
-              ? "party_kind_mismatch"
-              : "subject_party_unbound",
-          );
-      }
       const targets: { targets: string[]; count: number }[] = [];
       for (const call of action.invoke ?? []) {
         if (call.guard)

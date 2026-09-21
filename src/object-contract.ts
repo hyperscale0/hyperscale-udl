@@ -2,7 +2,6 @@ import * as z from "zod";
 import {
   udlExternalIdSchema,
   udlObjectIdSchema,
-  udlPartyNameSchema,
   type UdlDocument,
   type UdlField,
   type UdlObjectField,
@@ -30,16 +29,6 @@ export const requestAttributionSchema = z.union([
 ]);
 export type RequestAttribution = z.infer<typeof requestAttributionSchema>;
 
-export const objectApprovalRequirementSchema = z.strictObject({
-  target: z.string().min(1),
-  action: udlPartyNameSchema,
-  party: udlPartyNameSchema,
-  role: udlPartyNameSchema,
-  decision: z.enum(["approved", "declined"]),
-  protectedRequest: z.string().min(1),
-  differentFromInitiator: z.boolean(),
-});
-
 export type JsonSchemaDocument = z.core.JSONSchema.BaseSchema;
 
 export interface ObjectKindDiscovery {
@@ -61,9 +50,6 @@ export interface ObjectActionContext {
   target: ObjectActionTarget;
 }
 export interface ObjectActionDiscovery extends ObjectActionContext {
-  approvalRequirements: readonly z.infer<
-    typeof objectApprovalRequirementSchema
-  >[];
   name: string;
   title: string;
   instrument: string;
@@ -340,26 +326,6 @@ export function projectObjectDiscovery(
                 title: action.summary,
                 instrument: instrument.id,
                 action: name,
-                approvalRequirements: action.requires.flatMap((rule) => {
-                  if (rule.kind !== "approval") return [];
-                  const party = document.parties[rule.party];
-                  if (party?.kind !== "staff" || !party.role)
-                    throw new Error(
-                      `Approval party ${rule.party} has no staff authority`,
-                    );
-                  return [
-                    {
-                      target: rule.target ?? "self",
-                      action: rule.action ?? name,
-                      party: rule.party,
-                      role: party.role,
-                      decision: rule.decision,
-                      protectedRequest: rule.protectedRequest ?? "self",
-                      differentFromInitiator:
-                        rule.differentFromInitiator === true,
-                    },
-                  ];
-                }),
                 requirements: mergedReqs.map(
                   (requirement) =>
                     ({

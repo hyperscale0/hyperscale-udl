@@ -132,7 +132,7 @@ a move whose amount resolves to zero records nothing.
 Invariants check the completed transaction. A due instant
 is inclusive; a deadline is exclusive. Clock delays never extend deadlines.
 
-Requirements are compare, state, unique, aggregate, approval, evidence and hours.
+Requirements are compare, state, unique, aggregate, evidence and hours.
 A typed selection names one instrument or a bounded union, a reference field,
 anchor, accepted states and row limit. Exceeding the limit refuses rather than
 truncates. Optional equality filters apply to every selected type. An optional
@@ -146,12 +146,9 @@ A start greater than end wraps midnight; equal endpoints admit no time.
 account or text id. The executor selects the newest completed check for that
 subject, family and kind, refuses stale evidence and requires the declared result.
 
-An approval freezes target, action, material input, authenticated party, expiry
-and Build identity. The executor produces the digest. A requirement consumes the
-matching approved or declined decision once in the same transaction. `target`
-defaults to self and `action` to the current action. `invoke` supplies typed inputs
-to a linked action or bounded selection. Its graph is acyclic and bounded.
-Public names grant no authority; clock and parent actors remain executor-owned.
+`invoke` supplies typed inputs to a linked action or bounded selection. Its graph
+is acyclic and bounded. Public names grant no authority; clock and parent actors
+remain executor-owned.
 
 A captured move exposes a sealed `.status` path with reserved, posted, settled,
 reversed or voided. Voided means a reservation was released. Settled means the outbox received provider confirmation. Reversed
@@ -189,7 +186,7 @@ Object: `id`, `title`, `authoredFields`, `fields`, `columns`, `attachments`.
 Instrument: `id`, `subject`, `title`, `summary`, `fields`, `calculate`, `lifecycle`, `actions`,
 `actionOrder`, `invariants`, `examples`.
 Action: `summary`, `publicAction`, `event`, `actor`, `subject`, `input`, `requires`, `due`,
-`deadline`, `set`, `calculate`, `moves`, `invoke`, `approval`.
+`deadline`, `set`, `calculate`, `moves`, `invoke`.
 
 The owner reduced the kernel on 17 September 2026. `allocation`, `allocate`,
 `distribute`, `payout`, `reconcile`, `partitions`, `steps`, `drained`, the allocation

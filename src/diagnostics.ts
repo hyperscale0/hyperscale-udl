@@ -9,8 +9,6 @@ export type UdlIssueCode =
   | "staff_role_unknown"
   | "product_party_unbound"
   | "product_party_invalid"
-  | "approval_initiator_missing"
-  | "approval_same_initiator"
   | "UDL1001"
   | "UDL1002"
   | "UDL1003"
@@ -40,16 +38,12 @@ const fixes: Record<UdlIssueCode, string> = {
     "Bind the parameter to a subject role or declared party.",
   party_name_reserved:
     "Choose a party name other than owner, actor or operator.",
-  party_kind_mismatch:
-    "Use a business or subject role for money and staff with a role for approval.",
+  party_kind_mismatch: "Use a business or subject role for money.",
   staff_role_unknown: "Use a registered staff permission role.",
   product_party_unbound:
     "Supply the consumed business in the Build party bindings.",
   product_party_invalid:
     "Bind a business participant in the same tenant and environment.",
-  approval_initiator_missing: "Provide authenticated request attribution.",
-  approval_same_initiator:
-    "Have a different human approve the protected request.",
 
   UDL1001: "Encode the source as UTF-8.",
   UDL1002: "Repair JSON syntax.",

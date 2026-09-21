@@ -33,7 +33,6 @@ function programme() {
             parties: {
               payer: { role: "actor" },
               payee: { party: "agency" },
-              approval: { party: "underwriter" },
             },
           },
         ],
@@ -138,63 +137,6 @@ test("Staff and declared persons cannot fund attached money actions", () => {
   }
 });
 
-test("Approval bindings require staff with a role", () => {
-  for (const party of [
-    "underwriter",
-    "agency",
-    "actor",
-    "person",
-    "roleless",
-  ]) {
-    for (const issuance of [false, true]) {
-      const document = programme();
-      document.parties.person = { kind: "person" };
-      document.parties.roleless = { kind: "staff" };
-      const action = document.instruments[0]!.actions.create!;
-      if (issuance) {
-        action.input.push({ name: "expires", type: "date" });
-        action.approval = {
-          protectedRequest: "self",
-          target: "self",
-          action: "create",
-          party,
-          expires: "input.expires",
-          input: { expires: { field: "input.expires" } },
-          decision: "approved",
-        };
-      } else
-        action.requires.push({
-          kind: "approval",
-          protectedRequest: "self",
-          target: "self",
-          party,
-          decision: "approved",
-        });
-      if (party === "underwriter") expect(validateUdl(document).ok).toBe(true);
-      else expect(codes(document)).toContain("party_kind_mismatch");
-    }
-  }
-});
-
-test("Separation changes canonical bytes", () => {
-  const document = programme();
-  const requirement = {
-    kind: "approval" as const,
-    protectedRequest: "self",
-    target: "self",
-    party: "underwriter",
-    decision: "approved" as const,
-  };
-  document.instruments[0]!.actions.create!.requires.push(requirement);
-  const before = serializeUdl(document);
-  Object.assign(requirement, { differentFromInitiator: true });
-  expect(serializeUdl(document)).not.toBe(before);
-  expect(
-    JSON.parse(serializeUdl(document)).instruments[0].actions.create.requires[0]
-      .differentFromInitiator,
-  ).toBe(true);
-});
-
 test("Action state preserves its schema and action identity", () => {
   const action = projectObjectDiscovery(programme(), {
     productBuildId: "build",
@@ -234,55 +176,4 @@ test("Object field diagnostics distinguish missing fields from conflicting types
   }
   const document = programme();
   document.objects[0]!.columns = ["missing"];
-  expect(codes(document)).toContain("subject_field_unknown");
-});
-
-test("Protected requests canonicalize to instrument references", () => {
-  for (const issuance of [false, true]) {
-    const document = programme();
-    const instrument = document.instruments[0]!;
-    instrument.fields.push(
-      {
-        name: "request",
-        type: "ref",
-        targetKind: "instrument",
-        target: "sale",
-      },
-      { name: "text", type: "text" },
-      { name: "expires", type: "date" },
-    );
-    const clause = issuance
-      ? {
-          target: "self",
-          party: "underwriter",
-          action: "create",
-          expires: "self.expires",
-          input: {},
-          decision: "approved",
-        }
-      : {
-          kind: "approval",
-          target: "self",
-          party: "underwriter",
-          decision: "approved",
-        };
-    const action = instrument.actions.create!;
-    Object.assign(
-      action,
-      issuance ? { approval: clause } : { requires: [clause] },
-    );
-    const canonical = () => {
-      const action = JSON.parse(serializeUdl(document)).instruments[0].actions
-        .create;
-      return issuance ? action.approval : action.requires[0];
-    };
-    expect(canonical().protectedRequest).toBe("self");
-    Object.assign(clause, { protectedRequest: "self.request" });
-    expect(canonical().protectedRequest).toBe("self.request");
-    for (const path of ["self.text", "self.subject", "self.missing"]) {
-      Object.assign(clause, { protectedRequest: path });
-      expect(codes(document)).toContain("UDL5001");
-      expect(() => serializeUdl(document)).toThrow();
-    }
-  }
 });

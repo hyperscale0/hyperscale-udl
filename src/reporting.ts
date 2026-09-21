@@ -171,7 +171,6 @@ export const reportDefinitionSchema = z.strictObject({
     request: z.array(name).min(1).max(64),
     read: z.array(name).min(1).max(64),
     release: z.array(name).max(64),
-    independentApproval: z.literal(true),
     retention: z.strictObject({ policy: name, years: integer.min(1).max(100) }),
   }),
 });

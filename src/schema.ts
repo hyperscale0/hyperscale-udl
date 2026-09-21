@@ -329,15 +329,6 @@ export const udlRequirementSchema = z.discriminatedUnion("kind", [
     value,
   }),
   z.strictObject({
-    kind: z.literal("approval"),
-    target: path.default("self"),
-    party: name,
-    action: name.optional(),
-    decision: z.enum(["approved", "declined"]),
-    differentFromInitiator: z.literal(true).optional(),
-    protectedRequest: path.default("self"),
-  }),
-  z.strictObject({
     kind: z.literal("evidence"),
     instruction: path.optional(),
     subject: path,
@@ -401,7 +392,6 @@ export const udlActionSchema = z.strictObject({
   summary: text,
   publicAction: name.optional(),
   expansionLimit: z.literal(8192).optional(),
-  humanApproval: z.literal("distinct_member").optional(),
   reminder: z
     .strictObject({
       installment: path,
@@ -465,17 +455,6 @@ export const udlActionSchema = z.strictObject({
       ]),
     )
     .max(16)
-    .optional(),
-  approval: z
-    .strictObject({
-      protectedRequest: path.default("self"),
-      target: path,
-      action: name,
-      party: name,
-      expires: path,
-      input: z.record(name, value),
-      decision: z.enum(["approved", "declined"]),
-    })
     .optional(),
 });
 export const udlLifecycleSchema = z.strictObject({

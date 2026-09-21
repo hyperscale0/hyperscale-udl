@@ -1,3 +1,7 @@
+# UDL 4.1.0
+
+Second-person approval is deleted: approval requirements, distinct-member rules and their diagnostics leave the schema, the object contract and validation. A document that still declares them is rejected. Permissions are unchanged. Recreate development estates.
+
 # UDL 4.0.0
 
 UDL 4 adds objects, attachment role bindings, action subject requirements, frozen adapter snapshots and typed object references. UDL 3 is rejected, the vehicles header is deleted from HSX, and public instrument create actions are gone. Object creation accepts optional metadata without entering an agreement; exposed attachment actions collect requirements when invoked. Recreate development estates; there is no migration reader.

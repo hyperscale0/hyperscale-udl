@@ -15,9 +15,6 @@ const specPath = new URL("../spec/udl.schema.json", import.meta.url);
 const SCHEMA_URI =
   "https://raw.githubusercontent.com/hyperscale0/hyperscale-udl/main/spec/udl.schema.json";
 
-/** The one recursive definition the grammar has: an arbitrary JSON value. */
-const RECURSIVE_DEF_NAME = "jsonValue";
-
 function emitSpec(): string {
   const generated = z.toJSONSchema(udlDocumentSchema, {
     target: "draft-2020-12",
@@ -26,15 +23,13 @@ function emitSpec(): string {
     // back.
     io: "input",
     cycles: "ref",
-    // Inlining keeps every field's pattern next to the field instead of behind
-    // an anonymous $ref. Only true cycles survive as $defs.
-    reused: "inline",
+    reused: "ref",
     // A future grammar shape that JSON Schema cannot carry fails the emit
     // instead of vanishing into an empty `{}` nobody notices.
     unrepresentable: "throw",
   }) as Record<string, unknown>;
 
-  const { $schema: _generatedDialect, ...body } = nameRecursiveDefs(generated);
+  const { $schema: _generatedDialect, ...body } = generated;
 
   const spec = {
     $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -47,47 +42,6 @@ function emitSpec(): string {
     ...body,
   };
   return `${JSON.stringify(spec, null, 2)}\n`;
-}
-
-/**
- * Zod names cycle definitions `__schema0`, `__schema1`, and so on, in
- * traversal order, so a grammar edit anywhere renumbers them. Collapsing the
- * identical recursive JSON-value definitions under one stable name keeps the
- * published $refs from churning on unrelated changes.
- */
-function nameRecursiveDefs(
-  schema: Record<string, unknown>,
-): Record<string, unknown> {
-  const defs = (schema.$defs ?? {}) as Record<string, unknown>;
-  const names = Object.keys(defs);
-  const bodies = new Set(
-    names.map((name) =>
-      JSON.stringify(defs[name]).replaceAll(
-        `"#/$defs/${name}"`,
-        `"#/$defs/${RECURSIVE_DEF_NAME}"`,
-      ),
-    ),
-  );
-  if (bodies.size !== 1) {
-    throw new Error(
-      `expected one recursive definition, found ${names.length} (${names.join(", ") || "none"}) ` +
-        `across ${bodies.size} distinct shapes; name the new one in scripts/emit-spec.ts`,
-    );
-  }
-
-  let text = JSON.stringify(schema);
-  for (const name of names) {
-    text = text.replaceAll(
-      `"#/$defs/${name}"`,
-      `"#/$defs/${RECURSIVE_DEF_NAME}"`,
-    );
-  }
-  const renamed = JSON.parse(text) as Record<string, unknown>;
-  const [recursiveBody] = Object.values(
-    renamed.$defs as Record<string, unknown>,
-  );
-  renamed.$defs = { [RECURSIVE_DEF_NAME]: recursiveBody };
-  return renamed;
 }
 
 const mode = process.argv[2];

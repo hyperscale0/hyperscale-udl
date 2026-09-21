@@ -5,6 +5,6 @@ await mkdir(new URL("docs/", root), { recursive: true });
 await writeFile(new URL("docs/README.md", root), source);
 await writeFile(
   new URL("llms.txt", root),
-  "# UDL 3\n\n- [Specification](spec/README.md)\n- [Schema](spec/udl.schema.json)\n",
+  "# UDL 4\n\n- [Specification](spec/README.md)\n- [Schema](spec/udl.schema.json)\n",
 );
 await writeFile(new URL("llms-full.txt", root), source);

@@ -1,0 +1,93 @@
+{
+  "productBuildId": "conformance-cars",
+  "digest": "521d348d7f098cf8bc0b63fd8cc646bfa5372a234df64b2479217d9f869a559b",
+  "kinds": [
+    {
+      "kind": "car",
+      "title": "Cars",
+      "fields": [
+        {
+          "name": "make",
+          "type": "text"
+        },
+        {
+          "name": "model",
+          "type": "text"
+        },
+        {
+          "name": "year",
+          "type": "integer"
+        },
+        {
+          "name": "referenceCode",
+          "type": "text",
+          "minLength": 1
+        }
+      ],
+      "authoredFields": ["make", "model", "year"],
+      "columns": ["make", "model", "year"],
+      "createSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "fields": {
+            "type": "object",
+            "properties": {
+              "make": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "year": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "referenceCode": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "actions": [
+        {
+          "name": "check",
+          "title": "Check reference",
+          "instrument": "car_verification",
+          "action": "check",
+          "requirements": [
+            {
+              "name": "referenceCode",
+              "type": "text",
+              "minLength": 1
+            }
+          ],
+          "inputSchema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "availability": {
+            "status": "available"
+          }
+        }
+      ]
+    }
+  ]
+}

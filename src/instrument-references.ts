@@ -52,6 +52,29 @@ export function mapUdlInstrumentReferences(
       );
     } else if (object(value)) {
       const properties = object(schema.properties) ? schema.properties : {};
+      const discriminator = object(properties.type)
+        ? properties.type.const
+        : undefined;
+      if (
+        (discriminator === "ref" || discriminator === "list") &&
+        value.type === discriminator &&
+        value.targetKind === "instrument"
+      ) {
+        if (typeof value.target === "string")
+          locations.set(JSON.stringify([...path, "target"]), {
+            parent: value,
+            key: "target",
+            kind: "instrument",
+          });
+        else if (Array.isArray(value.target))
+          value.target.forEach((_, index) =>
+            locations.set(JSON.stringify([...path, "target", index]), {
+              parent: value.target as unknown[],
+              key: index,
+              kind: "instrument",
+            }),
+          );
+      }
       for (const [name, entry] of Object.entries(value))
         visit(
           properties[name] ?? schema.additionalProperties,
@@ -81,12 +104,13 @@ export function referencedUdlInstrumentIds(
   const found = new Set<string>();
   mapUdlInstrumentReferences(
     {
-      udl: 3,
+      udl: 4,
       version: 1,
       product: "references",
       title: "References",
       currency: "SAR",
       parties: {},
+      objects: [],
       instruments: [instrument],
     },
     (id) => {

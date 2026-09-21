@@ -1,8 +1,59 @@
-# UDL 3
+# UDL 4
 
 UDL is the typed contract between an HSX program and its executor. The grammar
 lives in `src/schema.ts`. Generate `udl.schema.json` with
 `bun scripts/emit-spec.ts --write`. There is no migration reader for earlier UDL.
+
+## Objects and subjects
+
+An object kind declares identity, title, authored field names, normalized fields
+and display columns. Each attachment freezes its instrument identity and party
+parameter bindings to `owner`, `actor`, or `operator`. Core resolves these roles
+from the object row, authenticated session and product respectively. `authoredFields` records only names declared in the HSX
+object block. `fields` is their union with attached action requirements. Matching
+names must have matching types and constraints. Account fields belong to
+instruments, never objects.
+
+An instrument may name its object kind with `subject`. An action's `subject`
+contains its requirements and any frozen adapter binding. Each requirement keeps
+its source field and optional `objectField` rename. Adapter snapshots contain
+provider, capability, operation, declaration digest and requirements. A null snapshot
+marks an unbound adapter. It permits discovery but blocks that action. No provider
+requirement is inferred from an operation name.
+
+Object creation accepts `{}`. Its optional `fields` property accepts every
+normalized field as optional. Requirements become mandatory only when the
+attached action runs. Object creation performs no financial action. Instrument
+creation remains an internal agreement operation and has no public action.
+Attachment parties resolve from authenticated authority, never from party account
+IDs supplied in a caller body.
+
+`object-contract.ts` projects `ObjectDiscovery` for
+`GET /v1/products/{productId}/objects`. It exports the discovery, instance, list
+and action response types. Discovery preserves Build identity, authored field
+names, the full optional create schema and each exposed action's requirements.
+Object instances carry `objectId`, `kind`, `revision`, optional `externalId`,
+`fields` and `productBuildId`. Action responses carry the object and either a
+financial instrument outcome or null.
+
+## Object operations
+
+The Product API uses six routes below `/v1/products/{productId}/objects`.
+
+| Method | Suffix                                | Result                                         |
+| ------ | ------------------------------------- | ---------------------------------------------- |
+| GET    | root                                  | Object discovery for the Build                 |
+| POST   | `/{kind}`                             | New object with optional metadata              |
+| GET    | `/{kind}`                             | Cursor-paginated objects of a kind             |
+| GET    | `/{kind}/{objectId}`                  | Object metadata, revision and Build ID         |
+| GET    | `/{kind}/{objectId}/actions`          | Availability and missing `requiredNow` fields  |
+| POST   | `/{kind}/{objectId}/actions/{action}` | Updated object and optional instrument outcome |
+
+Execution binds `productBuildId` and `expectedRevision`. The optional `fields`
+collect subject metadata; optional `input` carries the action's typed input.
+Missing requirements refuse execution. Callers reuse an idempotency key only for
+retries of the same request. Staff Create for may name `ownerPrincipalId` through
+its authorized path; ordinary ownership comes from the session.
 
 ## Accounts and money
 
@@ -31,14 +82,14 @@ cancelled by the claim move alone. Write-off moves the principal claim to the
 lender's loss account, with no cash movement. Profit is earned when a piece is paid.
 These are ordinary paired moves in HSX, not executor loan rules.
 
-A value is `{literal: value}` or `{field: path}`. Paths start with `self`, `input`
+A value is `{literal: value}` or `{field: path}`. Paths start with `self`, `input`, `subject`
 or `party`. Reference fields allow typed traversal. Account paths expose locked,
 read-only `.balance` and `.reserved` money values. `self.id`, `self.status`,
 `self.createdAt` and `self.now` are sealed executor values. Callers cannot set
 constants, calculated fields, account bindings or capture fields. Create supplies
-declared typed references; later actions cannot replace them. A ref target is one
-instrument id or a list of 1 to 16 distinct instrument ids. The stored value is
-one instance id from any listed instrument. Path traversal exposes only fields
+declared typed references; later actions cannot replace them. A ref declares `targetKind: "object" | "instrument"` and one target id or
+a list of 1 to 16 distinct target ids in that namespace. Its stored value is an
+identity from one listed target. Path traversal exposes only fields
 with compatible types on every target. Nested refs combine their target sets;
 accounts must agree on owner, key, book, contra and external flags, and enums must
 have the same values. A comparison or selection anchor must share a possible
@@ -119,7 +170,7 @@ There is no special reconciliation or exception-creation clause.
 5. Instances have an opaque identity and money uses integer minor units.
 6. Typed requirements and effects execute atomically.
 7. Live additions preserve existing meaning; development estates may recreate.
-8. Business names identify instruments and their public actions.
+8. Business names identify object kinds, attached instruments and public actions.
 9. Waiting uses lifecycle states and clocks. Before admission, the executor
    catches up actor: clock actions with due instants on the locked instance,
    references and selected rows, in chronological order. Catch-up commits its
@@ -133,10 +184,11 @@ There is no special reconciliation or exception-creation clause.
 
 ## Clause inventory
 
-Document: `udl`, `version`, `product`, `title`, `currency`, `parties`, `instruments`.
-Instrument: `id`, `title`, `summary`, `fields`, `calculate`, `lifecycle`, `actions`,
+Document: `udl`, `version`, `product`, `title`, `currency`, `parties`, `objects`, `instruments`.
+Object: `id`, `title`, `authoredFields`, `fields`, `columns`, `attachments`.
+Instrument: `id`, `subject`, `title`, `summary`, `fields`, `calculate`, `lifecycle`, `actions`,
 `actionOrder`, `invariants`, `examples`.
-Action: `summary`, `publicAction`, `event`, `actor`, `input`, `requires`, `due`,
+Action: `summary`, `publicAction`, `event`, `actor`, `subject`, `input`, `requires`, `due`,
 `deadline`, `set`, `calculate`, `moves`, `invoke`, `approval`.
 
 The owner reduced the kernel on 17 September 2026. `allocation`, `allocate`,

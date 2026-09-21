@@ -28,6 +28,14 @@ export function diffValidatedUdlEvolution(
   for (const [name, party] of Object.entries(live.parties))
     if (stable(party) !== stable(next.parties[name]))
       refuse(`$.parties.${name}`, "a live party cannot change or disappear");
+  for (const object of live.objects) {
+    const updated = next.objects.find((o) => o.id === object.id);
+    if (!updated || stable(object) !== stable(updated))
+      refuse(
+        `$.objects.${object.id}`,
+        "a live object kind cannot change or disappear; recreate development estates",
+      );
+  }
   for (const instrument of live.instruments) {
     const updated = next.instruments.find((i) => i.id === instrument.id);
     if (!updated || stable(instrument) !== stable(updated))

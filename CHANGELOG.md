@@ -1,3 +1,7 @@
+# UDL 4.0.0
+
+UDL 4 adds objects, attachment role bindings, action subject requirements, frozen adapter snapshots and typed object references. UDL 3 is rejected, the vehicles header is deleted from HSX, and public instrument create actions are gone. Object creation accepts optional metadata without entering an agreement; exposed attachment actions collect requirements when invoked. Recreate development estates; there is no migration reader.
+
 # UDL 3.2.0
 
 UDL adds a state-preserving transition target (`to: preserve`), an invoke comparison guard (`guard: { kind: compare, ... }`), an optional per-action `expansionLimit` of 8192 actions, reporting definitions, and a clock `localDay` clause (days, direction, hour, timezone).

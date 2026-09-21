@@ -1,8 +1,8 @@
 {
-  "udl": 3,
+  "udl": 4,
   "version": 1,
-  "product": "darb_cars",
-  "title": "Darb Cars",
+  "product": "cars",
+  "title": "Cars",
   "currency": "SAR",
   "parties": {
     "buyer": {
@@ -11,13 +11,14 @@
     "seller": {
       "kind": "business"
     },
-    "operator": {
+    "marketplace": {
       "kind": "business"
     },
     "tax": {
       "kind": "business"
     }
   },
+  "objects": [],
   "instruments": [
     {
       "id": "sale",
@@ -140,8 +141,7 @@
           "actor": "caller",
           "input": [],
           "requires": [],
-          "moves": [],
-          "publicAction": "createSale"
+          "moves": []
         },
         "fund": {
           "summary": "Fund the purchase",
@@ -198,7 +198,7 @@
                 "field": "self.sellerFee"
               },
               "from": "self.held",
-              "to": "party.operator"
+              "to": "party.marketplace"
             },
             {
               "key": "tax",

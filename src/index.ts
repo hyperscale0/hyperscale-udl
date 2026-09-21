@@ -3,8 +3,10 @@ export { parseUdl, canonicalizeUdl } from "./parser.js";
 export { serializeUdl, canonicalDigest } from "./canonical.js";
 export {
   validateUdl,
+  RESERVED_OBJECT_NAMES,
   assertValidUdl,
   resolveField,
+  resolveSubjectRequirement,
   UdlError,
   type UdlValidationResult,
 } from "./validation.js";
@@ -28,3 +30,4 @@ export {
   validateReportDefinition,
   reportExpressionTypes,
 } from "./reporting-validation.js";
+export * from "./object-contract.js";

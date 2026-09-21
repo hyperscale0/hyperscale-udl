@@ -7,12 +7,13 @@ import {
 
 function hold(): UdlDocument {
   return udlDocumentSchema.parse({
-    udl: 3,
+    udl: 4,
     version: 1,
     product: "shop",
     title: "Shop",
     currency: "SAR",
     parties: { buyer: { kind: "person" }, seller: { kind: "business" } },
+    objects: [],
     instruments: [
       {
         id: "hold",
@@ -121,8 +122,8 @@ for (const [rule, mutate] of mutations)
     ]);
   });
 
-test("UDL 2 has no migration reader", () => {
-  expect(udlDocumentSchema.safeParse({ ...hold(), udl: 2 }).success).toBe(
+test("Earlier UDL formats have no migration reader", () => {
+  expect(udlDocumentSchema.safeParse({ ...hold(), udl: 3 }).success).toBe(
     false,
   );
 });
@@ -192,18 +193,26 @@ test("union reference paths require a compatible field on every target", () => {
     actionOrder: ["create"],
   });
   const document = udlDocumentSchema.parse({
-    udl: 3,
+    udl: 4,
     version: 1,
     product: "union",
     title: "Union",
     currency: "SAR",
     parties: {},
+    objects: [],
     instruments: [
       record("first"),
       record("second"),
       {
         ...record("policy"),
-        fields: [{ name: "subject", type: "ref", target: ["first", "second"] }],
+        fields: [
+          {
+            name: "subjectRef",
+            type: "ref",
+            targetKind: "instrument",
+            target: ["first", "second"],
+          },
+        ],
         actions: {
           create: {
             summary: "Create",
@@ -214,7 +223,7 @@ test("union reference paths require a compatible field on every target", () => {
             requires: [
               {
                 kind: "compare",
-                left: { field: "self.subject.amount" },
+                left: { field: "self.subjectRef.amount" },
                 operator: ">",
                 right: { literal: "0" },
               },
@@ -278,12 +287,13 @@ test("invocation bounds count one alternative for a union reference", () => {
     second = record("second"),
     root = record("root");
   const document = udlDocumentSchema.parse({
-    udl: 3,
+    udl: 4,
     version: 1,
     product: "bounds",
     title: "Bounds",
     currency: "SAR",
     parties: {},
+    objects: [],
     instruments: [
       leaf,
       {
@@ -302,12 +312,21 @@ test("invocation bounds count one alternative for a union reference", () => {
       })),
       {
         ...root,
-        fields: [{ name: "subject", type: "ref", target: ["first", "second"] }],
+        fields: [
+          {
+            name: "subjectRef",
+            type: "ref",
+            targetKind: "instrument",
+            target: ["first", "second"],
+          },
+        ],
         actions: {
           ...root.actions,
           run: {
             ...root.actions.run,
-            invoke: [{ reference: "self.subject", action: "run", input: {} }],
+            invoke: [
+              { reference: "self.subjectRef", action: "run", input: {} },
+            ],
           },
         },
       },

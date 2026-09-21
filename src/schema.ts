@@ -1,7 +1,7 @@
 import * as z from "zod";
 import { reportDefinitionSchema } from "./reporting.js";
 
-export const UDL_FORMAT_VERSION = 3 as const;
+export const UDL_FORMAT_VERSION = 4 as const;
 /** Counts the root and every nested invocation, including selected and ranged children. */
 export const MAX_ACTION_EXPANSION = 4096;
 const name = z
@@ -17,6 +17,13 @@ const path = z
   .regex(/^[a-z][a-zA-Z0-9_]*(?:\.[a-z][a-zA-Z0-9_]*)*$/)
   .max(240);
 const instrumentId = name.meta({ "x-udl-reference": "instrument" });
+const objectKindId = name.meta({ "x-udl-reference": "object" });
+
+export const udlPartyNameSchema = name;
+
+export const udlObjectIdSchema = z.string().min(1).max(160);
+export const udlExternalIdSchema = z.string().min(1).max(2048);
+export const udlObjectRevisionSchema = integer.positive();
 
 /** Currency belongs to the document. Accounts and amounts cannot override it. */
 export const udlPartySchema = z.strictObject({
@@ -24,11 +31,37 @@ export const udlPartySchema = z.strictObject({
   role: name.optional(),
 });
 
+export const udlFamilySchema = z.strictObject({
+  module: name,
+  exportPath: path,
+  revision: integer.positive(),
+});
+
 const fieldBase = {
   name,
   optional: z.literal(true).optional(),
   description: text.optional(),
+  sensitive: z.literal(true).optional(),
 };
+
+const referenceField = z.strictObject({
+  ...fieldBase,
+  type: z.literal("ref"),
+  targetKind: z.enum(["instrument", "object"]),
+  targetFamily: udlFamilySchema.optional(),
+  target: z.union([name, z.array(name).min(1).max(16)]),
+});
+
+const listField = z.strictObject({
+  ...fieldBase,
+  type: z.literal("list"),
+  item: z.enum(["money", "date", "text", "integer", "ref"]),
+  targetKind: z.enum(["instrument", "object"]).optional(),
+  targetFamily: udlFamilySchema.optional(),
+  target: name.optional(),
+  maxItems: integer.min(1).max(366),
+});
+
 export const udlFieldSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...fieldBase,
@@ -44,13 +77,8 @@ export const udlFieldSchema = z.discriminatedUnion("type", [
     key: name.optional(),
     book: z.enum(["cash", "claim"]).default("cash"),
     contra: z.literal(true).optional(),
-    external: z.literal(true).optional(),
   }),
-  z.strictObject({
-    ...fieldBase,
-    type: z.literal("ref"),
-    target: z.union([instrumentId, z.array(instrumentId).min(1).max(16)]),
-  }),
+  referenceField,
   z.strictObject({
     ...fieldBase,
     type: z.literal("date"),
@@ -96,14 +124,88 @@ export const udlFieldSchema = z.discriminatedUnion("type", [
     values: z.array(name).min(1).max(64),
     value: name.optional(),
   }),
-  z.strictObject({
-    ...fieldBase,
-    type: z.literal("list"),
-    item: z.enum(["money", "date", "text", "integer", "ref"]),
-    target: instrumentId.optional(),
-    maxItems: integer.min(1).max(366),
-  }),
+  listField,
 ]);
+
+const [
+  moneyField,
+  ,
+  refField,
+  dateField,
+  durationField,
+  textField,
+  integerField,
+  percentField,
+  booleanField,
+  enumField,
+  boundedListField,
+] = udlFieldSchema.options;
+
+export const udlObjectFieldSchema = z.discriminatedUnion("type", [
+  moneyField,
+  refField,
+  dateField,
+  durationField,
+  textField,
+  integerField,
+  percentField,
+  booleanField,
+  enumField,
+  boundedListField,
+]);
+
+export const udlSubjectRequirementSchema = z.strictObject({
+  field: udlObjectFieldSchema,
+  // Present only for an authored rename.
+  objectField: name.optional(),
+});
+
+export const adapterSubjectSnapshotSchema = z.strictObject({
+  provider: text,
+  capability: text,
+  operation: text,
+  declarationDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  requirements: z.array(udlObjectFieldSchema).max(128),
+});
+
+export const udlActionSubjectSchema = z.strictObject({
+  requirements: z.array(udlSubjectRequirementSchema).max(128),
+  adapters: z
+    .array(
+      z.strictObject({
+        binding: name,
+        // null means unavailable, never "no requirements".
+        snapshot: adapterSubjectSnapshotSchema.nullable(),
+        renames: z.record(name, name).optional(),
+      }),
+    )
+    .max(16),
+});
+
+export const subjectPartyRoles = ["owner", "actor", "operator"] as const;
+export const attachmentPartyBindingSchema = z.union([
+  z.strictObject({ role: z.enum(subjectPartyRoles) }),
+  z.strictObject({ party: name }),
+]);
+export type AttachmentPartyBinding = z.infer<
+  typeof attachmentPartyBindingSchema
+>;
+export const udlObjectAttachmentSchema = z.strictObject({
+  name,
+  instrument: instrumentId,
+  parties: z.record(name, attachmentPartyBindingSchema),
+});
+export type SubjectPartyRole = (typeof subjectPartyRoles)[number];
+export type UdlObjectAttachment = z.infer<typeof udlObjectAttachmentSchema>;
+
+export const udlObjectKindSchema = z.strictObject({
+  id: objectKindId,
+  title: text,
+  authoredFields: z.array(name).max(256),
+  attachments: z.array(udlObjectAttachmentSchema).max(256),
+  fields: z.array(udlObjectFieldSchema).max(256),
+  columns: z.array(name).max(8),
+});
 
 /** Values are constants or resolved typed paths, never executable strings. */
 export const udlValueSchema = z.union([
@@ -114,6 +216,7 @@ const value = udlValueSchema;
 const values = z.array(value).min(1).max(256);
 
 const selection = z.strictObject({
+  family: udlFamilySchema.optional(),
   instrument: z.union([instrumentId, z.array(instrumentId).min(1).max(16)]),
   reference: name,
   anchor: path,
@@ -231,9 +334,12 @@ export const udlRequirementSchema = z.discriminatedUnion("kind", [
     party: name,
     action: name.optional(),
     decision: z.enum(["approved", "declined"]),
+    differentFromInitiator: z.literal(true).optional(),
+    protectedRequest: path.default("self"),
   }),
   z.strictObject({
     kind: z.literal("evidence"),
+    instruction: path.optional(),
     subject: path,
     family: name,
     check: name,
@@ -260,6 +366,7 @@ export const udlMoveSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     key: name,
     operation: z.literal("internal_transfer.reserve"),
+    boundary: z.strictObject({ adapter: name }).optional(),
     amount: value,
     from: path,
     to: path,
@@ -319,6 +426,7 @@ export const udlActionSchema = z.strictObject({
       parent: z.union([instrumentId, z.array(instrumentId).min(1).max(16)]),
     }),
   ]),
+  subject: udlActionSubjectSchema.optional(),
   input: z.array(udlFieldSchema).max(128),
   requires: z.array(udlRequirementSchema).max(128),
   due: clock.optional(),
@@ -360,6 +468,7 @@ export const udlActionSchema = z.strictObject({
     .optional(),
   approval: z
     .strictObject({
+      protectedRequest: path.default("self"),
       target: path,
       action: name,
       party: name,
@@ -380,7 +489,9 @@ export const udlLifecycleSchema = z.strictObject({
 export const udlInstrumentSchema = z.strictObject({
   reports: z.array(reportDefinitionSchema).max(16).optional(),
   revisioned: z.literal(true).optional(),
+  family: udlFamilySchema.optional(),
   id: instrumentId,
+  subject: objectKindId.optional(),
   title: text,
   summary: text,
   fields: z.array(udlFieldSchema).max(256),
@@ -401,9 +512,11 @@ export const udlDocumentSchema = z.strictObject({
   title: text,
   currency: z.literal("SAR"),
   parties: z.record(name, udlPartySchema),
-  instruments: z.array(udlInstrumentSchema).min(1).max(256),
+  objects: z.array(udlObjectKindSchema).max(256),
+  instruments: z.array(udlInstrumentSchema).max(256),
 });
 
+export type UdlFamily = z.infer<typeof udlFamilySchema>;
 export type UdlDocument = z.infer<typeof udlDocumentSchema>;
 export type UdlInstrument = z.infer<typeof udlInstrumentSchema>;
 export type UdlField = z.infer<typeof udlFieldSchema>;
@@ -417,3 +530,33 @@ export type UdlLifecycle = z.infer<typeof udlLifecycleSchema>;
 export type UdlKernelOperation = z.infer<typeof udlKernelOperationSchema>;
 
 export type UdlSelection = z.infer<typeof selection>;
+
+export type UdlObjectField = z.infer<typeof udlObjectFieldSchema>;
+export type UdlObjectKind = z.infer<typeof udlObjectKindSchema>;
+export type UdlActionSubject = z.infer<typeof udlActionSubjectSchema>;
+export type UdlSubjectRequirement = z.infer<typeof udlSubjectRequirementSchema>;
+export type UdlAdapterSubjectSnapshot = z.infer<
+  typeof adapterSubjectSnapshotSchema
+>;
+
+/** Names and display text may differ; executable constraints must match. */
+export function sameObjectField(
+  left: UdlObjectField,
+  right: UdlObjectField,
+): boolean {
+  const signature = (field: UdlObjectField) =>
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(field)
+          .filter(
+            ([key, value]) =>
+              !["name", "description", "optional"].includes(key) &&
+              value !== undefined,
+          )
+          .sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0,
+          ),
+      ),
+    );
+  return signature(left) === signature(right);
+}

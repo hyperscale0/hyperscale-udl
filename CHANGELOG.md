@@ -1,3 +1,9 @@
+# UDL 4.2.1
+
+A bare `subject.<name>` resolves to the action's declared requirement, so
+evidence collected at the action no longer has to exist as a field on the
+subject object. Deeper paths still resolve through the object.
+
 # UDL 4.2.0
 
 Actions may declare `allowZero: true`; a create move of zero without it is a

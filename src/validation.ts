@@ -315,7 +315,12 @@ function resolvePath(
   }
   if (root === "subject") {
     const requirement = resolveSubjectRequirement(instrument, key, action);
-    if (!requirement || !instrument.subject) return;
+    if (!requirement) return;
+    // Evidence collected at the action need not exist on the object; the
+    // declared requirement is the contract for a bare `subject.<name>`.
+    if (parts.length === 0 && !requirement.objectField)
+      return requirement.field;
+    if (!instrument.subject) return;
     const object = document.objects.find(
       (item) => item.id === instrument.subject,
     );

@@ -1,8 +1,28 @@
 # UDL 4
 
-UDL is the typed contract between an HSX program and its executor. The grammar
+UDL is the Universal Domain Language, the typed contract between an HSX program
+and its executor. The grammar
 lives in `src/schema.ts`. Generate `udl.schema.json` with
 `bun scripts/emit-spec.ts --write`. There is no migration reader for earlier UDL.
+
+## Reading a compiled program
+
+Start with `product`, `title` and `currency`. `objects` describes business records
+and their attachments. Follow an attachment's instrument identity into
+`instruments` for its retained fields, lifecycle and actions. `actionOrder`
+preserves authored action order even though canonical JSON sorts object keys.
+An action's `publicAction` supplies its exposed name; its actor and requirements
+still control who may execute it and when.
+
+Object metadata describes the subject. Instrument fields retain the agreement's
+terms, account bindings and receipts. Party names identify authenticated or
+configured participants. None of these makes a caller-supplied account ID valid.
+A Build freezes this contract and its bindings for the executor.
+
+Business instructions are actions composed from typed requirements and effects.
+The four `internal_transfer` instructions are their money effects. The contract
+expresses valid conditions; execution can still refuse for the current state,
+authority, evidence or balance. Parsing and validation execute nothing.
 
 ## JSON admission and canonical bytes
 

@@ -1,3 +1,9 @@
+# UDL 4.5.1
+
+Documentation only. The specification README explains how to read the
+contract before the rules, and the generated `docs/README.md` and
+`llms-full.txt` follow it. No validator behaviour changed.
+
 # UDL 4.5.0
 
 Admission walks own data properties only, refuses properties JSON

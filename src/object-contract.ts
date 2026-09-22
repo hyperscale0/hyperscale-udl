@@ -6,6 +6,9 @@ import {
   type UdlField,
   type UdlObjectField,
   type UdlObjectKind,
+  type UdlSubjectRequirement,
+  type UdlValue,
+  type UdlInstrument,
 } from "./schema.js";
 
 export const requestAttributionSchema = z.union([
@@ -58,6 +61,10 @@ export interface ObjectActionDiscovery extends ObjectActionContext {
   instrument: string;
   action: string;
   requirements: readonly UdlObjectField[];
+  requirementConditions?: Record<
+    string,
+    NonNullable<UdlSubjectRequirement["when"]>
+  >;
   creationRequirements?: readonly UdlObjectField[];
   creationOnlyNames?: readonly string[];
   inputSchema: JsonSchemaDocument;
@@ -275,33 +282,36 @@ export function projectObjectDiscovery(
             const isCreationAction =
               name === "create" || (createHidden && canStartFromInitial);
 
-            const rawCreateReqs: {
-              field: UdlField;
-              objectField?: string | undefined;
-            }[] = isCreationAction
+            const rawCreateReqs: UdlSubjectRequirement[] = isCreationAction
               ? [
                   ...(instrument.actions.create?.subject?.requirements ?? []),
-                  ...attachmentRefListFields.map((field) => ({ field })),
+                  ...attachmentRefListFields.map((field) => ({
+                    field: field as UdlObjectField,
+                  })),
                 ]
               : [];
             const actionReqs = action.subject?.requirements ?? [];
             const actionReqNames = new Set(
               actionReqs.map((r) => r.objectField ?? r.field.name),
             );
-            const mergedReqs: {
-              field: UdlField;
-              objectField?: string | undefined;
-            }[] = [...actionReqs];
+            const mergedReqs: UdlSubjectRequirement[] = actionReqs.map(
+              (requirement) => ({ ...requirement }),
+            );
             for (const req of rawCreateReqs) {
               const reqName = req.objectField ?? req.field.name;
-              if (
-                !mergedReqs.some(
-                  (r) => (r.objectField ?? r.field.name) === reqName,
-                )
-              ) {
-                mergedReqs.push(req);
-              }
+              const existing = mergedReqs.find(
+                (r) => (r.objectField ?? r.field.name) === reqName,
+              );
+              if (!existing) mergedReqs.push({ ...req });
+              else if (!req.when) delete existing.when;
+              else if (existing.when)
+                existing.when = [...existing.when, ...req.when];
             }
+            const requirementConditions = Object.fromEntries(
+              mergedReqs.flatMap((req) =>
+                req.when ? [[req.objectField ?? req.field.name, req.when]] : [],
+              ),
+            );
             const unbound = [
               ...(action.subject?.adapters ?? []),
               ...(isCreationAction
@@ -346,6 +356,9 @@ export function projectObjectDiscovery(
                       name: requirement.objectField ?? requirement.field.name,
                     }) as UdlObjectField,
                 ),
+                ...(Object.keys(requirementConditions).length
+                  ? { requirementConditions }
+                  : {}),
                 ...(creationRequirements.length > 0
                   ? { creationRequirements }
                   : {}),
@@ -391,11 +404,104 @@ export function projectObjectDiscovery(
   };
 }
 
+/** Values overwritten before invocation cannot decide a guard during discovery. */
+export function objectActionSelf(
+  instrument: UdlInstrument,
+  actionName: string,
+  fields: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  const action = instrument.actions[actionName]!;
+  const known = {
+    ...Object.fromEntries(
+      instrument.fields.flatMap((field) =>
+        "value" in field ? [[field.name, field.value]] : [],
+      ),
+    ),
+    ...fields,
+  };
+  for (const calculation of [
+    ...instrument.calculate,
+    ...(action.calculate ?? []),
+  ])
+    delete known[calculation.target];
+  for (const name of Object.keys(action.set ?? {})) delete known[name];
+  return known;
+}
+
+export interface ObjectActionStateOptions {
+  attached?: boolean;
+  self?: Readonly<Record<string, unknown>>;
+  input?: Readonly<Record<string, unknown>>;
+}
+
+/** Unknown invocation state remains possible; a known false guard suppresses a prompt. */
+function requirementPossible(
+  paths: NonNullable<UdlSubjectRequirement["when"]>,
+  action: ObjectActionDiscovery,
+  fields: Readonly<Record<string, unknown>>,
+  options: ObjectActionStateOptions,
+): boolean {
+  return paths.some((path) =>
+    path.every((condition) => {
+      const read = (value: UdlValue): unknown => {
+        if ("literal" in value) return value.literal;
+        const [root, name, ...tail] = value.field.split(".");
+        if (!name || tail.length) return undefined;
+        if (root === "subject") return fields[name];
+        if (
+          condition.instrument !== action.instrument ||
+          condition.action !== action.action
+        )
+          return undefined;
+        if (root === "self") return options.self?.[name];
+        if (root === "input") return options.input?.[name];
+        return undefined;
+      };
+      let left = read(condition.guard.left);
+      let right = read(condition.guard.right);
+      if (left === undefined || right === undefined) return true;
+      try {
+        if (condition.valueType === "money") {
+          left = BigInt(String(left));
+          right = BigInt(String(right));
+        } else if (condition.valueType === "date") {
+          left = Date.parse(String(left));
+          right = Date.parse(String(right));
+          if (!Number.isFinite(left) || !Number.isFinite(right)) return true;
+        }
+      } catch {
+        return true;
+      }
+      if (
+        typeof left !== typeof right ||
+        !["string", "number", "boolean", "bigint"].includes(typeof left)
+      )
+        return true;
+      const a = left as string | number | bigint;
+      const b = right as string | number | bigint;
+      switch (condition.guard.operator) {
+        case "==":
+          return left === right;
+        case "!=":
+          return left !== right;
+        case "<":
+          return a < b;
+        case "<=":
+          return a <= b;
+        case ">":
+          return a > b;
+        case ">=":
+          return a >= b;
+      }
+    }),
+  );
+}
+
 /** Object-specific values determine missing fields; global discovery cannot. */
 export function objectActionState(
   action: ObjectActionDiscovery,
   fields: Readonly<Record<string, unknown>>,
-  options?: { attached?: boolean } | boolean,
+  options?: ObjectActionStateOptions | boolean,
 ): ObjectActionState {
   const attached =
     typeof options === "boolean" ? options : (options?.attached ?? false);
@@ -404,6 +510,17 @@ export function objectActionState(
     ...action,
     requiredNow: action.requirements
       .filter((field) => {
+        const conditions = action.requirementConditions?.[field.name];
+        if (
+          conditions &&
+          !requirementPossible(
+            conditions,
+            action,
+            fields,
+            typeof options === "object" ? options : {},
+          )
+        )
+          return false;
         const value = fields[field.name];
         const optional =
           field.optional || (attached && creationFilter.has(field.name));
@@ -431,7 +548,7 @@ export function validateObjectActionSubject(
   action: ObjectActionDiscovery,
   storedFields: Readonly<Record<string, unknown>>,
   submittedFields: Readonly<Record<string, unknown>>,
-  options?: { attached?: boolean } | boolean,
+  options?: ObjectActionStateOptions | boolean,
 ): readonly SubjectRequirementIssue[] {
   const origin = `${action.instrument}.${action.action}.subject`;
   const issues: SubjectRequirementIssue[] = [];

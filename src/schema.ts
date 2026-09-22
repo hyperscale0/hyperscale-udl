@@ -154,10 +154,43 @@ export const udlObjectFieldSchema = z.discriminatedUnion("type", [
   boundedListField,
 ]);
 
+/** Values are constants or resolved typed paths, never executable strings. */
+export const udlValueSchema = z.union([
+  z.strictObject({ literal: scalar }),
+  z.strictObject({ field: path }),
+]);
+const value = udlValueSchema;
+
+const comparisonRequirement = z.strictObject({
+  kind: z.literal("compare"),
+  left: value,
+  operator: z.enum(["==", "!=", "<", "<=", ">", ">="]),
+  right: value,
+});
+
+// Alternatives are OR; each invocation path is a conjunction of scoped guards.
+export const udlSubjectConditionsSchema = z
+  .array(
+    z
+      .array(
+        z.strictObject({
+          instrument: instrumentId,
+          action: name,
+          guard: comparisonRequirement,
+          valueType: z.enum(["money", "date"]).optional(),
+        }),
+      )
+      .min(1)
+      .max(32),
+  )
+  .min(1)
+  .max(128);
+
 export const udlSubjectRequirementSchema = z.strictObject({
   field: udlObjectFieldSchema,
   // Present only for an authored rename.
   objectField: name.optional(),
+  when: udlSubjectConditionsSchema.optional(),
 });
 
 export const adapterSubjectSnapshotSchema = z.strictObject({
@@ -192,6 +225,7 @@ export type AttachmentPartyBinding = z.infer<
 >;
 export const udlObjectAttachmentSchema = z.strictObject({
   name,
+  parent: name.optional(),
   instrument: instrumentId,
   parties: z.record(name, attachmentPartyBindingSchema),
 });
@@ -207,12 +241,6 @@ export const udlObjectKindSchema = z.strictObject({
   columns: z.array(name).max(8),
 });
 
-/** Values are constants or resolved typed paths, never executable strings. */
-export const udlValueSchema = z.union([
-  z.strictObject({ literal: scalar }),
-  z.strictObject({ field: path }),
-]);
-const value = udlValueSchema;
 const values = z.array(value).min(1).max(256);
 
 const selection = z.strictObject({
@@ -294,13 +322,6 @@ export const udlCalculationSchema = z.discriminatedUnion("op", [
     direction: z.enum(["before", "after"]),
   }),
 ]);
-
-const comparisonRequirement = z.strictObject({
-  kind: z.literal("compare"),
-  left: value,
-  operator: z.enum(["==", "!=", "<", "<=", ">", ">="]),
-  right: value,
-});
 
 export const udlRequirementSchema = z.discriminatedUnion("kind", [
   z.strictObject({

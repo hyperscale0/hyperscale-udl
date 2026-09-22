@@ -8,8 +8,8 @@ lives in `src/schema.ts`. Generate `udl.schema.json` with
 
 An object kind declares identity, title, authored field names, normalized fields
 and display columns. Each attachment freezes its instrument identity and party
-parameter bindings to `owner`, `actor`, or `operator`. Core resolves these roles
-from the object row, authenticated session and product respectively. `authoredFields` records only names declared in the HSX
+parameter bindings to `owner`, `actor`, `operator`, or a declared Product party. Core resolves role bindings from the object row, session and Product, and
+declared parties from the Product party binding. `authoredFields` records only names declared in the HSX
 object block. `fields` is their union with attached action requirements. Matching
 names must have matching types and constraints. Account fields belong to
 instruments, never objects.
@@ -24,7 +24,7 @@ requirement is inferred from an operation name.
 Object creation accepts `{}`. Its optional `fields` property accepts every
 normalized field as optional. Requirements become mandatory only when the
 attached action runs. Object creation performs no financial action. Instrument
-creation remains an internal agreement operation and has no public action.
+creation remains internal; an attached create action may expose a public name.
 Attachment parties resolve from authenticated authority, never from party account
 IDs supplied in a caller body.
 
@@ -38,19 +38,12 @@ financial instrument outcome or null.
 
 ## Object operations
 
-The Product API uses six routes below `/v1/products/{productId}/objects`.
+The [Product runtime guide](../../../docs/public/runtime.md) owns the six routes
+for discovery, object creation, listing, retrieval, availability and execution.
 
-| Method | Suffix                                | Result                                         |
-| ------ | ------------------------------------- | ---------------------------------------------- |
-| GET    | root                                  | Object discovery for the Build                 |
-| POST   | `/{kind}`                             | New object with optional metadata              |
-| GET    | `/{kind}`                             | Cursor-paginated objects of a kind             |
-| GET    | `/{kind}/{objectId}`                  | Object metadata, revision and Build ID         |
-| GET    | `/{kind}/{objectId}/actions`          | Availability and missing `requiredNow` fields  |
-| POST   | `/{kind}/{objectId}/actions/{action}` | Updated object and optional instrument outcome |
-
-Execution binds `productBuildId` and `expectedRevision`. The optional `fields`
-collect subject metadata; optional `input` carries the action's typed input.
+Execution binds `productBuildId`, `digest`, `target` and `expectedRevision`.
+The target identifies an attachment or an existing instance on that attachment.
+The optional `fields` collect subject metadata; optional `input` carries the action's typed input.
 Missing requirements refuse execution. Callers reuse an idempotency key only for
 retries of the same request. Staff Create for may name `ownerPrincipalId` through
 its authorized path; ordinary ownership comes from the session.

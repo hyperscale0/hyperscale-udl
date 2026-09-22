@@ -1,3 +1,11 @@
+# UDL 4.3.0
+
+Subject requirements carry optional `when` conditions (alternatives of
+scoped comparison guards), object attachments carry an optional `parent`,
+and object discovery reports `requirementConditions` so a portal can skip
+a prompt whose guard is already known false. The README and spec README
+drop stale statements about subject evidence and adapter bindings.
+
 # UDL 4.2.1
 
 A bare `subject.<name>` resolves to the action's declared requirement, so

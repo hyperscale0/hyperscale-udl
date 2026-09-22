@@ -149,6 +149,9 @@
         "name": {
           "$ref": "#/$defs/__schema1"
         },
+        "parent": {
+          "$ref": "#/$defs/__schema1"
+        },
         "instrument": {
           "$ref": "#/$defs/__schema6"
         },
@@ -911,7 +914,7 @@
                     "maxItems": 16,
                     "type": "array",
                     "items": {
-                      "$ref": "#/$defs/__schema47"
+                      "$ref": "#/$defs/__schema50"
                     }
                   }
                 },
@@ -932,14 +935,14 @@
                 "maxItems": 128,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema48"
+                  "$ref": "#/$defs/__schema51"
                 }
               },
               "due": {
-                "$ref": "#/$defs/__schema50"
+                "$ref": "#/$defs/__schema52"
               },
               "deadline": {
-                "$ref": "#/$defs/__schema50"
+                "$ref": "#/$defs/__schema52"
               },
               "set": {
                 "type": "object",
@@ -961,14 +964,14 @@
                 "maxItems": 256,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema51"
+                  "$ref": "#/$defs/__schema53"
                 }
               },
               "invoke": {
                 "maxItems": 16,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema52"
+                  "$ref": "#/$defs/__schema54"
                 }
               }
             },
@@ -995,14 +998,14 @@
           "maxItems": 128,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema48"
+            "$ref": "#/$defs/__schema51"
           }
         },
         "examples": {
           "maxItems": 16,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema53"
+            "$ref": "#/$defs/__schema55"
           }
         }
       },
@@ -2403,6 +2406,14 @@
         },
         "objectField": {
           "$ref": "#/$defs/__schema1"
+        },
+        "when": {
+          "minItems": 1,
+          "maxItems": 128,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema47"
+          }
         }
       },
       "required": [
@@ -2411,6 +2422,74 @@
       "additionalProperties": false
     },
     "__schema47": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema48"
+      }
+    },
+    "__schema48": {
+      "type": "object",
+      "properties": {
+        "instrument": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "action": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "guard": {
+          "$ref": "#/$defs/__schema49"
+        },
+        "valueType": {
+          "type": "string",
+          "enum": [
+            "money",
+            "date"
+          ]
+        }
+      },
+      "required": [
+        "instrument",
+        "action",
+        "guard"
+      ],
+      "additionalProperties": false
+    },
+    "__schema49": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "compare"
+        },
+        "left": {
+          "$ref": "#/$defs/__schema43"
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "==",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">="
+          ]
+        },
+        "right": {
+          "$ref": "#/$defs/__schema43"
+        }
+      },
+      "required": [
+        "kind",
+        "left",
+        "operator",
+        "right"
+      ],
+      "additionalProperties": false
+    },
+    "__schema50": {
       "type": "object",
       "properties": {
         "binding": {
@@ -2472,7 +2551,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema48": {
+    "__schema51": {
       "oneOf": [
         {
           "type": "object",
@@ -2656,40 +2735,7 @@
         }
       ]
     },
-    "__schema49": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "const": "compare"
-        },
-        "left": {
-          "$ref": "#/$defs/__schema43"
-        },
-        "operator": {
-          "type": "string",
-          "enum": [
-            "==",
-            "!=",
-            "<",
-            "<=",
-            ">",
-            ">="
-          ]
-        },
-        "right": {
-          "$ref": "#/$defs/__schema43"
-        }
-      },
-      "required": [
-        "kind",
-        "left",
-        "operator",
-        "right"
-      ],
-      "additionalProperties": false
-    },
-    "__schema50": {
+    "__schema52": {
       "type": "object",
       "properties": {
         "at": {
@@ -2738,7 +2784,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema51": {
+    "__schema53": {
       "oneOf": [
         {
           "type": "object",
@@ -2867,7 +2913,7 @@
         }
       ]
     },
-    "__schema52": {
+    "__schema54": {
       "anyOf": [
         {
           "type": "object",
@@ -2982,14 +3028,14 @@
         }
       ]
     },
-    "__schema53": {
+    "__schema55": {
       "type": "object",
       "properties": {
         "name": {
           "$ref": "#/$defs/__schema2"
         },
         "input": {
-          "$ref": "#/$defs/__schema54"
+          "$ref": "#/$defs/__schema56"
         }
       },
       "required": [
@@ -2998,7 +3044,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema54": {
+    "__schema56": {
       "anyOf": [
         {
           "type": "string"
@@ -3015,7 +3061,7 @@
         {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema54"
+            "$ref": "#/$defs/__schema56"
           }
         },
         {
@@ -3024,7 +3070,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema54"
+            "$ref": "#/$defs/__schema56"
           }
         }
       ]

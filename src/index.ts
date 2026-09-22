@@ -30,4 +30,5 @@ export {
   validateReportDefinition,
   reportExpressionTypes,
 } from "./reporting-validation.js";
+export { udlFieldValueSchema } from "./field-value.js";
 export * from "./object-contract.js";

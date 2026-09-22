@@ -40,6 +40,7 @@ export const udlFamilySchema = z.strictObject({
 
 const fieldBase = {
   name,
+  label: text.optional(),
   optional: z.literal(true).optional(),
   description: text.optional(),
   sensitive: z.literal(true).optional(),
@@ -226,6 +227,7 @@ export type AttachmentPartyBinding = z.infer<
 >;
 export const udlObjectAttachmentSchema = z.strictObject({
   name,
+  title: text.optional(),
   parent: name.optional(),
   instrument: instrumentId,
   parties: z.record(name, attachmentPartyBindingSchema),
@@ -413,6 +415,7 @@ const clock = z.strictObject({
 export const udlActionSchema = z.strictObject({
   allowZero: z.literal(true).optional(),
   summary: text,
+  title: text.optional(),
   publicAction: name.optional(),
   expansionLimit: z.literal(8192).optional(),
   reminder: z
@@ -482,6 +485,7 @@ export const udlActionSchema = z.strictObject({
 });
 export const udlLifecycleSchema = z.strictObject({
   states: z.array(name).min(1).max(64),
+  labels: z.record(name, text).optional(),
   initial: name,
   transitions: z.record(
     name,
@@ -551,7 +555,7 @@ export function sameObjectField(
       Object.fromEntries(
         Object.entries(field).filter(
           ([key, value]) =>
-            !["name", "description", "optional"].includes(key) &&
+            !["name", "label", "description", "optional"].includes(key) &&
             value !== undefined,
         ),
       ),

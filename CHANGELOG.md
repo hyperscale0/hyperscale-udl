@@ -1,3 +1,14 @@
+# UDL 4.6.0
+
+Objects, fields, actions and instruments accept an optional `title`
+or `label`, and a document may carry `labels`. `projectDocumentSemantics`
+reads one document into plain-language semantics (owners, accounts,
+money effects, structures) shared by the Run portal and the Architect;
+`projectStructures` groups instruments the way a founder reads them.
+`udlFieldValueSchema` moves to its own module. Availability blockers
+carry a code and a reason; `subject_adapter_unbound` reads as
+`setup_required`.
+
 # UDL 4.5.1
 
 Documentation only. The specification README explains how to read the

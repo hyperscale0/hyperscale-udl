@@ -19,7 +19,7 @@ import { issue, type UdlIssue } from "./diagnostics.js";
 import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
-import { udlFieldValueSchema } from "./object-contract.js";
+import { udlFieldValueSchema } from "./field-value.js";
 
 export const RESERVED_OBJECT_NAMES = [
   "objectId",

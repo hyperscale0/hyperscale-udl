@@ -1,9 +1,18 @@
 import * as z from "zod";
+import { udlFieldValueSchema } from "./field-value.js";
+import {
+  projectDocumentSemantics,
+  presentationLabel,
+} from "./object-semantics.js";
+import type { DocumentSemantics } from "./object-semantics-schema.js";
+export * from "./object-semantics-schema.js";
+export {
+  projectDocumentSemantics,
+  presentationLabel,
+} from "./object-semantics.js";
 import {
   udlExternalIdSchema,
-  udlObjectIdSchema,
   type UdlDocument,
-  type UdlField,
   type UdlObjectField,
   type UdlObjectKind,
   type UdlSubjectRequirement,
@@ -69,10 +78,41 @@ export interface ObjectActionDiscovery extends ObjectActionContext {
   creationOnlyNames?: readonly string[];
   inputSchema: JsonSchemaDocument;
   fieldsSchema: JsonSchemaDocument;
-  availability:
-    | { status: "available" }
-    | { status: "unavailable"; code: string; message: string };
+  availability: ObjectActionAvailability;
 }
+export type ObjectActionBlockerCode =
+  | "permission_required"
+  | "state_changed"
+  | "not_due"
+  | "deadline_passed"
+  | "clock_pending"
+  | "condition_not_met"
+  | "already_used"
+  | "evidence_required"
+  | "account_unavailable"
+  | "insufficient_money"
+  | "setup_required"
+  | "invalid_input"
+  | "operation_pending";
+export type ObjectActionAvailability =
+  | { status: "available" }
+  | {
+      status: "requires_input";
+      subjectFields: readonly string[];
+      actionInputs: readonly string[];
+      parties: readonly string[];
+      reason: string;
+    }
+  | {
+      status: "unavailable";
+      blockers: readonly {
+        code: ObjectActionBlockerCode;
+        reason: string;
+        recheckAt?: string;
+      }[];
+    }
+  | { status: "unknown"; reason: string };
+
 export type EvidenceState =
   | "missing"
   | "pending"
@@ -107,6 +147,7 @@ export type RetainedObjectKind = Pick<
   creation: false;
 };
 export interface ObjectDiscovery {
+  semantics: DocumentSemantics;
   navigation: readonly { kind: string; title: string; creation: boolean }[];
   retainedKinds: readonly RetainedObjectKind[];
   productBuildId: string;
@@ -138,90 +179,6 @@ export interface ObjectActionResponse {
   evidence: readonly ObjectEvidenceSummary[];
 }
 
-const amount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
-const text = z.string().min(1).max(2048);
-
-/** Values, rather than declarations. The same validator feeds forms and admission. */
-export function udlFieldValueSchema(field: UdlField): z.ZodType {
-  let schema: z.ZodType;
-  switch (field.type) {
-    case "money":
-      schema = amount
-        .refine(
-          (value) =>
-            /^(0|[1-9][0-9]{0,17})$/.test(value) &&
-            (field.minimum === undefined ||
-              BigInt(value) >= BigInt(field.minimum)) &&
-            (field.maximum === undefined ||
-              BigInt(value) <= BigInt(field.maximum)),
-          "Money is outside its declared bounds",
-        )
-        .meta({
-          ...(field.minimum !== undefined
-            ? { "x-udl-minimum": field.minimum }
-            : {}),
-          ...(field.maximum !== undefined
-            ? { "x-udl-maximum": field.maximum }
-            : {}),
-        });
-      break;
-    case "account":
-      schema = text;
-      break;
-    case "ref":
-      schema = field.targetKind === "object" ? udlObjectIdSchema : text;
-      break;
-    case "date":
-      schema = z.iso.datetime({ offset: true });
-      break;
-    case "duration":
-      schema = z.number().int().safe().positive();
-      break;
-    case "text": {
-      let value = z
-        .string()
-        .min(field.minLength ?? 1)
-        .max(field.maxLength ?? 2048);
-      if (field.pattern) value = value.regex(new RegExp(field.pattern));
-      schema = value;
-      break;
-    }
-    case "integer": {
-      let value = z.number().int().safe();
-      if (field.minimum !== undefined) value = value.min(field.minimum);
-      if (field.maximum !== undefined) value = value.max(field.maximum);
-      schema = value;
-      break;
-    }
-    case "percent":
-      schema = z.number().int().min(0).max(10000);
-      break;
-    case "boolean":
-      schema = z.boolean();
-      break;
-    case "enum":
-      schema = z.enum(field.values);
-      break;
-    case "list": {
-      const item =
-        field.item === "money"
-          ? amount
-          : field.item === "date"
-            ? z.iso.datetime({ offset: true })
-            : field.item === "integer"
-              ? z.number().int().safe()
-              : field.item === "ref" && field.targetKind === "object"
-                ? udlObjectIdSchema
-                : text;
-      schema = z.array(item).max(field.maxItems);
-      break;
-    }
-  }
-  if ("value" in field && field.value !== undefined)
-    schema = z.literal(field.value);
-  if (field.description) schema = schema.describe(field.description);
-  return schema;
-}
 /** Creation accepts the full metadata union, with every value optional. */
 export function objectCreateSchema(kind: UdlObjectKind): z.ZodObject {
   return z.strictObject({
@@ -239,20 +196,22 @@ export function objectCreateSchema(kind: UdlObjectKind): z.ZodObject {
   });
 }
 
-/** Canonical UDL supplies meaning; core adds authority, lifecycle and readiness. */
+/** Canonical UDL supplies meaning; core adds authority, instance state and readiness. */
 export function projectObjectDiscovery(
   document: UdlDocument,
   build: Pick<ObjectDiscovery, "productBuildId" | "digest">,
 ): ObjectDiscovery {
+  const semantics = projectDocumentSemantics(document);
   return {
     ...build,
+    semantics,
     navigation: document.objects.map((kind) => ({
       kind: kind.id,
       title: kind.title,
       creation: true,
     })),
     retainedKinds: [],
-    kinds: document.objects.map((kind) => ({
+    kinds: semantics.objects.map((kind) => ({
       ...build,
       creation: true,
       kind: kind.id,
@@ -344,9 +303,7 @@ export function projectObjectDiscovery(
                   )!.name,
                 },
                 name: action.publicAction,
-                title: action.publicAction
-                  .replace(/_/g, " ")
-                  .replace(/^./, (letter) => letter.toUpperCase()),
+                title: action.title ?? presentationLabel(action.publicAction),
                 summary: action.summary,
                 instrument: instrument.id,
                 action: name,
@@ -393,8 +350,13 @@ export function projectObjectDiscovery(
                 availability: unbound
                   ? {
                       status: "unavailable" as const,
-                      code: "subject_adapter_unbound",
-                      message: `Adapter declaration ${unbound.binding} is unavailable`,
+                      blockers: [
+                        {
+                          code: "setup_required" as const,
+                          reason:
+                            "A required external check has not been set up.",
+                        },
+                      ],
                     }
                   : { status: "available" as const },
               },
@@ -559,13 +521,15 @@ export function validateObjectActionSubject(
   const issues: SubjectRequirementIssue[] = [];
   if (
     action.availability.status === "unavailable" &&
-    action.availability.code === "subject_adapter_unbound"
+    action.availability.blockers.some(
+      (blocker) => blocker.code === "setup_required",
+    )
   ) {
     issues.push({
       code: "subject_adapter_unbound",
       action: action.name,
       origin,
-      message: action.availability.message,
+      message: "A required external check has not been set up.",
     });
   }
   const admitted = new Set(action.requirements.map((field) => field.name));

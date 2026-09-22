@@ -52,8 +52,29 @@ export interface ObjectKindDiscovery {
   fields: readonly UdlObjectField[];
   authoredFields: readonly string[];
   columns: readonly string[];
+  filters: readonly {
+    field: string;
+    type: "text" | "enum" | "date" | "boolean" | "integer";
+  }[];
   createSchema: JsonSchemaDocument;
   actions: readonly ObjectActionDiscovery[];
+}
+export function objectKindFilters(
+  kind: UdlObjectKind,
+): ObjectKindDiscovery["filters"] {
+  return kind.columns.flatMap((column) => {
+    const field = kind.fields.find((item) => item.name === column);
+    return field &&
+      !field.sensitive &&
+      ["text", "enum", "date", "boolean", "integer"].includes(field.type)
+      ? [
+          {
+            field: column,
+            type: field.type as ObjectKindDiscovery["filters"][number]["type"],
+          },
+        ]
+      : [];
+  });
 }
 export type ObjectActionTarget =
   | { kind: "attachment"; attachment: string }
@@ -140,7 +161,7 @@ export interface ObjectActionState extends ObjectActionDiscovery {
 /** GET /v1/products/{productId}/objects. Core supplies the frozen Build identity. */
 export type RetainedObjectKind = Pick<
   ObjectKindDiscovery,
-  "kind" | "title" | "fields" | "authoredFields" | "columns"
+  "kind" | "title" | "fields" | "authoredFields" | "columns" | "filters"
 > & {
   productBuildId: string;
   digest: string;
@@ -172,6 +193,8 @@ export interface ObjectInstance {
 export interface ObjectListResponse {
   items: ObjectInstance[];
   nextCursor?: string;
+  total: number;
+  facets: Record<string, Record<string, number>>;
 }
 export interface ObjectActionResponse {
   object: ObjectInstance;
@@ -219,6 +242,7 @@ export function projectObjectDiscovery(
       fields: kind.fields,
       authoredFields: kind.authoredFields,
       columns: kind.columns,
+      filters: objectKindFilters(kind),
       createSchema: z.toJSONSchema(objectCreateSchema(kind), { io: "input" }),
       actions: document.instruments
         .filter((instrument) => instrument.subject === kind.id)

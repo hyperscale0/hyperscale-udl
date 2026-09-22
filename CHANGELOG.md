@@ -1,3 +1,23 @@
+# UDL 4.5.0
+
+Admission walks own data properties only, refuses properties JSON
+cannot retain, sparse arrays and duplicate members (including
+Unicode-escaped spellings, UDL1002 with the source offset), and counts
+UTF-8 key bytes against the budget. Ratio, date, duration and shift
+literals are type-checked before conversion instead of throwing.
+Inherited party, action, transition and input entries no longer satisfy
+references. A transfer whose two sides resolve to the same ledger
+account is refused before the finance checks. Calculation dependency
+cycles include aggregate anchors and filters. A public subject action
+requires its attachment; state gates require instrument references.
+Literal assignments obey the field's value schema, including enum
+values, bounds, text length and pattern. Reporting paths on scalar
+fields refuse invalid suffixes. One internal JSON writer owns recursive
+key ordering for field signatures, canonical bytes and evolution. The
+specification states the zero-money admission rule (only create moves
+with `allowZero` may skip a zero transfer) and that a newer matching
+pending or refused result defeats an older success.
+
 # UDL 4.4.1
 
 `ObjectActionsResponse` carries an optional `nextCursor` so agreement

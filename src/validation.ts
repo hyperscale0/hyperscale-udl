@@ -18,6 +18,8 @@ import {
 import { issue, type UdlIssue } from "./diagnostics.js";
 import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
+import { UDL_LIMITS } from "./limits.js";
+import { udlFieldValueSchema } from "./object-contract.js";
 
 export const RESERVED_OBJECT_NAMES = [
   "objectId",
@@ -33,7 +35,7 @@ function hasParty(
   instrument: UdlInstrument | undefined,
   name: string,
 ): boolean {
-  if (document.parties[name]) return true;
+  if (own(document.parties, name)) return true;
   if (!instrument?.subject) return false;
   return (
     document.objects
@@ -56,9 +58,9 @@ function moneyParty(
 ): boolean {
   return (
     hasParty(document, instrument, name) &&
-    (document.parties[name]?.kind === "business" ||
-      (!document.parties[name] && !!instrument?.subject) ||
-      (!instrument?.subject && document.parties[name]?.kind === "person"))
+    (own(document.parties, name)?.kind === "business" ||
+      (!own(document.parties, name) && !!instrument?.subject) ||
+      (!instrument?.subject && own(document.parties, name)?.kind === "person"))
   );
 }
 
@@ -72,34 +74,73 @@ export class UdlError extends Error {
   }
 }
 
-/** Reject cycles and oversized structures before the schema walks caller data. */
+/** Reject non-JSON properties before either the schema or serializer reads them. */
 function bounded(value: unknown): boolean {
   const active = new Set<object>();
+  const encoder = new TextEncoder();
   let nodes = 0;
   let bytes = 0;
+  const string = (value: string): boolean => {
+    if (value.length > UDL_LIMITS.maxTotalStringLength) return false;
+    bytes += encoder.encode(value).byteLength;
+    return bytes <= UDL_LIMITS.maxTotalStringLength;
+  };
   const visit = (v: unknown, depth: number): boolean => {
-    if (++nodes > 100000 || depth > 32) return false;
-    if (typeof v === "string") {
-      bytes += v.length;
-      return bytes <= 1048576;
-    }
+    if (++nodes > UDL_LIMITS.maxNodes || depth > UDL_LIMITS.maxDepth)
+      return false;
+    if (typeof v === "string") return string(v);
     if (v === null || typeof v === "boolean") return true;
     if (typeof v === "number") return Number.isSafeInteger(v);
     if (typeof v !== "object" || active.has(v)) return false;
+    const array = Array.isArray(v);
     if (
-      !Array.isArray(v) &&
+      !array &&
       Object.getPrototypeOf(v) !== Object.prototype &&
       Object.getPrototypeOf(v) !== null
     )
       return false;
+    const keys = Reflect.ownKeys(v);
+    if (
+      array &&
+      (v.length > UDL_LIMITS.maxNodes || keys.length !== v.length + 1)
+    )
+      return false;
     active.add(v);
-    const ok = Object.entries(v).every(
-      ([key, entry]) => key.length <= 240 && visit(entry, depth + 1),
-    );
+    for (const key of keys) {
+      if (array && key === "length") continue;
+      if (
+        typeof key !== "string" ||
+        key === "__proto__" ||
+        key.length > UDL_LIMITS.maxKeyLength ||
+        !string(key)
+      )
+        return false;
+      if (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= v.length))
+        return false;
+      const descriptor = Object.getOwnPropertyDescriptor(v, key);
+      if (
+        !descriptor?.enumerable ||
+        !("value" in descriptor) ||
+        !visit(descriptor.value, depth + 1)
+      )
+        return false;
+    }
     active.delete(v);
-    return ok;
+    return true;
   };
-  return visit(value, 0);
+  try {
+    return visit(value, 0);
+  } catch {
+    // Proxies may throw during reflection. They are not decoded JSON.
+    return false;
+  }
+}
+
+function own<T>(
+  record: Record<string, T> | undefined,
+  key: string,
+): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 const targetIds = (target: string | string[]): string[] =>
@@ -422,7 +463,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
   );
 
   for (const name of subjectPartyRoles)
-    if (document.parties[name])
+    if (own(document.parties, name))
       add(
         `$.parties.${name}`,
         `${name} is a reserved subject role`,
@@ -501,6 +542,17 @@ export function validateUdl(value: unknown): UdlValidationResult {
           } catch {
             add(where, "invalid text character class");
           }
+        }
+      }
+      if (f.type === "text" && f.value !== undefined) {
+        try {
+          if (
+            !udlFieldValueSchema({ ...f, value: undefined }).safeParse(f.value)
+              .success
+          )
+            add(where, `${f.name} constant violates its text constraints`);
+        } catch {
+          // Invalid character classes already have a diagnostic above.
         }
       }
       if (f.type === "ref") {
@@ -613,7 +665,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
     );
     for (const [attachmentIndex, attachment] of obj.attachments.entries()) {
       for (const [parameter, binding] of Object.entries(attachment.parties))
-        if ("party" in binding && !document.parties[binding.party])
+        if ("party" in binding && !own(document.parties, binding.party))
           add(
             `${base}.attachments[${attachmentIndex}].parties.${parameter}`,
             `unknown declared party ${binding.party}`,
@@ -666,10 +718,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
 
   const reportIds = new Set<string>();
   for (const [index, instrument] of document.instruments.entries()) {
-    for (const report of instrument.reports ?? []) {
-      const path = `$.instruments[${index}].reports`;
+    for (const [reportIndex, report] of (instrument.reports ?? []).entries()) {
+      const path = `$.instruments[${index}].reports[${reportIndex}]`;
       if (reportIds.has(report.identity.id))
-        add(path, `duplicate report ${report.identity.id}`);
+        add(path, `duplicate report ${report.identity.id}`, "UDL2001");
       reportIds.add(report.identity.id);
       try {
         validateReportDefinition(report, document);
@@ -687,6 +739,18 @@ export function validateUdl(value: unknown): UdlValidationResult {
     const base = `$.instruments[${index}]`;
     if (inst.subject && !byObjectId.has(inst.subject))
       add(base, `unknown subject object ${inst.subject}`);
+    if (
+      inst.subject &&
+      Object.values(inst.actions).some((action) => action.publicAction) &&
+      !byObjectId
+        .get(inst.subject)
+        ?.attachments.some((attachment) => attachment.instrument === inst.id)
+    )
+      add(
+        `${base}.subject`,
+        "public subject actions require an object attachment",
+        "UDL5001",
+      );
     const field = (
       p: string,
       input: readonly UdlField[] = [],
@@ -731,11 +795,33 @@ export function validateUdl(value: unknown): UdlValidationResult {
           : type === "integer" || type === "percent" || type === "duration"
             ? typeof v.literal === "number" &&
               Number.isSafeInteger(v.literal) &&
-              (type !== "percent" || (v.literal >= 0 && v.literal <= 10000))
-            : type === "boolean"
-              ? typeof v.literal === "boolean"
-              : typeof v.literal === "string";
+              (type !== "percent" || (v.literal >= 0 && v.literal <= 10000)) &&
+              (type !== "duration" || v.literal > 0)
+            : type === "date"
+              ? udlFieldValueSchema({
+                  name: "literal",
+                  type: "date",
+                }).safeParse(v.literal).success
+              : type === "boolean"
+                ? typeof v.literal === "boolean"
+                : typeof v.literal === "string";
       if (!valid) add(where, `literal must have type ${type}`);
+    };
+    const checkAssignment = (
+      value: UdlValue,
+      target: UdlField,
+      where: string,
+      action: UdlAction,
+    ) => {
+      checkValue(value, target.type, where, action.input, action);
+      if ("literal" in value) {
+        try {
+          if (!udlFieldValueSchema(target).safeParse(value.literal).success)
+            add(where, `literal violates constraints of ${target.name}`);
+        } catch {
+          // Invalid field constraints are reported by checkFields.
+        }
+      }
     };
     checkFields(inst.fields, `${base}.fields`, false, inst);
     const captures = new Set(
@@ -856,7 +942,8 @@ export function validateUdl(value: unknown): UdlValidationResult {
         where,
       );
       const dependencies = new Map<string, string[]>();
-      for (const c of calculations) {
+      for (const [calculationIndex, c] of calculations.entries()) {
+        const calculationPath = `${where}[${calculationIndex}]`;
         const arithmetic = ["sum", "subtract", "minimum", "divide"].includes(
           c.op,
         );
@@ -881,7 +968,18 @@ export function validateUdl(value: unknown): UdlValidationResult {
           checkValue(v, arithmetic ? resultType : "money", where, input, act);
         };
         if (c.op === "at") {
-          expect(c.list, "list", where, input, act);
+          const list = expect(c.list, "list", where, input, act);
+          if (
+            result?.type === "ref" &&
+            list?.type === "list" &&
+            (result.targetKind !== list.targetKind ||
+              result.target !== list.target)
+          )
+            add(
+              calculationPath,
+              "list extraction requires the same reference target",
+              "UDL5001",
+            );
           checkValue(c.position, "integer", where, input, act);
           if ("literal" in c.position && Number(c.position.literal) < 1)
             add(where, "list positions start at one");
@@ -889,6 +987,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
         }
         if (c.op === "aggregate") {
           const selected = checkSelection(c.selection, where, input);
+          operands.push(
+            { field: c.selection.anchor },
+            ...Object.values(c.selection.where ?? {}),
+          );
           if (
             c.measure !== "count" &&
             (!selected ||
@@ -911,11 +1013,24 @@ export function validateUdl(value: unknown): UdlValidationResult {
             checkValue(c.numerator, type, where, input, act);
             checkValue(c.denominator, type, where, input, act);
           }
-          if (
-            "literal" in c.denominator &&
-            BigInt(c.denominator.literal.toString()) <= 0n
-          )
-            add(where, "ratio denominator must be positive");
+          for (const [operand, positive] of [
+            [c.numerator, false],
+            [c.denominator, true],
+          ] as const) {
+            if (
+              "literal" in operand &&
+              (typeof operand.literal === "number" ||
+                (typeof operand.literal === "string" &&
+                  /^(0|[1-9][0-9]{0,17})$/.test(operand.literal))) &&
+              (positive
+                ? BigInt(operand.literal) <= 0n
+                : BigInt(operand.literal) < 0n)
+            )
+              add(
+                calculationPath,
+                "ratio numerator must be nonnegative and denominator positive",
+              );
+          }
           operands.push(c.numerator, c.denominator);
         }
         if (c.op === "sum" || c.op === "minimum") c.values.forEach(money);
@@ -946,7 +1061,19 @@ export function validateUdl(value: unknown): UdlValidationResult {
         }
         if (c.op === "shift") {
           checkValue(c.date, "date", where, input, act);
-          checkValue(c.milliseconds, "duration", where, input, act);
+          checkValue(
+            c.milliseconds,
+            "literal" in c.milliseconds ? "integer" : "duration",
+            where,
+            input,
+            act,
+          );
+          if (
+            "literal" in c.milliseconds &&
+            typeof c.milliseconds.literal === "number" &&
+            c.milliseconds.literal < 0
+          )
+            add(where, "shift milliseconds must be nonnegative");
           operands.push(c.date, c.milliseconds);
         }
         dependencies.set(
@@ -983,13 +1110,13 @@ export function validateUdl(value: unknown): UdlValidationResult {
     duplicate(inst.actionOrder, `${base}.actionOrder`);
     if (
       inst.actionOrder.length !== Object.keys(inst.actions).length ||
-      inst.actionOrder.some((a) => !inst.actions[a])
+      inst.actionOrder.some((a) => !own(inst.actions, a))
     )
       add(base, "actionOrder must list every action once");
     const reachable = new Set([inst.lifecycle.initial]);
     for (const [action, edge] of Object.entries(inst.lifecycle.transitions)) {
       if (
-        !inst.actions[action] ||
+        !own(inst.actions, action) ||
         action === "create" ||
         (edge.to !== "preserve" && !states.has(edge.to)) ||
         edge.from.some((s) => !states.has(s))
@@ -1050,6 +1177,12 @@ export function validateUdl(value: unknown): UdlValidationResult {
           }
         } else if (req.kind === "state") {
           const target = expect(req.reference, "ref", where, input, act);
+          if (target?.type === "ref" && target.targetKind !== "instrument")
+            add(
+              where,
+              "state gates require an instrument reference",
+              "UDL5001",
+            );
           if (
             target?.type === "ref" &&
             target.targetKind === "instrument" &&
@@ -1115,7 +1248,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
     checkRequirements(inst.invariants, `${base}.invariants`);
     for (const [actionName, action] of Object.entries(inst.actions)) {
       const where = `${base}.actions.${actionName}`;
-      if (actionName !== "create" && !inst.lifecycle.transitions[actionName])
+      if (
+        actionName !== "create" &&
+        !own(inst.lifecycle.transitions, actionName)
+      )
         add(where, "action needs a lifecycle transition", "UDL3001");
       if (action.subject) {
         const subBase = `${where}.subject`;
@@ -1127,7 +1263,25 @@ export function validateUdl(value: unknown): UdlValidationResult {
           `${subBase}.requirements`,
           true,
         );
-        for (const req of action.subject.requirements) {
+        duplicate(
+          action.subject.requirements.map(
+            (requirement) => requirement.field.name,
+          ),
+          `${subBase}.requirements`,
+        );
+        for (const [
+          requirementIndex,
+          req,
+        ] of action.subject.requirements.entries()) {
+          for (const condition of (req.when ?? []).flat()) {
+            const target = byId.get(condition.instrument);
+            if (!own(target?.actions, condition.action))
+              add(
+                `${subBase}.requirements[${requirementIndex}].when`,
+                "subject condition needs a declared instrument action",
+                "UDL5001",
+              );
+          }
           if (req.field.optional)
             add(
               `${subBase}.requirements`,
@@ -1162,7 +1316,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             );
             for (const reqField of adapter.snapshot.requirements) {
               const objectName =
-                adapter.renames?.[reqField.name] ?? reqField.name;
+                own(adapter.renames, reqField.name) ?? reqField.name;
               const requirement = action.subject.requirements.find(
                 (item) =>
                   (item.objectField ?? item.field.name) === objectName &&
@@ -1293,13 +1447,32 @@ export function validateUdl(value: unknown): UdlValidationResult {
             from.book !== to.book
           )
             add(where, "moves cannot cross account books", "UDL4001");
+          const accountOwner = (
+            field: Extract<UdlField, { type: "account" }>,
+            path: string,
+          ): string => {
+            if (typeof field.owner === "string") return `party:${field.owner}`;
+            const binding = field.owner.adapter;
+            const provider =
+              path === `self.${field.name}`
+                ? Object.values(inst.actions)
+                    .flatMap((action) => action.subject?.adapters ?? [])
+                    .find(
+                      (entry) => entry.binding === binding && entry.snapshot,
+                    )?.snapshot?.provider
+                : undefined;
+            return provider ? `provider:${provider}` : `binding:${binding}`;
+          };
           const sameBoundAccount =
             from?.type === "account" &&
             to?.type === "account" &&
-            from.owner !== "self" &&
-            JSON.stringify(from.owner) === JSON.stringify(to.owner) &&
+            (from.owner !== "self" ||
+              (move.from === `self.${from.name}` &&
+                move.to === `self.${to.name}`)) &&
+            accountOwner(from, move.from) === accountOwner(to, move.to) &&
             from.book === to.book &&
-            (from.key ?? "balance") === (to.key ?? "balance");
+            (from.key ?? (from.owner === "self" ? from.name : "balance")) ===
+              (to.key ?? (to.owner === "self" ? to.name : "balance"));
           if (move.from === move.to || sameBoundAccount)
             add(where, "a transfer needs distinct accounts", "UDL4001");
         } else expect(move.transfer, "text", where, action.input, action);
@@ -1325,7 +1498,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
           inst.calculate.some((c) => c.target === key)
         )
           add(where, `cannot write immutable field ${key}`);
-        else checkValue(v, target.type, where, action.input, action);
+        else checkAssignment(v, target, `${where}.set.${key}`, action);
       }
       const checkArguments = (
         targetId: string | undefined,
@@ -1334,14 +1507,14 @@ export function validateUdl(value: unknown): UdlValidationResult {
         binding?: string,
       ) => {
         const target = targetId
-          ? byId.get(targetId)?.actions[actionName]
+          ? own(byId.get(targetId)?.actions, actionName)
           : undefined;
         if (!target) return;
         for (const required of target.input)
           if (
             !required.optional &&
             !("value" in required && required.value !== undefined) &&
-            !(required.name in values)
+            !Object.hasOwn(values, required.name)
           )
             add(where, `missing target input ${required.name}`);
         for (const [name, value] of Object.entries(values)) {
@@ -1355,7 +1528,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
               add(where, "range binding requires an integer target input");
             continue;
           }
-          checkValue(value, declared.type, where, action.input, action);
+          checkAssignment(value, declared, where, action);
           if (declared.type === "ref" && "field" in value) {
             const supplied = field(value.field, action.input, action);
             if (
@@ -1414,10 +1587,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
               "invocation references an existing instance and cannot create it again",
             );
           const targetInst = byId.get(targetId);
-          if (!targetInst?.actions[call.action])
+          const targetAction = own(targetInst?.actions, call.action);
+          if (!targetInst || !targetAction)
             add(where, "invocation target must name a declared action");
           else if (!call.guard) {
-            const targetAction = targetInst.actions[call.action]!;
             if (
               inst.subject &&
               targetInst.subject &&

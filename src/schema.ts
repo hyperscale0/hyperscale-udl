@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { reportDefinitionSchema } from "./reporting.js";
+import { writeJson } from "./json.js";
 
 export const UDL_FORMAT_VERSION = 4 as const;
 /** Counts the root and every nested invocation, including selected and ranged children. */
@@ -546,17 +547,13 @@ export function sameObjectField(
   right: UdlObjectField,
 ): boolean {
   const signature = (field: UdlObjectField) =>
-    JSON.stringify(
+    writeJson(
       Object.fromEntries(
-        Object.entries(field)
-          .filter(
-            ([key, value]) =>
-              !["name", "description", "optional"].includes(key) &&
-              value !== undefined,
-          )
-          .sort(([left], [right]) =>
-            left < right ? -1 : left > right ? 1 : 0,
-          ),
+        Object.entries(field).filter(
+          ([key, value]) =>
+            !["name", "description", "optional"].includes(key) &&
+            value !== undefined,
+        ),
       ),
     );
   return signature(left) === signature(right);

@@ -75,19 +75,21 @@ export function issue(
     path,
     message,
     fix: fixes[code],
-    category:
-      code === "UDL1003"
-        ? "invalid_shape"
-        : code === "UDL1004"
-          ? "resource_limit"
-          : "invalid_semantics",
+    category: category(code),
   };
+}
+function category(code: string): string {
+  return code === "UDL1003"
+    ? "invalid_shape"
+    : code === "UDL1004"
+      ? "resource_limit"
+      : "invalid_semantics";
 }
 export const udlDiagnostics = Object.entries(fixes).map(([code, fix]) => ({
   code,
   fix,
   title: fix,
-  category: "invalid_semantics",
+  category: category(code),
   family: "document",
 }));
 export const udlDiagnostic = (code: string) =>

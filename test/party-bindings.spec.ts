@@ -174,8 +174,6 @@ test("Object field diagnostics distinguish missing fields from conflicting types
       conflict ? "subject_field_conflict" : "subject_field_unknown",
     );
   }
-  const document = programme();
-  document.objects[0]!.columns = ["missing"];
 });
 
 // WITNESS-PUBLIC-ACTION-NAME: restore title: action.summary in the projection.

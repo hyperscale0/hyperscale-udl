@@ -4,6 +4,21 @@ UDL is the typed contract between an HSX program and its executor. The grammar
 lives in `src/schema.ts`. Generate `udl.schema.json` with
 `bun scripts/emit-spec.ts --write`. There is no migration reader for earlier UDL.
 
+## JSON admission and canonical bytes
+
+The parser refuses duplicate JSON member names, including escaped spellings of
+one name. Decoded documents must contain finite JSON data. Accessors, cycles,
+sparse arrays, symbol keys, hidden properties and `__proto__` members refuse
+before schema parsing. Shared values count once per occurrence toward the budget.
+Admission permits at most 100,000 visited values, 32 nesting levels, 240 code units
+per key and 1 MiB of UTF-8 key and string data. Source text has a separate 1 MiB
+byte limit. These bounds live in `src/limits.ts`.
+
+Canonical JSON sorts object keys recursively, preserves array order and ends
+with a newline. Schema defaults are part of the admitted document. Equivalent
+key insertion orders and explicit defaults have the same digest. Object field
+compatibility and evolution comparisons use the same key ordering.
+
 ## Objects and subjects
 
 An object kind declares identity, title, authored field names, normalized fields
@@ -38,8 +53,9 @@ financial instrument outcome or null.
 
 ## Object operations
 
-The [Product runtime guide](../../../docs/public/runtime.md) owns the six routes
-for discovery, object creation, listing, retrieval, availability and execution.
+The host owns transport routes for object discovery, creation, listing,
+retrieval, action availability, execution and agreement evidence.
+`src/object-contract.ts` defines the language package's object projections.
 
 Execution binds `productBuildId`, `digest`, `target` and `expectedRevision`.
 The target identifies an attachment or an existing instance on that attachment.
@@ -67,7 +83,8 @@ Account creation and binding are executor work. Callers never supply account IDs
 Accounts declare `book: "cash" | "claim"`, defaulting to cash. Moves never cross books.
 Only claim accounts may declare `contra: true` and permit a negative balance.
 Party and adapter accounts share owner, book and key within a Product; the key
-defaults to `balance`. Adapter aliases for the same provider share that account.
+defaults to `balance`. Adapter aliases for the same provider share that account. Transfers between
+known aliases of one account refuse, including self fields with the same key.
 The executor scopes provider accounts to the tenant and Product, with the Product
 participant as ledger custodian. Providers are not parties. An account owned by
 self defaults its key to the field name. Named capital, premium, income, debt and
@@ -81,7 +98,8 @@ Disbursement moves cash from lender to borrower and claims from borrower debt to
 principal and profit receivables. Repayment moves borrower cash to lender cash and
 the same claim amounts from receivables back to borrower debt. Unearned profit is
 cancelled by the claim move alone. Write-off moves the principal claim to the
-lender's loss account, with no cash movement. Profit is earned when a piece is paid.
+lender's loss account, with no cash movement. The library declares when profit
+is earned: on payment, by schedule or at disbursement.
 These are ordinary paired moves in HSX, not executor loan rules.
 
 A value is `{literal: value}` or `{field: path}`. Paths start with `self`, `input`, `subject`
@@ -102,7 +120,9 @@ The executor checks the actual instance type at admission.
 
 Calculations form a finite dependency graph. `sum`, `subtract` and `minimum`
 operate on money or integer fields, with operands of the same type as the target.
-`rate`, `multiply`, `divide` and `shift` retain their typed operands. Rate and
+`rate`, `multiply`, `divide` and `shift` retain their typed operands. A shift's
+`milliseconds` operand is a duration field or a non-negative safe integer literal.
+Zero leaves the date unchanged; duration fields still require positive values. Rate and
 division round down. Weighted shares also round down; residual minor units go
 to the declared residual account. Cash and loss use this one rounding rule.
 There is no largest-remainder allocation. Subtraction refuses a negative result. Integer results must
@@ -130,7 +150,9 @@ edges name their source and destination states. Requirements and effects execute
 atomically under the same account and reference locks. `set` copies typed values
 to mutable fields. Action calculations read the locked snapshot and populate the
 action draft before requirements. Ordered moves and invocations follow admission;
-a move whose amount resolves to zero records nothing.
+a zero create move refuses unless the action declares `allowZero: true`.
+With that permission it records no transfer or capture. A reserve amount must
+always be positive.
 Invariants check the completed transaction. A due instant
 is inclusive; a deadline is exclusive. Clock delays never extend deadlines.
 
@@ -145,20 +167,25 @@ balances. An invariant holds before and after every affected transaction.
 `hours` converts a date path to its literal IANA timezone and accepts `[start,end)`.
 A start greater than end wraps midnight; equal endpoints admit no time.
 `evidence` declares subject, family, check, result and maxAge. The subject is an
-account or text id. The executor selects the newest completed check for that
-subject, family and kind, refuses stale evidence and requires the declared result.
+account or text id. The executor selects the newest matching subject binding,
+checks its retained Build, protected input digest and adapter declaration, then
+requires the declared result and age. A newer matching refusal or pending result
+prevents reuse of an older success.
 
 `invoke` supplies typed inputs to a linked action or bounded selection. Its graph
 is acyclic and bounded. Public names grant no authority; clock and parent actors
-remain executor-owned.
+remain executor-owned. A public action on a subject instrument requires an
+attachment on that object kind. State requirements refer to instrument instances;
+objects have no instrument lifecycle. List extraction preserves the reference
+namespace and target. Selection anchors and filters participate in calculation
+cycle detection. Literal assignments must satisfy the destination field's constraints.
 
-A captured move exposes a sealed `.status` path with reserved, posted, settled,
-reversed or voided. Voided means a reservation was released. Settled means the outbox received provider confirmation. Reversed
-means provider failure produced a reversal move. A library payout reconciliation
-compares that status with settled at its deadline. Account balances reflect the
-immediate internal ledger and cannot prove an individual bank completion.
-Aggregate bank reconciliation is an operations concern outside the contract.
-There is no special reconciliation or exception-creation clause.
+A captured transfer exposes its executor-owned `.status`. A boundary payout
+reserves before dispatch. Only matching terminal confirmation can post or void
+the reservation. An acknowledgement, transport failure or missing response
+keeps the reservation. A refund is a separately funded move. Account balances
+alone do not prove an external effect. The language adds no automatic
+provider-failure reversal or deadline settlement policy.
 
 ## Ten laws
 
@@ -183,20 +210,8 @@ There is no special reconciliation or exception-creation clause.
 
 ## Clause inventory
 
-Document: `udl`, `version`, `product`, `title`, `currency`, `parties`, `objects`, `instruments`.
-Object: `id`, `title`, `authoredFields`, `fields`, `columns`, `attachments`.
-Instrument: `id`, `subject`, `title`, `summary`, `fields`, `calculate`, `lifecycle`, `actions`,
-`actionOrder`, `invariants`, `examples`.
-Action: `summary`, `publicAction`, `event`, `actor`, `subject`, `input`, `requires`, `due`,
-`deadline`, `set`, `calculate`, `moves`, `invoke`.
-
-The owner reduced the kernel on 17 September 2026. `allocation`, `allocate`,
-`distribute`, `payout`, `reconcile`, `partitions`, `steps`, `drained`, the allocation
-requirement and the schedule requirement were removed. They described library
-work or duplicated accounts, comparisons and moves. The earlier UDL dialect's
-JSON Schema fields, x-extensions, bind maps, pieceStage, contributionStage,
-templateBinding, piecePlan, signedSum, engineOwned and captureEngine are absent.
-Typed fields, calculations, account ownership and linear captures replace them.
+The generated [JSON schema](../spec/udl.schema.json) owns the complete field
+inventory, defaults and constraints. `src/schema.ts` is its source.
 
 `calculate.aggregate` reads a typed selection and yields its count or a money sum. `calculate.ratio` computes floor(amount * numerator / denominator) with arbitrary-precision intermediates and refuses a zero denominator. Numerator and denominator share a numeric type. Selection order is a list of typed ascending paths, followed by identity as the final tie-break. `invoke {instrument, action: "create", input}` creates a child record in the same transaction; its inputs resolve in the caller, and the ordinary create actor and requirements still apply.
 
@@ -209,7 +224,8 @@ values. Each definition contains identity/version, scope, datasets, time,
 selection, calculation, validation, output and authority. The JSON schema defines
 all fields. Expressions form an ordered graph with backward references, typed
 money in integer minor units, explicit ratios and date operations. Source fields
-must exist in every bound instrument. Company instrument reports require
+must exist in every bound instrument. A scalar field cannot acquire a suffix;
+account balances use the declared `<account>.balance` path. Company instrument reports require
 cross-Build bindings and are not admitted in this version.
 
 Joins declare one-or-many cardinality, missing-record policy and aggregates;

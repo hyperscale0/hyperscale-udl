@@ -1,19 +1,6 @@
 import type { UdlDocument } from "./schema.js";
 import { issue, type UdlIssue } from "./diagnostics.js";
-
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]";
-  if (value && typeof value === "object")
-    return (
-      "{" +
-      Object.entries(value)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, entry]) => JSON.stringify(key) + ":" + stable(entry))
-        .join(",") +
-      "}"
-    );
-  return JSON.stringify(value) ?? "undefined";
-}
+import { writeJson } from "./json.js";
 
 /** Existing instruments are frozen; a live document may add independent instruments. */
 export function diffValidatedUdlEvolution(
@@ -26,11 +13,14 @@ export function diffValidatedUdlEvolution(
   if (live.product !== next.product || live.currency !== next.currency)
     refuse("$", "product identity and currency are immutable");
   for (const [name, party] of Object.entries(live.parties))
-    if (stable(party) !== stable(next.parties[name]))
+    if (
+      !Object.hasOwn(next.parties, name) ||
+      writeJson(party) !== writeJson(next.parties[name])
+    )
       refuse(`$.parties.${name}`, "a live party cannot change or disappear");
   for (const object of live.objects) {
     const updated = next.objects.find((o) => o.id === object.id);
-    if (!updated || stable(object) !== stable(updated))
+    if (!updated || writeJson(object) !== writeJson(updated))
       refuse(
         `$.objects.${object.id}`,
         "a live object kind cannot change or disappear; recreate development estates",
@@ -38,13 +28,13 @@ export function diffValidatedUdlEvolution(
   }
   for (const instrument of live.instruments) {
     const updated = next.instruments.find((i) => i.id === instrument.id);
-    if (!updated || stable(instrument) !== stable(updated))
+    if (!updated || writeJson(instrument) !== writeJson(updated))
       refuse(
         `$.instruments.${instrument.id}`,
         "a live instrument cannot change or disappear; recreate development estates",
       );
   }
-  if (stable(live) !== stable(next) && next.version <= live.version)
+  if (writeJson(live) !== writeJson(next) && next.version <= live.version)
     issues.push(
       issue(
         "UDL7002",

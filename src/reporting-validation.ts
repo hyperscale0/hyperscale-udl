@@ -6,6 +6,11 @@ import type {
 } from "./reporting.js";
 
 type Types = Map<string, ReportType>;
+const sealedFields = new Map([
+  ["id", "text"],
+  ["status", "text"],
+  ["createdAt", "date"],
+]);
 const integer: ReportType = { kind: "integer" };
 const boolean: ReportType = { kind: "boolean" };
 const date: ReportType = { kind: "date" };
@@ -195,21 +200,18 @@ export function validateReportDefinition(
           const field = instrument.fields.find(
             (entry) => entry.name === parts[0],
           );
-          const sealed = (
-            { id: "text", status: "text", createdAt: "date" } as Record<
-              string,
-              string
-            >
-          )[column.field];
+          const sealed = sealedFields.get(column.field);
           const actual =
             parts.length === 2 &&
             parts[1] === "balance" &&
             field?.type === "account"
               ? "money"
-              : (sealed ??
-                (field && ["ref", "account", "enum"].includes(field.type)
-                  ? "text"
-                  : field?.type));
+              : parts.length === 1
+                ? (sealed ??
+                  (field && ["ref", "account", "enum"].includes(field.type)
+                    ? "text"
+                    : field?.type))
+                : undefined;
           requireRule(
             actual === column.type.kind,
             `Unknown or mistyped report field ${id}.${column.field}`,

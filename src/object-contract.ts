@@ -511,7 +511,11 @@ export function objectActionState(
     ...action,
     requiredNow: action.requirements
       .filter((field) => {
-        const conditions = action.requirementConditions?.[field.name];
+        const conditions =
+          action.requirementConditions &&
+          Object.hasOwn(action.requirementConditions, field.name)
+            ? action.requirementConditions[field.name]
+            : undefined;
         if (
           conditions &&
           !requirementPossible(

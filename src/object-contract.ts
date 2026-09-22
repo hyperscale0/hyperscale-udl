@@ -118,6 +118,7 @@ export interface ObjectActionsResponse {
   revision: number;
   actions: readonly ObjectActionState[];
   evidence: readonly ObjectEvidenceSummary[];
+  nextCursor?: string;
 }
 export interface ObjectInstance {
   objectId: string;

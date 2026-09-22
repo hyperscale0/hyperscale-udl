@@ -1,3 +1,8 @@
+# UDL 4.4.1
+
+`ObjectActionsResponse` carries an optional `nextCursor` so agreement
+action lists page in bounded slices.
+
 # UDL 4.4.0
 
 Account fields accept an adapter owner (`owner: { adapter: binding }`),

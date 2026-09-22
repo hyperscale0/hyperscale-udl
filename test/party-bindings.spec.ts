@@ -177,3 +177,22 @@ test("Object field diagnostics distinguish missing fields from conflicting types
   const document = programme();
   document.objects[0]!.columns = ["missing"];
 });
+
+// WITNESS-PUBLIC-ACTION-NAME: restore title: action.summary in the projection.
+test("WITNESS-PUBLIC-ACTION-NAME labels use the exposed business action", () => {
+  const document = programme();
+  document.instruments[0]!.actions.create!.summary = "Create internal_sale";
+  const action = projectObjectDiscovery(document, {
+    productBuildId: "build",
+    digest: "digest",
+  }).kinds[0]!.actions[0]!;
+  expect({
+    name: action.name,
+    title: action.title,
+    summary: action.summary,
+  }).toEqual({
+    name: "sell",
+    title: "Sell",
+    summary: "Create internal_sale",
+  });
+});

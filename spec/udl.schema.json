@@ -763,6 +763,10 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
+              "allowZero": {
+                "type": "boolean",
+                "const": true
+              },
               "summary": {
                 "$ref": "#/$defs/__schema2"
               },

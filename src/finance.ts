@@ -8,6 +8,12 @@ import type {
 export interface FinanceIssue {
   path: string;
   message: string;
+  stranded?: {
+    state: string;
+    accounts: string[];
+    actions: string[];
+    paths: Record<string, string[]>;
+  };
 }
 type Sum = Map<string, bigint>;
 type Balance = Sum | null;
@@ -18,6 +24,8 @@ interface Hold {
 }
 interface State {
   status: string;
+  actions: string[];
+  paths: Map<string, string[]>;
   balances: Map<string, Balance>;
   holds: Map<string, Hold>;
 }
@@ -242,15 +250,23 @@ export function analyzeInstrumentFinance(
   };
   const initial: State = {
     status: instrument.lifecycle.initial,
+    actions: [],
+    paths: new Map(),
     balances: new Map([...owned].map((key) => [key, new Map()])),
     holds: new Map(),
   };
-  if (instrument.actions.create)
+  if (instrument.actions.create) {
     apply(initial, instrument.actions.create, "create");
+    for (const [account, balance] of initial.balances)
+      if (balance === null || balance.size)
+        initial.paths.set(account, ["create"]);
+  }
   const pending = [initial];
   const reached = new Map<string, State>();
   const copy = (state: State): State => ({
     status: state.status,
+    actions: [...state.actions],
+    paths: new Map(state.paths),
     balances: new Map(state.balances),
     holds: new Map([...state.holds].map(([key, hold]) => [key, { ...hold }])),
   });
@@ -275,6 +291,8 @@ export function analyzeInstrumentFinance(
           : new Map();
         if (before !== null && !same(before, after)) {
           joined.balances.set(account, null);
+          if (!before.size && state.paths.has(account))
+            joined.paths.set(account, state.paths.get(account)!);
           changed = true;
         }
       }
@@ -308,15 +326,38 @@ export function analyzeInstrumentFinance(
       ) ||
         state.holds.size)
     )
-      report(
-        `terminal state ${state.status} may strand owned money or an open reservation`,
-      );
+      problems.push({
+        path: ".actions",
+        message: `terminal state ${state.status} may strand owned money or an open reservation`,
+        stranded: {
+          state: state.status,
+          accounts: [...state.balances]
+            .filter(
+              ([account, balance]) =>
+                !shared.has(account) && (balance === null || balance.size > 0),
+            )
+            .map(([account]) => account.slice(5)),
+          actions: state.actions,
+          paths: Object.fromEntries(
+            [...state.paths].map(([account, path]) => [account.slice(5), path]),
+          ),
+        },
+      });
     for (const [name, edge] of edges) {
       const action = instrument.actions[name];
       if (!action) continue;
       const next = copy(state);
       if (edge.to !== "preserve") next.status = edge.to;
       apply(next, action, name);
+      next.actions.push(name);
+      for (const [account, balance] of next.balances) {
+        if (balance !== null && !balance.size) next.paths.delete(account);
+        else
+          next.paths.set(account, [
+            ...(state.paths.get(account) ?? state.actions),
+            name,
+          ]);
+      }
       pending.push(next);
     }
   }

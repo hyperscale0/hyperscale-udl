@@ -27,6 +27,12 @@ export interface UdlIssue {
   message: string;
   fix: string;
   category: string;
+  stranded?: {
+    state: string;
+    accounts: string[];
+    actions: string[];
+    paths: Record<string, string[]>;
+  };
 }
 const fixes: Record<UdlIssueCode, string> = {
   subject_field_conflict:

@@ -1,3 +1,10 @@
+# UDL 4.2.0
+
+Actions may declare `allowZero: true`; a create move of zero without it is a
+`zero_money` refusal. The finance helpers gain exact posted-fee collection and
+a remaining-target calculation for pools. Object contracts carry per-action
+subject evidence. Diagnostics gain evidence codes that reach callers directly.
+
 # UDL 4.1.0
 
 Second-person approval is deleted: approval requirements, distinct-member rules and their diagnostics leave the schema, the object contract and validation. A document that still declares them is rejected. Permissions are unchanged. Recreate development estates.

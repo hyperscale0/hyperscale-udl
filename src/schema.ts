@@ -389,6 +389,7 @@ const clock = z.strictObject({
     .optional(),
 });
 export const udlActionSchema = z.strictObject({
+  allowZero: z.literal(true).optional(),
   summary: text,
   publicAction: name.optional(),
   expansionLimit: z.literal(8192).optional(),

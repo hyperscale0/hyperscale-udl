@@ -1424,9 +1424,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
     }
     if (!issues.some((i) => i.path.startsWith(base)))
       issues.push(
-        ...analyzeInstrumentFinance(inst, document).map((i) =>
-          issue("UDL4001", base + i.path, i.message),
-        ),
+        ...analyzeInstrumentFinance(inst, document).map((i) => ({
+          ...issue("UDL4001", base + i.path, i.message),
+          ...(i.stranded ? { stranded: i.stranded } : {}),
+        })),
       );
   }
   const active = new Set<string>();

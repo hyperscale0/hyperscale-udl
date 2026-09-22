@@ -32,6 +32,8 @@ export type RequestAttribution = z.infer<typeof requestAttributionSchema>;
 export type JsonSchemaDocument = z.core.JSONSchema.BaseSchema;
 
 export interface ObjectKindDiscovery {
+  productBuildId: string;
+  digest: string;
   creation: true;
   kind: string;
   title: string;
@@ -50,6 +52,7 @@ export interface ObjectActionContext {
   target: ObjectActionTarget;
 }
 export interface ObjectActionDiscovery extends ObjectActionContext {
+  summary: string;
   name: string;
   title: string;
   instrument: string;
@@ -97,6 +100,7 @@ export type RetainedObjectKind = Pick<
   creation: false;
 };
 export interface ObjectDiscovery {
+  navigation: readonly { kind: string; title: string; creation: boolean }[];
   retainedKinds: readonly RetainedObjectKind[];
   productBuildId: string;
   digest: string;
@@ -234,8 +238,14 @@ export function projectObjectDiscovery(
 ): ObjectDiscovery {
   return {
     ...build,
+    navigation: document.objects.map((kind) => ({
+      kind: kind.id,
+      title: kind.title,
+      creation: true,
+    })),
     retainedKinds: [],
     kinds: document.objects.map((kind) => ({
+      ...build,
       creation: true,
       kind: kind.id,
       title: kind.title,
@@ -323,7 +333,10 @@ export function projectObjectDiscovery(
                   )!.name,
                 },
                 name: action.publicAction,
-                title: action.summary,
+                title: action.publicAction
+                  .replace(/_/g, " ")
+                  .replace(/^./, (letter) => letter.toUpperCase()),
+                summary: action.summary,
                 instrument: instrument.id,
                 action: name,
                 requirements: mergedReqs.map(

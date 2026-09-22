@@ -1,3 +1,11 @@
+# UDL 4.4.0
+
+Account fields accept an adapter owner (`owner: { adapter: binding }`),
+scoped to the tenant and Product with the Product participant as
+custodian. Action subjects declare the bindings they use; agreements
+retain the provider identity, and a missing, conflicting or changed
+binding refuses the action.
+
 # UDL 4.3.0
 
 Subject requirements carry optional `when` conditions (alternatives of

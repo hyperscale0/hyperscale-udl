@@ -54,19 +54,28 @@ A document declares SAR once. Money is a nonnegative minor-unit decimal string
 of at most 18 digits. Percentages are basis points, durations are positive integer
 milliseconds, and dates are timestamps with explicit offsets.
 
-An account field either binds a party or declares an account owned by the
-instrument. `owner: "self"` replaces the separate custody concept. Wallet, pool,
-receivable and entitlement are uses of accounts, not different field types.
-An external account is marked `external: true`. Its bank binding belongs to the
-executor; programs and callers never supply bank beneficiary ids. Account
-creation and binding are executor work, not caller-controlled instructions.
+An account field binds a party, the instrument itself, or an adapter. Party owners
+are names; `owner: "self"` provisions an account per instance. An adapter owner
+is `{ "adapter": "insurer" }`, where `insurer` names an adapter declared in one
+of the instrument's action subjects. The agreement retains that declaration's
+provider identity. Missing or conflicting bindings refuse with
+`subject_adapter_unbound`; changing an existing account binding refuses with
+`account_binding_changed`. A null declaration can describe a draft but cannot
+create an adapter-owned account.
+
+Account creation and binding are executor work. Callers never supply account IDs.
 Accounts declare `book: "cash" | "claim"`, defaulting to cash. Moves never cross books.
 Only claim accounts may declare `contra: true` and permit a negative balance.
-An external account must bind a party and use the cash book. A party-bound field
-is keyed by owner, book and key across the product. Its optional key defaults
-to `balance`, so payer and borrower can alias the same party account. An account
-owned by self defaults its key to the field name and is provisioned per instance.
-Named capital, profit income, debt and loss accounts declare explicit keys. `party.buyer` is the buyer's default cash account.
+Party and adapter accounts share owner, book and key within a Product; the key
+defaults to `balance`. Adapter aliases for the same provider share that account.
+The executor scopes provider accounts to the tenant and Product, with the Product
+participant as ledger custodian. Providers are not parties. An account owned by
+self defaults its key to the field name. Named capital, premium, income, debt and
+loss balances use explicit keys. `party.buyer` is the buyer's default cash account.
+
+A plain move to an adapter account credits its ledger balance. It does not prove
+an external payout. Provider confirmation still uses a boundary reservation and
+instruction-bound evidence. Account ownership adds no settlement operation.
 
 Disbursement moves cash from lender to borrower and claims from borrower debt to
 principal and profit receivables. Repayment moves borrower cash to lender cash and
@@ -84,7 +93,7 @@ declared typed references; later actions cannot replace them. A ref declares `ta
 a list of 1 to 16 distinct target ids in that namespace. Its stored value is an
 identity from one listed target. Path traversal exposes only fields
 with compatible types on every target. Nested refs combine their target sets;
-accounts must agree on owner, key, book, contra and external flags, and enums must
+accounts must agree on owner, key, book and contra flags, and enums must
 have the same values. A comparison or selection anchor must share a possible
 reference target. An invoked input must accept every possible supplied target.
 The executor checks the actual instance type at admission.
@@ -104,7 +113,7 @@ The only move instructions are `internal_transfer.create`,
 Create and reserve declare an amount, from account and to account. Reserve captures
 its executor-produced transfer identity into a declared self text field. Post and
 void consume that identity. Callers cannot create or replace captured identities.
-An external destination uses the same move vocabulary.
+Adapter-owned endpoints use the same move vocabulary.
 
 A loan, refund, payoff, write-off or distribution is library behavior built from
 accounts, calculations and ordered moves. None has a privileged executor clause.

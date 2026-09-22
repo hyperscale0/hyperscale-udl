@@ -73,7 +73,7 @@ export const udlFieldSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...fieldBase,
     type: z.literal("account"),
-    owner: name,
+    owner: z.union([name, z.strictObject({ adapter: name })]),
     key: name.optional(),
     book: z.enum(["cash", "claim"]).default("cash"),
     contra: z.literal(true).optional(),

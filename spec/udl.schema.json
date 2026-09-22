@@ -1922,7 +1922,23 @@
               "const": "account"
             },
             "owner": {
-              "$ref": "#/$defs/__schema1"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema1"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "adapter": {
+                      "$ref": "#/$defs/__schema1"
+                    }
+                  },
+                  "required": [
+                    "adapter"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
             },
             "key": {
               "$ref": "#/$defs/__schema1"

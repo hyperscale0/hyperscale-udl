@@ -153,7 +153,7 @@ function commonField(
       (field) =>
         field?.type !== "account" ||
         field.book !== first.book ||
-        field.owner !== first.owner ||
+        JSON.stringify(field.owner) !== JSON.stringify(first.owner) ||
         field.key !== first.key ||
         field.contra !== first.contra,
     )
@@ -455,8 +455,32 @@ export function validateUdl(value: unknown): UdlValidationResult {
           )
         )
           add(where, `${f.name} is a sealed instance field`);
+        if (f.type === "account" && typeof f.owner === "object") {
+          const binding = f.owner.adapter;
+          const declarations = Object.values(instrument?.actions ?? {})
+            .flatMap((action) => action.subject?.adapters ?? [])
+            .filter((entry) => entry.binding === binding);
+          if (!declarations.length)
+            add(
+              where,
+              `${f.name} needs adapter declaration ${binding}`,
+              "subject_adapter_unbound",
+            );
+          const providers = new Set(
+            declarations.flatMap((entry) =>
+              entry.snapshot ? [entry.snapshot.provider] : [],
+            ),
+          );
+          if (providers.size > 1)
+            add(
+              where,
+              `${binding} names conflicting providers`,
+              "subject_adapter_unbound",
+            );
+        }
         if (
           f.type === "account" &&
+          typeof f.owner === "string" &&
           f.owner !== "self" &&
           !moneyParty(document, instrument, f.owner)
         )
@@ -1269,14 +1293,14 @@ export function validateUdl(value: unknown): UdlValidationResult {
             from.book !== to.book
           )
             add(where, "moves cannot cross account books", "UDL4001");
-          const samePartyAccount =
+          const sameBoundAccount =
             from?.type === "account" &&
             to?.type === "account" &&
             from.owner !== "self" &&
-            from.owner === to.owner &&
+            JSON.stringify(from.owner) === JSON.stringify(to.owner) &&
             from.book === to.book &&
             (from.key ?? "balance") === (to.key ?? "balance");
-          if (move.from === move.to || samePartyAccount)
+          if (move.from === move.to || sameBoundAccount)
             add(where, "a transfer needs distinct accounts", "UDL4001");
         } else expect(move.transfer, "text", where, action.input, action);
       }

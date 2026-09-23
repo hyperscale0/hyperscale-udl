@@ -1,3 +1,8 @@
+# UDL 4.7.0
+
+Adds the generic `pass_through` move purpose for money excluded from company
+earnings and costs. Documents held earnings and capped receipt reversals.
+
 # UDL 4.6.0
 
 Objects, fields, actions and instruments accept an optional `title`

@@ -369,10 +369,23 @@ export const udlKernelOperationSchema = z.enum([
   "internal_transfer.post",
   "internal_transfer.void",
 ]);
+const moveEconomics = z.strictObject({
+  purpose: z.enum([
+    "earning",
+    "principal",
+    "participant_payout",
+    "internal",
+    "prepaid_credit",
+    "pass_through",
+  ]),
+  sourceParty: name,
+  reversalOf: path.optional(),
+});
 export const udlMoveSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     key: name,
     operation: z.literal("internal_transfer.create"),
+    economics: moveEconomics.optional(),
     capture: name.optional(),
     amount: value,
     from: path,
@@ -381,6 +394,7 @@ export const udlMoveSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     key: name,
     operation: z.literal("internal_transfer.reserve"),
+    economics: moveEconomics.optional(),
     boundary: z.strictObject({ adapter: name }).optional(),
     amount: value,
     from: path,
@@ -390,12 +404,14 @@ export const udlMoveSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     key: name,
     operation: z.literal("internal_transfer.post"),
+    economics: moveEconomics.optional(),
     capture: name.optional(),
     transfer: path,
   }),
   z.strictObject({
     key: name,
     operation: z.literal("internal_transfer.void"),
+    economics: moveEconomics.optional(),
     capture: name.optional(),
     transfer: path,
   }),

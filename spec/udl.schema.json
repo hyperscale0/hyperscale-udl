@@ -1019,7 +1019,7 @@
                 "maxItems": 16,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema55"
+                  "$ref": "#/$defs/__schema56"
                 }
               }
             },
@@ -1053,7 +1053,7 @@
           "maxItems": 16,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema56"
+            "$ref": "#/$defs/__schema57"
           }
         }
       },
@@ -2863,6 +2863,9 @@
               "type": "string",
               "const": "internal_transfer.create"
             },
+            "economics": {
+              "$ref": "#/$defs/__schema55"
+            },
             "capture": {
               "$ref": "#/$defs/__schema1"
             },
@@ -2894,6 +2897,9 @@
             "operation": {
               "type": "string",
               "const": "internal_transfer.reserve"
+            },
+            "economics": {
+              "$ref": "#/$defs/__schema55"
             },
             "boundary": {
               "type": "object",
@@ -2940,6 +2946,9 @@
               "type": "string",
               "const": "internal_transfer.post"
             },
+            "economics": {
+              "$ref": "#/$defs/__schema55"
+            },
             "capture": {
               "$ref": "#/$defs/__schema1"
             },
@@ -2964,6 +2973,9 @@
               "type": "string",
               "const": "internal_transfer.void"
             },
+            "economics": {
+              "$ref": "#/$defs/__schema55"
+            },
             "capture": {
               "$ref": "#/$defs/__schema1"
             },
@@ -2981,6 +2993,33 @@
       ]
     },
     "__schema55": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "earning",
+            "principal",
+            "participant_payout",
+            "internal",
+            "prepaid_credit",
+            "pass_through"
+          ]
+        },
+        "sourceParty": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "reversalOf": {
+          "$ref": "#/$defs/__schema16"
+        }
+      },
+      "required": [
+        "purpose",
+        "sourceParty"
+      ],
+      "additionalProperties": false
+    },
+    "__schema56": {
       "anyOf": [
         {
           "type": "object",
@@ -3095,14 +3134,14 @@
         }
       ]
     },
-    "__schema56": {
+    "__schema57": {
       "type": "object",
       "properties": {
         "name": {
           "$ref": "#/$defs/__schema2"
         },
         "input": {
-          "$ref": "#/$defs/__schema57"
+          "$ref": "#/$defs/__schema58"
         }
       },
       "required": [
@@ -3111,7 +3150,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema57": {
+    "__schema58": {
       "anyOf": [
         {
           "type": "string"
@@ -3128,7 +3167,7 @@
         {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema57"
+            "$ref": "#/$defs/__schema58"
           }
         },
         {
@@ -3137,7 +3176,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema57"
+            "$ref": "#/$defs/__schema58"
           }
         }
       ]

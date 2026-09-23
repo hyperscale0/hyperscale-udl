@@ -155,6 +155,23 @@ its executor-produced transfer identity into a declared self text field. Post an
 void consume that identity. Callers cannot create or replace captured identities.
 Adapter-owned endpoints use the same move vocabulary.
 
+Each move may declare `economics: { purpose, sourceParty, reversalOf? }`.
+Purpose is `earning`, `principal`, `participant_payout`, `internal`,
+`prepaid_credit`, or `pass_through`. Pass-through money is excluded from earnings
+and costs. `sourceParty` names an authored party whose retained
+participant must own the debit account. For an earning realized from company-held
+customer money, it identifies the retained payer instead. The debit must be an
+instrument account bound to the same agreement or a retained referenced agreement
+in the same Build with the same payer; the company credit must be outside the
+agreement. Evidence also retains the actual debit account participant.
+`reversalOf` is a transfer reference path. A reversal preserves purpose, Product, Build and agreement, debits the
+original recipient account and credits the original source participant. The
+combined refunds cannot exceed the original posted amount. A post inherits its
+reservation's economics; it cannot change them.
+The terminal ledger evidence keeps these fields with the agreement, Build,
+account participants, and move key. A move without economics has no inferred
+classification.
+
 A loan, refund, payoff, write-off or distribution is library behavior built from
 accounts, calculations and ordered moves. None has a privileged executor clause.
 Outstanding principal is an account balance. A schedule consists of explicit

@@ -2,12 +2,8 @@ import { expect, test } from "bun:test";
 import {
   canonicalDigest,
   serializeUdl,
-  parseUdl,
   validateUdl,
   sameObjectField,
-  diffValidatedUdlEvolution,
-  issue,
-  udlDiagnostic,
   objectActionState,
   type ObjectActionDiscovery,
 } from "../src/index.js";
@@ -84,7 +80,7 @@ test("canonical bytes ignore key insertion order and preserve array meaning", as
     { name: "Example", input: { a: { a: 2, z: 1 }, z: [1, 2] } },
   ];
   expect(await canonicalDigest(first)).toBe(await canonicalDigest(second));
-  expect(parseUdl(serializeUdl(first))).toEqual(first);
+  expect(JSON.parse(serializeUdl(first))).toEqual(first);
   second.instruments[0]!.examples![0]!.input = { a: { a: 2, z: 1 }, z: [2, 1] };
   expect(await canonicalDigest(first)).not.toBe(await canonicalDigest(second));
 });
@@ -105,35 +101,6 @@ test("field compatibility ignores nested family key insertion order", () => {
   expect(sameObjectField(left, right)).toBe(true);
   right.targetFamily.revision = 2;
   expect(sameObjectField(left, right)).toBe(false);
-});
-
-// Mutation: omit existing-party or version checks in diffValidatedUdlEvolution.
-test("evolution freezes parties and requires a version for independent additions", () => {
-  const live = reviewDocument();
-  live.parties = { constructor: { kind: "staff" as const } };
-  const next = structuredClone(live);
-  next.version++;
-  next.parties = {};
-  expect(
-    diffValidatedUdlEvolution(live, next).map((entry) => entry.code),
-  ).toContain("UDL7001");
-  next.parties = live.parties;
-  const added = structuredClone(live.instruments[0]!);
-  added.id = "added";
-  next.instruments.push(added);
-  expect(diffValidatedUdlEvolution(live, next)).toEqual([]);
-  next.version = live.version;
-  expect(
-    diffValidatedUdlEvolution(live, next).map((entry) => entry.code),
-  ).toContain("UDL7002");
-});
-
-// Mutation: restore unconditional invalid_semantics in the diagnostic catalogue.
-test("diagnostic explanations agree with issue categories", () => {
-  for (const code of ["UDL1003", "UDL1004"] as const)
-    expect(udlDiagnostic(code)?.category).toBe(
-      issue(code, "$", "refused").category,
-    );
 });
 
 // Mutation: remove the own-property condition lookup in objectActionState.
@@ -160,16 +127,4 @@ test("an inherited condition name cannot crash action availability", () => {
     "constructor",
     "code",
   ]);
-});
-
-// Mutation: omit the duplicate JSON member scan after JSON.parse.
-test("duplicate JSON declarations cannot overwrite earlier values", () => {
-  const source = JSON.stringify(reviewDocument());
-  expect(() =>
-    parseUdl(source.replace('"version":1', '"version":1,"version":2')),
-  ).toThrow("duplicate JSON member version");
-  expect(() =>
-    parseUdl(source.replace('"version":1', '"version":1,"\\u0076ersion":2')),
-  ).toThrow("duplicate JSON member version");
-  expect(parseUdl(source).version).toBe(1);
 });

@@ -20,27 +20,6 @@ import {
   type UdlInstrument,
 } from "./schema.js";
 
-export const requestAttributionSchema = z.union([
-  z.strictObject({
-    kind: z.literal("human"),
-    principalId: z.string().min(1),
-    humanId: z.string().min(1),
-    source: z.enum(["staff_session", "customer_session"]),
-  }),
-  z.strictObject({
-    kind: z.literal("machine"),
-    principalId: z.string().min(1),
-    source: z.enum(["api_key", "system"]),
-  }),
-  z.strictObject({
-    kind: z.literal("machine"),
-    principalId: z.string().min(1),
-    humanId: z.string().min(1),
-    source: z.literal("api_key_delegate"),
-  }),
-]);
-export type RequestAttribution = z.infer<typeof requestAttributionSchema>;
-
 export type JsonSchemaDocument = z.core.JSONSchema.BaseSchema;
 
 export interface ObjectKindDiscovery {
@@ -182,32 +161,6 @@ export interface ObjectDiscovery {
   productBuildId: string;
   digest: string;
   kinds: readonly ObjectKindDiscovery[];
-}
-export interface ObjectActionsResponse {
-  objectId: string;
-  revision: number;
-  actions: readonly ObjectActionState[];
-  evidence: readonly ObjectEvidenceSummary[];
-  nextCursor?: string;
-}
-export interface ObjectInstance {
-  objectId: string;
-  kind: string;
-  revision: number;
-  externalId?: string;
-  fields: Record<string, unknown>;
-  productBuildId: string;
-}
-export interface ObjectListResponse {
-  items: ObjectInstance[];
-  nextCursor?: string;
-  total: number;
-  facets: Record<string, Record<string, number>>;
-}
-export interface ObjectActionResponse {
-  object: ObjectInstance;
-  outcome: { instrument: string; instanceId: string; state: string } | null;
-  evidence: readonly ObjectEvidenceSummary[];
 }
 
 /** Creation accepts the full metadata union, with every value optional. */

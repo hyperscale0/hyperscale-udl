@@ -1,4 +1,0 @@
-# UDL 4
-
-- [Specification](spec/README.md)
-- [Schema](spec/udl.schema.json)

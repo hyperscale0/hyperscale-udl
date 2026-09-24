@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import {
   udlDocumentSchema,
   validateUdl,
-  mapUdlInstrumentReferences,
   type UdlDocument,
 } from "../src/index.js";
 
@@ -161,45 +160,4 @@ test("Mismatched selection.family refuses at validation", () => {
   if (!result.ok) {
     expect(result.issues.some((i) => i.code === "UDL5001")).toBe(true);
   }
-});
-
-test("Reference remapping between attachments preserves the family tuples on both sides", () => {
-  const doc = baseDocument();
-  const remapped = mapUdlInstrumentReferences(doc, (id) => `attached_${id}`);
-
-  expect(remapped.instruments[0]!.id).toBe("attached_plan");
-  expect(remapped.instruments[1]!.id).toBe("attached_limit");
-
-  const refField = remapped.instruments[0]!.fields[0]!;
-  expect(refField.type).toBe("ref");
-  if (refField.type === "ref") {
-    expect(refField.target).toBe("attached_limit");
-    expect(refField.targetFamily).toEqual({
-      module: "financing",
-      exportPath: "limits",
-      revision: 1,
-    });
-  }
-
-  const req = remapped.instruments[0]!.actions.create!.requires[0]!;
-  expect(req.kind).toBe("aggregate");
-  if (req.kind === "aggregate") {
-    expect(req.selection.instrument).toBe("attached_limit");
-    expect(req.selection.family).toEqual({
-      module: "financing",
-      exportPath: "limits",
-      revision: 1,
-    });
-  }
-
-  expect(remapped.instruments[0]!.family).toEqual({
-    module: "financing",
-    exportPath: "installments",
-    revision: 1,
-  });
-  expect(remapped.instruments[1]!.family).toEqual({
-    module: "financing",
-    exportPath: "limits",
-    revision: 1,
-  });
 });

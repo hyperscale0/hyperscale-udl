@@ -1,3 +1,18 @@
+# UDL 5.0.0
+
+Breaking: the package drops surface no host called. Removed the `udl` CLI
+and its `bin` entry, `parseUdl`, `canonicalizeUdl`,
+`diffValidatedUdlEvolution`, `udlDiagnostic`, `udlDiagnostics`, the
+UDL1001, UDL1002, UDL7001 and UDL7002 codes, `mapUdlInstrumentReferences`,
+`referencedUdlInstrumentIds`, `requestAttributionSchema` and
+`RequestAttribution`, and the wire interfaces `ObjectInstance`,
+`ObjectListResponse`, `ObjectActionsResponse` and `ObjectActionResponse`.
+Hosts own their wire types; Hyperscale infers them from its response schemas.
+Use `validateUdl` and `canonicalDigest` to admit and identify a document.
+
+The package no longer ships `docs/README.md`, a byte copy of
+`spec/README.md`. Read the specification at `spec/README.md`.
+
 # UDL 4.9.0
 
 Object kinds accept optional `entryActions`. Hosts admit enrolled customers to

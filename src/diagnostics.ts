@@ -9,8 +9,6 @@ export type UdlIssueCode =
   | "staff_role_unknown"
   | "product_party_unbound"
   | "product_party_invalid"
-  | "UDL1001"
-  | "UDL1002"
   | "UDL1003"
   | "UDL1004"
   | "UDL2001"
@@ -18,9 +16,7 @@ export type UdlIssueCode =
   | "UDL2010"
   | "UDL3001"
   | "UDL4001"
-  | "UDL5001"
-  | "UDL7001"
-  | "UDL7002";
+  | "UDL5001";
 export interface UdlIssue {
   code: UdlIssueCode;
   path: string;
@@ -51,8 +47,6 @@ const fixes: Record<UdlIssueCode, string> = {
   product_party_invalid:
     "Bind a business participant in the same tenant and environment.",
 
-  UDL1001: "Encode the source as UTF-8.",
-  UDL1002: "Repair JSON syntax.",
   UDL1003: "Use the UDL 4 typed grammar.",
   UDL1004: "Reduce the declared structure or expansion.",
   UDL2001: "Give each declaration a distinct name.",
@@ -62,8 +56,6 @@ const fixes: Record<UdlIssueCode, string> = {
   UDL4001:
     "Fund owned accounts before spending and close them with zero balances.",
   UDL5001: "Use a declared reference of the required type.",
-  UDL7001: "Preserve existing instance meaning or recreate the estate.",
-  UDL7002: "Increase the contract version.",
 };
 export function issue(
   code: UdlIssueCode,
@@ -85,12 +77,3 @@ function category(code: string): string {
       ? "resource_limit"
       : "invalid_semantics";
 }
-export const udlDiagnostics = Object.entries(fixes).map(([code, fix]) => ({
-  code,
-  fix,
-  title: fix,
-  category: category(code),
-  family: "document",
-}));
-export const udlDiagnostic = (code: string) =>
-  udlDiagnostics.find((d) => d.code === code);

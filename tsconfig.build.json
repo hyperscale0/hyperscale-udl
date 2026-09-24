@@ -15,10 +15,7 @@
     "sourceMap": true,
     "strict": true,
     "target": "ES2022",
-    // src/cli.ts is the published `udl` binary and reaches for node:fs and
-    // process. bun-types (a devDependency) declares both; no
-    // emitted .d.ts references it.
-    "types": ["bun-types"],
+    "types": [],
     "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts"]

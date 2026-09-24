@@ -1,10 +1,8 @@
 /**
  * Emits spec/udl.schema.json from the Zod grammar in src/schema.ts.
  *
- * The banner law is that the schema wins and prose drifts, so the published
- * spec is generated rather than written. `--write` regenerates the file and
- * `--check` fails when the committed content no longer matches the generator,
- * which is what keeps a grammar edit from shipping a stale spec.
+ * `--write` regenerates the file; `--check` fails when the committed spec no
+ * longer matches the grammar.
  */
 import * as z from "zod";
 

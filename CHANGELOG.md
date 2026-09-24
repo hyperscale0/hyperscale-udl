@@ -1,3 +1,10 @@
+# UDL 4.8.0
+
+Actions accept an optional `purpose` of `obligation` or `option`. An option
+action, such as an early cancellation, never counts as required work when it
+falls due. Object discovery lists each kind's attachments with title,
+instrument, parent attachment and standard block identity.
+
 # UDL 4.7.0
 
 Adds the generic `pass_through` move purpose for money excluded from company

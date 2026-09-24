@@ -430,6 +430,7 @@ const clock = z.strictObject({
 });
 export const udlActionSchema = z.strictObject({
   allowZero: z.literal(true).optional(),
+  purpose: z.enum(["obligation", "option"]).optional(),
   summary: text,
   title: text.optional(),
   publicAction: name.optional(),

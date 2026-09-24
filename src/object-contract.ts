@@ -44,6 +44,13 @@ export type RequestAttribution = z.infer<typeof requestAttributionSchema>;
 export type JsonSchemaDocument = z.core.JSONSchema.BaseSchema;
 
 export interface ObjectKindDiscovery {
+  attachments: readonly {
+    name: string;
+    title: string;
+    instrument: string;
+    parentAttachment: string | null;
+    block: { key: string; recordPath: string; headerDigest: string } | null;
+  }[];
   productBuildId: string;
   digest: string;
   creation: true;
@@ -163,6 +170,7 @@ export type RetainedObjectKind = Pick<
   ObjectKindDiscovery,
   "kind" | "title" | "fields" | "authoredFields" | "columns" | "filters"
 > & {
+  attachments: ObjectKindDiscovery["attachments"];
   productBuildId: string;
   digest: string;
   creation: false;
@@ -243,6 +251,17 @@ export function projectObjectDiscovery(
       authoredFields: kind.authoredFields,
       columns: kind.columns,
       filters: objectKindFilters(kind),
+      attachments: kind.attachments.map((attachment) => ({
+        name: attachment.name,
+        title:
+          attachment.title ??
+          document.instruments.find((item) => item.id === attachment.instrument)
+            ?.title ??
+          attachment.name,
+        instrument: attachment.instrument,
+        parentAttachment: attachment.parent ?? null,
+        block: null,
+      })),
       createSchema: z.toJSONSchema(objectCreateSchema(kind), { io: "input" }),
       actions: document.instruments
         .filter((instrument) => instrument.subject === kind.id)

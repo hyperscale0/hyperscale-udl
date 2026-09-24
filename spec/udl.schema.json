@@ -815,6 +815,13 @@
                 "type": "boolean",
                 "const": true
               },
+              "purpose": {
+                "type": "string",
+                "enum": [
+                  "obligation",
+                  "option"
+                ]
+              },
               "summary": {
                 "$ref": "#/$defs/__schema2"
               },

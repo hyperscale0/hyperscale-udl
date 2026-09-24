@@ -94,6 +94,14 @@
     "__schema3": {
       "type": "object",
       "properties": {
+        "entryActions": {
+          "minItems": 1,
+          "maxItems": 128,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema1"
+          }
+        },
         "id": {
           "$ref": "#/$defs/__schema4"
         },
@@ -705,6 +713,10 @@
     "__schema25": {
       "type": "object",
       "properties": {
+        "scope": {
+          "type": "string",
+          "const": "product"
+        },
         "reports": {
           "maxItems": 16,
           "type": "array",

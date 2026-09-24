@@ -236,6 +236,7 @@ export type SubjectPartyRole = (typeof subjectPartyRoles)[number];
 export type UdlObjectAttachment = z.infer<typeof udlObjectAttachmentSchema>;
 
 export const udlObjectKindSchema = z.strictObject({
+  entryActions: z.array(name).min(1).max(128).optional(),
   id: objectKindId,
   title: text,
   authoredFields: z.array(name).max(256),
@@ -510,6 +511,7 @@ export const udlLifecycleSchema = z.strictObject({
   ),
 });
 export const udlInstrumentSchema = z.strictObject({
+  scope: z.literal("product").optional(),
   reports: z.array(reportDefinitionSchema).max(16).optional(),
   revisioned: z.literal(true).optional(),
   family: udlFamilySchema.optional(),

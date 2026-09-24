@@ -71,6 +71,18 @@ Object instances carry `objectId`, `kind`, `revision`, optional `externalId`,
 `fields` and `productBuildId`. Action responses carry the object and either a
 financial instrument outcome or null.
 
+An object may declare `entryActions`, a list of exposed attachment creation
+names. The host admits an active enrolled customer only to an entry action whose
+actor is the session's `actor` role. Other records remain closed. Retained
+participants can read their record and use the actions granted to their roles;
+participation never changes the owner.
+
+An instrument may declare `scope: "product"`. Object creation can resolve a
+reference to that instrument on another record in the same Product when every
+retained party account matches the current bindings. Otherwise references stay
+on the current record. Create and approve shared limits once per Product or
+borrower; referencing them does not create a new limit.
+
 ## Object operations
 
 The host owns transport routes for object discovery, creation, listing,

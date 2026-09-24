@@ -1,3 +1,10 @@
+# UDL 4.9.0
+
+Object kinds accept optional `entryActions`. Hosts admit enrolled customers to
+these actor-bound creation actions before retaining their participation.
+Instruments accept optional `scope: "product"` for references shared across
+records with matching party accounts. References remain record-local by default.
+
 # UDL 4.8.0
 
 Actions accept an optional `purpose` of `obligation` or `option`. An option

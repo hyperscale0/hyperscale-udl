@@ -1419,6 +1419,63 @@ export function validateUdl(value: unknown): UdlValidationResult {
           }
         }
       for (const move of action.moves) {
+        if (move.economics) {
+          const economicsPath = `${where}.moves[${action.moves.indexOf(move)}].economics`;
+          if (!moneyParty(document, inst, move.economics.sourceParty))
+            add(
+              economicsPath,
+              `economic source party ${move.economics.sourceParty} is not bound to money`,
+              "economic_party_unbound",
+            );
+          const funding =
+            "amount" in move
+              ? [{ move, action }]
+              : Object.values(inst.actions)
+                  .flatMap((action) =>
+                    action.moves.map((move) => ({ move, action })),
+                  )
+                  .filter(
+                    ({ move: candidate }) =>
+                      candidate.operation === "internal_transfer.reserve" &&
+                      `self.${candidate.capture}` === move.transfer,
+                  );
+          if (
+            move.operation === "internal_transfer.void" ||
+            !funding.length ||
+            (move.economics.purpose !== "internal" &&
+              funding.some(({ move: fund, action: fundingAction }) => {
+                if (!("from" in fund)) return true;
+                return [fund.from, fund.to].some((path) => {
+                  const account = field(
+                    path,
+                    fundingAction.input,
+                    fundingAction,
+                  );
+                  return account?.type !== "account" || account.book !== "cash";
+                });
+              }))
+          )
+            add(
+              economicsPath,
+              "economic purpose requires a move that carries cash",
+              "economic_move_invalid",
+            );
+          if (
+            move.operation === "internal_transfer.post" &&
+            funding.some(
+              ({ move: fund }) =>
+                fund.economics &&
+                (fund.economics.purpose !== move.economics!.purpose ||
+                  fund.economics.sourceParty !== move.economics!.sourceParty ||
+                  fund.economics.reversalOf !== move.economics!.reversalOf),
+            )
+          )
+            add(
+              economicsPath,
+              "posting economics conflict with the reservation",
+              "economic_reservation_conflict",
+            );
+        }
         if (
           move.operation === "internal_transfer.reserve" &&
           move.boundary &&

@@ -1,4 +1,7 @@
 export type UdlIssueCode =
+  | "economic_party_unbound"
+  | "economic_move_invalid"
+  | "economic_reservation_conflict"
   | "subject_field_conflict"
   | "subject_field_unknown"
   | "subject_requirement_missing"
@@ -31,6 +34,12 @@ export interface UdlIssue {
   };
 }
 const fixes: Record<UdlIssueCode, string> = {
+  economic_party_unbound:
+    "Bind sourceParty to a money party retained by this attachment.",
+  economic_move_invalid:
+    "Declare a cash purpose on a cash transfer or its posting; use internal for non-cash accounting.",
+  economic_reservation_conflict:
+    "Keep the reservation's economics on its posting.",
   subject_field_conflict:
     "Rename the field or use matching types and constraints.",
   subject_field_unknown: "Name a declared subject requirement or object field.",

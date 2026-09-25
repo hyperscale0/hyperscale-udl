@@ -168,6 +168,12 @@ void consume that identity. Callers cannot create or replace captured identities
 Adapter-owned endpoints use the same move vocabulary.
 
 Each move may declare `economics: { purpose, sourceParty, reversalOf? }`.
+HSX attachment economics lower into this same move block on the attachment's
+instrument. There is no separate override at runtime. The attachment's party
+bindings include its economic source. Validation refuses an unbound money
+party, a cash purpose on non-cash accounts, a void with authored economics,
+and posting economics that conflict with the reservation. Non-cash accounting
+can retain the `internal` purpose.
 Purpose is `earning`, `principal`, `participant_payout`, `internal`,
 `prepaid_credit`, or `pass_through`. Pass-through money is excluded from earnings
 and costs. `sourceParty` names an authored party whose retained

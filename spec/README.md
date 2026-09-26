@@ -1,9 +1,9 @@
-# UDL 4
+# UDL 1
 
 UDL is the Universal Domain Language, the typed contract between an HSX program
 and its executor. The grammar
 lives in `src/schema.ts`. Generate `udl.schema.json` with
-`bun scripts/emit-spec.ts --write`. There is no migration reader for earlier UDL.
+`bun scripts/emit-spec.ts --write`.
 
 ## Reading a compiled program
 

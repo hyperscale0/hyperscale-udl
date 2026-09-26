@@ -7,7 +7,7 @@ import {
 
 function baseDocument(): UdlDocument {
   return udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "family_test",
     title: "Family Identity Test",

@@ -10,7 +10,7 @@ import {
 
 function programme() {
   return udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "shop",
     title: "Shop",

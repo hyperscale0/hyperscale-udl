@@ -3,7 +3,7 @@ import { udlDocumentSchema, validateUdl } from "../src/index.js";
 
 function document() {
   return udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "insurance",
     title: "Insurance",

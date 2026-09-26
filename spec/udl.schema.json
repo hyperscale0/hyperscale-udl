@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/hyperscale0/hyperscale-udl/main/spec/udl.schema.json",
-  "title": "UDL document, format version 4",
+  "title": "UDL document, format version 1",
   "description": "Generated from the Zod grammar in src/schema.ts by scripts/emit-spec.ts. Edits belong in the grammar. This schema pins document shape only; the semantic laws it cannot express are checked by src/validation.ts and test/.",
   "type": "object",
   "properties": {
     "udl": {
       "type": "number",
-      "const": 4
+      "const": 1
     },
     "version": {
       "exclusiveMinimum": 0,

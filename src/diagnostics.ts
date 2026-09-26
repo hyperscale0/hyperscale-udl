@@ -56,7 +56,7 @@ const fixes: Record<UdlIssueCode, string> = {
   product_party_invalid:
     "Bind a business participant in the same tenant and environment.",
 
-  UDL1003: "Use the UDL 4 typed grammar.",
+  UDL1003: "Use the UDL 1 typed grammar.",
   UDL1004: "Reduce the declared structure or expansion.",
   UDL2001: "Give each declaration a distinct name.",
   UDL2002: "Repair the named type or declaration.",

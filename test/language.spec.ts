@@ -7,7 +7,7 @@ import {
 
 function hold(): UdlDocument {
   return udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "shop",
     title: "Shop",
@@ -122,8 +122,8 @@ for (const [rule, mutate] of mutations)
     ]);
   });
 
-test("Earlier UDL formats have no migration reader", () => {
-  expect(udlDocumentSchema.safeParse({ ...hold(), udl: 3 }).success).toBe(
+test("A document in an earlier UDL format is refused", () => {
+  expect(udlDocumentSchema.safeParse({ ...hold(), udl: 4 }).success).toBe(
     false,
   );
 });
@@ -193,7 +193,7 @@ test("union reference paths require a compatible field on every target", () => {
     actionOrder: ["create"],
   });
   const document = udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "union",
     title: "Union",
@@ -287,7 +287,7 @@ test("invocation bounds count one alternative for a union reference", () => {
     second = record("second"),
     root = record("root");
   const document = udlDocumentSchema.parse({
-    udl: 4,
+    udl: 1,
     version: 1,
     product: "bounds",
     title: "Bounds",

@@ -1,4 +1,4 @@
-# UDL 4
+# UDL 1
 
 UDL, the Universal Domain Language, describes a company's objects, agreements,
 actions and money rules. HSX compiles to this typed contract. An executor reads

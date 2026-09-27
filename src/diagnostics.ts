@@ -10,7 +10,6 @@ export type UdlIssueCode =
   | "party_name_reserved"
   | "party_kind_mismatch"
   | "staff_role_unknown"
-  | "product_party_unbound"
   | "product_party_invalid"
   | "UDL1003"
   | "UDL1004"
@@ -51,8 +50,6 @@ const fixes: Record<UdlIssueCode, string> = {
     "Choose a party name other than owner, actor or operator.",
   party_kind_mismatch: "Use a business or subject role for money.",
   staff_role_unknown: "Use a registered staff permission role.",
-  product_party_unbound:
-    "Supply the consumed business in the Build party bindings.",
   product_party_invalid:
     "Bind a business participant in the same tenant and environment.",
 

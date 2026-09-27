@@ -885,6 +885,17 @@ export function validateUdl(value: unknown): UdlValidationResult {
             where,
             "selection window requires a date field on every selected instrument",
           );
+        if (
+          selection.overlaps &&
+          [selection.overlaps.start, selection.overlaps.end].some(
+            (name) =>
+              target.fields.find((f) => f.name === name)?.type !== "date",
+          )
+        )
+          add(
+            where,
+            "selection overlaps requires start and end date fields on every selected instrument",
+          );
         const reference = target.fields.find(
           (f) => f.name === selection.reference,
         );
@@ -916,6 +927,10 @@ export function validateUdl(value: unknown): UdlValidationResult {
               add(where, `selection filter ${key} has incompatible operands`);
           } else checkValue(value, selected.type, where, input);
         }
+      }
+      if (selection.overlaps) {
+        checkValue(selection.overlaps.from, "date", where, input);
+        checkValue(selection.overlaps.until, "date", where, input);
       }
       const first = targets[0];
       if (!first) return;

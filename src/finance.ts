@@ -98,9 +98,42 @@ export function analyzeInstrumentFinance(
   const problems: FinanceIssue[] = [];
   const report = (message: string) =>
     problems.push({ path: ".actions", message });
+  // A field some action sets is a free symbol: its default no longer holds.
+  const assigned = new Set(
+    Object.values(instrument.actions).flatMap((action) =>
+      Object.keys(action.set ?? {}).map((key) => `self.${key}`),
+    ),
+  );
+  const reads = (calc: object): string[] =>
+    JSON.stringify(calc)
+      .match(/"field":"[^"]+"/g)
+      ?.map((match) => match.slice(9, -1)) ?? [];
+  // Calculated fields downstream of the seeds, following opaque and linear calculations.
+  const downstream = (seeds: (field: string) => boolean): Set<string> => {
+    const found = new Set<string>();
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const calc of instrument.calculate) {
+        const target = `self.${calc.target}`;
+        if (found.has(target)) continue;
+        if (reads(calc).some((field) => seeds(field) || found.has(field))) {
+          found.add(target);
+          grew = true;
+        }
+      }
+    }
+    return found;
+  };
+  const balanceBound = downstream(
+    (field) => field.endsWith(".balance") || field.endsWith(".reserved"),
+  );
   const equations = new Map<string, Sum>();
   for (const field of instrument.fields)
-    if (field.type === "money" && field.value !== undefined)
+    if (
+      field.type === "money" &&
+      field.value !== undefined &&
+      !assigned.has(`self.${field.name}`)
+    )
       equations.set(
         `self.${field.name}`,
         new Map([["#", BigInt(field.value)]]),
@@ -146,9 +179,65 @@ export function analyzeInstrumentFinance(
     }
     return result!;
   }
+  // A top-level create admits the snapshot it reads; an invoked child create
+  // reads its parent's live subject but keeps the parent's snapshot.
+  const invokedCreate = (document?.instruments ?? []).some((owner) =>
+    Object.values(owner.actions).some((candidate) =>
+      (candidate.invoke ?? []).some(
+        (call) =>
+          "instrument" in call &&
+          call.instrument === instrument.id &&
+          call.action === "create",
+      ),
+    ),
+  );
   let invocation = 0;
   const apply = (state: State, action: UdlAction, name: string): void => {
     const scope = `${name}#${invocation++}`;
+    // An unknown balance becomes one opening symbol, so a whole-balance move cancels it.
+    const opening = `${scope}:opening:`;
+    for (const [account, balance] of state.balances)
+      if (balance === null)
+        state.balances.set(account, new Map([[`${opening}${account}`, 1n]]));
+    const start = new Map(state.balances);
+    // Moves read set fields after the set, so they get this invocation's symbol.
+    const changed = new Set(
+      Object.keys(action.set ?? {}).map((key) => `self.${key}`),
+    );
+    const stale = downstream((field) => changed.has(field));
+    let fresh = new Set<string>();
+    // An action that declares subject fields reads the live object, not the agreement.
+    const declared = new Set(
+      name === "create" && !invokedCreate
+        ? []
+        : (action.subject?.requirements ?? []).map(
+            (entry) => `subject.${entry.field.name}`,
+          ),
+    );
+    const live = new Set([
+      ...declared,
+      ...downstream((field) => declared.has(field)),
+    ]);
+    let reading = 0;
+    const external = (field: string) =>
+      /\.(balance|reserved)$/.test(field) && !owned.has(field.slice(0, -8));
+    const resolve = (sum: Sum): Balance => {
+      let result: Balance = new Map();
+      for (const [key, coefficient] of sum) {
+        const account = key.slice(0, -8);
+        const scoped =
+          balanceBound.has(key) ||
+          fresh.has(key) ||
+          live.has(key) ||
+          external(key);
+        const term: Balance =
+          key.endsWith(".balance") && owned.has(account)
+            ? (start.get(account) ?? null)
+            : new Map([[scoped ? `${scope}:${key}` : key, 1n]]);
+        result = add(result, term, coefficient);
+      }
+      return result;
+    };
     const calculated = new Map<string, Balance>();
     const local = new Map(
       (action.calculate ?? []).map((c) => [`self.${c.target}`, c]),
@@ -161,6 +250,9 @@ export function analyzeInstrumentFinance(
           owned.has(value.field.slice(0, -8))
         )
           return state.balances.get(value.field.slice(0, -8)) ?? null;
+        // Another account's balance moves between reads, so each read is its own symbol.
+        if (external(value.field))
+          return new Map([[`${scope}:${reading++}:${value.field}`, 1n]]);
         const calculation = local.get(value.field);
         if (calculation && !seen.has(value.field)) {
           const next = new Set([...seen, value.field]);
@@ -177,7 +269,7 @@ export function analyzeInstrumentFinance(
           return new Map([[`${scope}:${value.field}`, 1n]]);
         }
       }
-      return expand(raw(value, scope));
+      return resolve(expand(raw(value, scope)));
     };
     for (const requirement of action.requires)
       if (requirement.kind === "compare" && requirement.operator === "==") {
@@ -217,6 +309,7 @@ export function analyzeInstrumentFinance(
           ),
         );
     };
+    fresh = new Set([...changed, ...stale]);
     for (const move of action.moves) {
       if ("amount" in move) {
         const value = amount(move.amount);
@@ -240,13 +333,24 @@ export function analyzeInstrumentFinance(
         state.holds.delete(move.transfer);
       }
     }
-    if (
-      Object.keys(action.set ?? {}).some((key) =>
-        instrument.fields.some((f) => f.name === key && f.type === "money"),
-      )
-    ) {
-      for (const account of owned) state.balances.set(account, null);
-    }
+    // Old values of set fields are gone; this invocation's values become current.
+    const settle = (sum: Balance): Balance =>
+      sum === null ||
+      [...sum.keys()].some((key) => key.startsWith(opening) || fresh.has(key))
+        ? null
+        : new Map(
+            [...sum].map(([key, value]) => {
+              const field = key.slice(scope.length + 1);
+              return key.startsWith(`${scope}:`) &&
+                fresh.has(field) &&
+                !balanceBound.has(field)
+                ? [field, value]
+                : [key, value];
+            }),
+          );
+    for (const [account, balance] of state.balances)
+      state.balances.set(account, settle(balance));
+    for (const hold of state.holds.values()) hold.amount = settle(hold.amount);
   };
   const initial: State = {
     status: instrument.lifecycle.initial,

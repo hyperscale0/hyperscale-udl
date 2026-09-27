@@ -2497,6 +2497,30 @@
           ],
           "additionalProperties": false
         },
+        "overlaps": {
+          "type": "object",
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "end": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "from": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "until": {
+              "$ref": "#/$defs/__schema44"
+            }
+          },
+          "required": [
+            "start",
+            "end",
+            "from",
+            "until"
+          ],
+          "additionalProperties": false
+        },
         "where": {
           "type": "object",
           "propertyNames": {

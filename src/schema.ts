@@ -258,6 +258,10 @@ const selection = z.strictObject({
   window: z
     .strictObject({ field: name, milliseconds: integer.positive() })
     .optional(),
+  /** Rows whose half-open [start, end) period meets [from, until). */
+  overlaps: z
+    .strictObject({ start: name, end: name, from: value, until: value })
+    .optional(),
   where: z
     .record(path, value)
     .refine(

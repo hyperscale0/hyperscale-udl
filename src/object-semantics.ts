@@ -24,8 +24,9 @@ export function presentationLabel(name: string): string {
 }
 /**
  * A state is terminal when no transition lists it in `from`, so nothing can
- * leave it. Every "is this finished" answer (lifecycle metadata, the close
- * guard, open records) reads this rule.
+ * leave it. Lifecycle metadata reads this rule. The close guard and open
+ * records start from it and also drop exits a parent runs or a passed
+ * deadline has shut (the engine's `openInstanceFilter`).
  */
 export function isTerminalState(
   instrument: UdlInstrument,

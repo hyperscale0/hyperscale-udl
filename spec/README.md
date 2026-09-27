@@ -93,9 +93,10 @@ Execution binds `productBuildId`, `digest`, `target` and `expectedRevision`.
 The target identifies an attachment or an existing instance on that attachment.
 The optional `fields` collect subject metadata; optional `input` carries the action's typed input.
 Missing requirements refuse execution. Callers reuse an idempotency key only for
-retries of the same request. Create for may name `ownerPrincipalId` when a staff
-session holds `desk.products.objects_write` or the Product's own API key calls
-without decision authority. Ordinary ownership comes from the session.
+retries of the same request. A staff session holding
+`desk.products.objects_write` or the Product's own API key may name a customer in
+`onBehalfOf`; the call then runs with that customer's authority and a create
+makes that customer the owner. Ordinary ownership comes from the session.
 
 ## Accounts and money
 
@@ -214,9 +215,13 @@ is inclusive; a deadline is exclusive. Clock delays never extend deadlines.
 
 Requirements are compare, state, unique, aggregate, evidence and hours.
 A typed selection names one instrument or a bounded union, a reference field,
-anchor, accepted states and row limit. Exceeding the limit refuses rather than
+anchor, accepted states and row limit. The reference is a `ref`, matched on the
+anchored record, or an `account` field, matched on the anchored party's account. Exceeding the limit refuses rather than
 truncates. Optional equality filters apply to every selected type. An optional
 window selects date values between `self.now - milliseconds` and `self.now`.
+Optional `overlaps {start, end, from, until}` keeps rows whose half-open
+`[start, end)` date fields intersect `[from, until)`; a row with either field
+unset never overlaps.
 Aggregate sums use typed paths on the selected records, including account
 balances. An invariant holds before and after every affected transaction.
 

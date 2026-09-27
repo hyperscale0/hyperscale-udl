@@ -93,8 +93,9 @@ Execution binds `productBuildId`, `digest`, `target` and `expectedRevision`.
 The target identifies an attachment or an existing instance on that attachment.
 The optional `fields` collect subject metadata; optional `input` carries the action's typed input.
 Missing requirements refuse execution. Callers reuse an idempotency key only for
-retries of the same request. Staff Create for may name `ownerPrincipalId` through
-its authorized path; ordinary ownership comes from the session.
+retries of the same request. Create for may name `ownerPrincipalId` when a staff
+session holds `desk.products.objects_write` or the Product's own API key calls
+without decision authority. Ordinary ownership comes from the session.
 
 ## Accounts and money
 
@@ -269,6 +270,8 @@ The generated [JSON schema](../spec/udl.schema.json) owns the complete field
 inventory, defaults and constraints. `src/schema.ts` is its source.
 
 `calculate.aggregate` reads a typed selection and yields its count or a money sum. `calculate.ratio` computes floor(amount * numerator / denominator) with arbitrary-precision intermediates and refuses a zero denominator. Numerator and denominator share a numeric type. Selection order is a list of typed ascending paths, followed by identity as the final tie-break. `invoke {instrument, action: "create", input}` creates a child record in the same transaction; its inputs resolve in the caller, and the ordinary create actor and requirements still apply.
+
+`calculate.annuity` returns the principal or interest `part` of one row of a monthly amortization table for `amount` at an annual `rate` in basis points over `periods` rows. The instalment is amount * r / (1 - (1 + r)^-periods) with r = rate / 120000, rounded half up to the minor unit. Each row's interest is the declining balance times r, rounded half up. The last row repays the remaining balance, so it absorbs the rounding. A position outside 1 through `periods` refuses. For 1,200,000 at 1800 over 12 rows, rows 1 to 11 total 110,016, row 12 totals 110,019, and interest totals 120,195. This is the only calculation that rounds half up.
 
 `calculate.at` reads a typed list at a one-based position and refuses an out-of-range index. Its result has the list item type. Integer divide accepts integer operands and rounds down. Every move may capture its transfer identity into a declared self text field; reserve requires a capture. Captures and their status paths are executor-owned.
 

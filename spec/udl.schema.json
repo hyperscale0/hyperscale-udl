@@ -2325,6 +2325,47 @@
             },
             "op": {
               "type": "string",
+              "const": "annuity"
+            },
+            "amount": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "rate": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "periods": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "position": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "part": {
+              "type": "string",
+              "enum": [
+                "principal",
+                "interest"
+              ]
+            }
+          },
+          "required": [
+            "target",
+            "op",
+            "amount",
+            "rate",
+            "periods",
+            "position",
+            "part"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "op": {
+              "type": "string",
               "const": "shift"
             },
             "date": {

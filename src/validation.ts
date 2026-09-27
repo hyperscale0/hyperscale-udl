@@ -1059,6 +1059,13 @@ export function validateUdl(value: unknown): UdlValidationResult {
               "money multiplier must be nonnegative and divisor must be positive",
             );
         }
+        if (c.op === "annuity") {
+          money(c.amount);
+          checkValue(c.rate, "percent", where, input, act);
+          checkValue(c.periods, "integer", where, input, act);
+          checkValue(c.position, "integer", where, input, act);
+          operands.push(c.rate, c.periods, c.position);
+        }
         if (c.op === "shift") {
           checkValue(c.date, "date", where, input, act);
           checkValue(

@@ -320,6 +320,15 @@ export const udlCalculationSchema = z.discriminatedUnion("op", [
   }),
   z.strictObject({
     target: name,
+    op: z.literal("annuity"),
+    amount: value,
+    rate: value,
+    periods: value,
+    position: value,
+    part: z.enum(["principal", "interest"]),
+  }),
+  z.strictObject({
+    target: name,
     op: z.literal("shift"),
     date: value,
     milliseconds: value,

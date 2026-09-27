@@ -3,6 +3,12 @@ import { udlObjectIdSchema, type UdlField } from "./schema.js";
 
 const amount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
 const text = z.string().min(1).max(2048);
+// HSX dates are instants; say so when a caller sends a calendar date.
+const dateTime = z.iso.datetime({
+  offset: true,
+  error:
+    "A date field takes an ISO 8601 date-time with an offset, such as 2026-12-01T00:00:00Z",
+});
 
 /** Values, rather than declarations. The same validator feeds forms and admission. */
 export function udlFieldValueSchema(field: UdlField): z.ZodType {
@@ -35,7 +41,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
       schema = field.targetKind === "object" ? udlObjectIdSchema : text;
       break;
     case "date":
-      schema = z.iso.datetime({ offset: true });
+      schema = dateTime;
       break;
     case "duration":
       schema = z.number().int().safe().positive();
@@ -70,7 +76,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
         field.item === "money"
           ? amount
           : field.item === "date"
-            ? z.iso.datetime({ offset: true })
+            ? dateTime
             : field.item === "integer"
               ? z.number().int().safe()
               : field.item === "ref" && field.targetKind === "object"

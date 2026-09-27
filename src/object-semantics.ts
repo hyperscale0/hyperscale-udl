@@ -22,6 +22,19 @@ export function presentationLabel(name: string): string {
     .replace(/_/g, " ")
     .replace(/^./, (letter) => letter.toUpperCase());
 }
+/**
+ * A state is terminal when no transition lists it in `from`, so nothing can
+ * leave it. Every "is this finished" answer (lifecycle metadata, the close
+ * guard, open records) reads this rule.
+ */
+export function isTerminalState(
+  instrument: UdlInstrument,
+  state: string,
+): boolean {
+  return !Object.values(instrument.lifecycle.transitions).some((transition) =>
+    transition.from.includes(state),
+  );
+}
 const labelled = <T extends UdlField>(field: T): T => ({
   ...field,
   label: field.label ?? presentationLabel(field.name),
@@ -347,9 +360,7 @@ export function projectDocumentSemantics(
         states: instrument.lifecycle.states.map((name) => ({
           name,
           label: instrument.lifecycle.labels?.[name] ?? presentationLabel(name),
-          terminal: !Object.values(instrument.lifecycle.transitions).some(
-            (transition) => transition.from.includes(name),
-          ),
+          terminal: isTerminalState(instrument, name),
         })),
         cancellationActions: [],
       },

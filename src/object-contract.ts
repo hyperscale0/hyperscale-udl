@@ -9,6 +9,7 @@ export * from "./object-semantics-schema.js";
 export {
   projectDocumentSemantics,
   presentationLabel,
+  isTerminalState,
 } from "./object-semantics.js";
 import {
   udlExternalIdSchema,

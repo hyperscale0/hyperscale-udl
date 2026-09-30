@@ -196,6 +196,11 @@ export const udlSubjectRequirementSchema = z.strictObject({
 });
 
 export const adapterSubjectSnapshotSchema = z.strictObject({
+  onboarding: z
+    .array(z.enum(["person", "organization"]))
+    .min(1)
+    .max(2)
+    .optional(),
   provider: text,
   capability: text,
   operation: text,

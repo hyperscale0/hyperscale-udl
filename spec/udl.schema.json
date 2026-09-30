@@ -1002,14 +1002,14 @@
                 "maxItems": 128,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema52"
+                  "$ref": "#/$defs/__schema53"
                 }
               },
               "due": {
-                "$ref": "#/$defs/__schema53"
+                "$ref": "#/$defs/__schema54"
               },
               "deadline": {
-                "$ref": "#/$defs/__schema53"
+                "$ref": "#/$defs/__schema54"
               },
               "set": {
                 "type": "object",
@@ -1031,14 +1031,14 @@
                 "maxItems": 256,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema54"
+                  "$ref": "#/$defs/__schema55"
                 }
               },
               "invoke": {
                 "maxItems": 16,
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema56"
+                  "$ref": "#/$defs/__schema57"
                 }
               }
             },
@@ -1065,14 +1065,14 @@
           "maxItems": 128,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema52"
+            "$ref": "#/$defs/__schema53"
           }
         },
         "examples": {
           "maxItems": 16,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema57"
+            "$ref": "#/$defs/__schema58"
           }
         }
       },
@@ -2651,6 +2651,14 @@
             {
               "type": "object",
               "properties": {
+                "onboarding": {
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema52"
+                  }
+                },
                 "provider": {
                   "$ref": "#/$defs/__schema2"
                 },
@@ -2703,6 +2711,13 @@
       "additionalProperties": false
     },
     "__schema52": {
+      "type": "string",
+      "enum": [
+        "person",
+        "organization"
+      ]
+    },
+    "__schema53": {
       "oneOf": [
         {
           "type": "object",
@@ -2886,7 +2901,7 @@
         }
       ]
     },
-    "__schema53": {
+    "__schema54": {
       "type": "object",
       "properties": {
         "at": {
@@ -2935,7 +2950,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema54": {
+    "__schema55": {
       "oneOf": [
         {
           "type": "object",
@@ -2948,7 +2963,7 @@
               "const": "internal_transfer.create"
             },
             "economics": {
-              "$ref": "#/$defs/__schema55"
+              "$ref": "#/$defs/__schema56"
             },
             "capture": {
               "$ref": "#/$defs/__schema1"
@@ -2983,7 +2998,7 @@
               "const": "internal_transfer.reserve"
             },
             "economics": {
-              "$ref": "#/$defs/__schema55"
+              "$ref": "#/$defs/__schema56"
             },
             "boundary": {
               "type": "object",
@@ -3031,7 +3046,7 @@
               "const": "internal_transfer.post"
             },
             "economics": {
-              "$ref": "#/$defs/__schema55"
+              "$ref": "#/$defs/__schema56"
             },
             "capture": {
               "$ref": "#/$defs/__schema1"
@@ -3058,7 +3073,7 @@
               "const": "internal_transfer.void"
             },
             "economics": {
-              "$ref": "#/$defs/__schema55"
+              "$ref": "#/$defs/__schema56"
             },
             "capture": {
               "$ref": "#/$defs/__schema1"
@@ -3076,7 +3091,7 @@
         }
       ]
     },
-    "__schema55": {
+    "__schema56": {
       "type": "object",
       "properties": {
         "purpose": {
@@ -3103,7 +3118,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema56": {
+    "__schema57": {
       "anyOf": [
         {
           "type": "object",
@@ -3218,14 +3233,14 @@
         }
       ]
     },
-    "__schema57": {
+    "__schema58": {
       "type": "object",
       "properties": {
         "name": {
           "$ref": "#/$defs/__schema2"
         },
         "input": {
-          "$ref": "#/$defs/__schema58"
+          "$ref": "#/$defs/__schema59"
         }
       },
       "required": [
@@ -3234,7 +3249,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema58": {
+    "__schema59": {
       "anyOf": [
         {
           "type": "string"
@@ -3251,7 +3266,7 @@
         {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema58"
+            "$ref": "#/$defs/__schema59"
           }
         },
         {
@@ -3260,7 +3275,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema58"
+            "$ref": "#/$defs/__schema59"
           }
         }
       ]

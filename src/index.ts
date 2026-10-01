@@ -6,6 +6,7 @@ export {
   RESERVED_OBJECT_NAMES,
   assertValidUdl,
   resolveField,
+  sameAccount,
   resolveSubjectRequirement,
   UdlError,
   type UdlValidationResult,

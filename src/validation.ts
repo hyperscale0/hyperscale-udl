@@ -234,6 +234,47 @@ export function resolveField(
   return resolvePath(document, instrument, path, input, new Map(), action);
 }
 
+/** The account identity used by the distinct-account transfer rule. */
+export function sameAccount(
+  document: UdlDocument,
+  instrument: UdlInstrument,
+  fromPath: string,
+  toPath: string,
+  input: readonly UdlField[] = [],
+  action?: UdlAction,
+): boolean {
+  const from = resolveField(document, instrument, fromPath, input, action);
+  const to = resolveField(document, instrument, toPath, input, action);
+  const accountOwner = (
+    field: Extract<UdlField, { type: "account" }>,
+    path: string,
+  ): string => {
+    if (typeof field.owner === "string") return `party:${field.owner}`;
+    const binding = field.owner.adapter;
+    const provider =
+      path === `self.${field.name}`
+        ? Object.values(instrument.actions)
+            .flatMap((action) => action.subject?.adapters ?? [])
+            .find((entry) => entry.binding === binding && entry.snapshot)
+            ?.snapshot?.provider
+        : undefined;
+    return provider ? `provider:${provider}` : `binding:${binding}`;
+  };
+  return (
+    fromPath === toPath ||
+    !!(
+      from?.type === "account" &&
+      to?.type === "account" &&
+      (from.owner !== "self" ||
+        (fromPath === `self.${from.name}` && toPath === `self.${to.name}`)) &&
+      accountOwner(from, fromPath) === accountOwner(to, toPath) &&
+      from.book === to.book &&
+      (from.key ?? (from.owner === "self" ? from.name : "balance")) ===
+        (to.key ?? (to.owner === "self" ? to.name : "balance"))
+    )
+  );
+}
+
 /** A subject expression names a requirement; objectField names its stored metadata. */
 export function resolveSubjectRequirement(
   instrument: UdlInstrument,
@@ -1532,33 +1573,16 @@ export function validateUdl(value: unknown): UdlValidationResult {
             from.book !== to.book
           )
             add(where, "moves cannot cross account books", "UDL4001");
-          const accountOwner = (
-            field: Extract<UdlField, { type: "account" }>,
-            path: string,
-          ): string => {
-            if (typeof field.owner === "string") return `party:${field.owner}`;
-            const binding = field.owner.adapter;
-            const provider =
-              path === `self.${field.name}`
-                ? Object.values(inst.actions)
-                    .flatMap((action) => action.subject?.adapters ?? [])
-                    .find(
-                      (entry) => entry.binding === binding && entry.snapshot,
-                    )?.snapshot?.provider
-                : undefined;
-            return provider ? `provider:${provider}` : `binding:${binding}`;
-          };
-          const sameBoundAccount =
-            from?.type === "account" &&
-            to?.type === "account" &&
-            (from.owner !== "self" ||
-              (move.from === `self.${from.name}` &&
-                move.to === `self.${to.name}`)) &&
-            accountOwner(from, move.from) === accountOwner(to, move.to) &&
-            from.book === to.book &&
-            (from.key ?? (from.owner === "self" ? from.name : "balance")) ===
-              (to.key ?? (to.owner === "self" ? to.name : "balance"));
-          if (move.from === move.to || sameBoundAccount)
+          if (
+            sameAccount(
+              document,
+              inst,
+              move.from,
+              move.to,
+              action.input,
+              action,
+            )
+          )
             add(where, "a transfer needs distinct accounts", "UDL4001");
         } else expect(move.transfer, "text", where, action.input, action);
       }

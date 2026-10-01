@@ -563,14 +563,10 @@ export type UdlFamily = z.infer<typeof udlFamilySchema>;
 export type UdlDocument = z.infer<typeof udlDocumentSchema>;
 export type UdlInstrument = z.infer<typeof udlInstrumentSchema>;
 export type UdlField = z.infer<typeof udlFieldSchema>;
-export type UdlParty = z.infer<typeof udlPartySchema>;
 export type UdlValue = z.infer<typeof udlValueSchema>;
 export type UdlCalculation = z.infer<typeof udlCalculationSchema>;
 export type UdlRequirement = z.infer<typeof udlRequirementSchema>;
 export type UdlAction = z.infer<typeof udlActionSchema>;
-export type UdlMove = z.infer<typeof udlMoveSchema>;
-export type UdlLifecycle = z.infer<typeof udlLifecycleSchema>;
-export type UdlKernelOperation = z.infer<typeof udlKernelOperationSchema>;
 
 export type UdlSelection = z.infer<typeof selection>;
 

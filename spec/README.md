@@ -1,5 +1,7 @@
 # UDL 1
 
+Read [how Hyperscale fits](https://hyperscale0.ai/docs/runtime.md#how-hyperscale-fits) for provider authority and the shared operation API.
+
 UDL is the Universal Domain Language, the typed contract between an HSX program
 and its executor. The grammar
 lives in `src/schema.ts`. Generate `udl.schema.json` with
@@ -119,8 +121,9 @@ Only claim accounts may declare `contra: true` and permit a negative balance.
 Party and adapter accounts share owner, book and key within a Product; the key
 defaults to `balance`. Adapter aliases for the same provider share that account. Transfers between
 known aliases of one account refuse, including self fields with the same key.
-The executor scopes provider accounts to the tenant and Product, with the Product
-participant as ledger custodian. Providers are not parties. An account owned by
+The executor scopes provider accounts and their ledger attribution to the tenant
+and Product. This attribution grants no custody of provider funds. Providers are
+not parties. An account owned by
 self defaults its key to the field name. Named capital, premium, income, debt and
 loss balances use explicit keys. `party.buyer` is the buyer's default cash account.
 
@@ -128,6 +131,8 @@ A plain move to an adapter account credits its ledger balance. It does not prove
 an external payout. Provider confirmation still uses a boundary reservation and
 instruction-bound evidence. Account ownership adds no settlement operation.
 
+For a provider-originated loan, the accepted terms define these ledger postings.
+They record the loan; they do not originate it or compute a credit decision.
 Disbursement moves cash from lender to borrower and claims from borrower debt to
 principal and profit receivables. Repayment moves borrower cash to lender cash and
 the same claim amounts from receivables back to borrower debt. Unearned profit is

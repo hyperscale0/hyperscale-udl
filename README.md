@@ -1,5 +1,7 @@
 # UDL 1
 
+Read [how Hyperscale fits](https://hyperscale0.ai/docs/runtime.md#how-hyperscale-fits) for provider authority and the shared operation API.
+
 UDL, the Universal Domain Language, describes a company's objects, agreements,
 actions and money rules. HSX compiles to this typed contract. An executor reads
 UDL and enforces its actors, lifecycle transitions, requirements and effects.

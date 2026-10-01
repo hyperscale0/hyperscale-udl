@@ -1,4 +1,5 @@
 export * from "./schema.js";
+export { sarCurrency, sarMinorUnitExponent, currencySchema } from "./money.js";
 export { serializeUdl, canonicalDigest } from "./canonical.js";
 export {
   validateUdl,

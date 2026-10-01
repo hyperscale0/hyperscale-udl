@@ -1101,7 +1101,13 @@ export function validateUdl(value: unknown): UdlValidationResult {
         dependencies.set(
           c.target,
           operands.flatMap((v) =>
-            "field" in v && v.field.startsWith("self.")
+            "field" in v &&
+            v.field.startsWith("self.") &&
+            !(
+              act &&
+              v.field === `self.${c.target}` &&
+              !inst.calculate.some((node) => node.target === c.target)
+            )
               ? [v.field.slice(5)]
               : [],
           ),

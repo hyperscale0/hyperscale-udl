@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { currencySchema } from "./money.js";
 
 const name = z
   .string()
@@ -12,7 +13,7 @@ const integer = z.number().int().safe();
 export const reportTypeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("money"),
-    currency: z.string().regex(/^[A-Z]{3}$/),
+    currency: currencySchema,
   }),
   z.strictObject({ kind: z.enum(["text", "integer", "boolean", "date"]) }),
 ]);
@@ -94,7 +95,7 @@ export const reportDefinitionSchema = z.strictObject({
   scope: z.strictObject({
     kind: z.enum(["product", "company"]),
     classification: z.enum(["internal", "personal", "restricted"]),
-    currency: z.string().regex(/^[A-Z]{3}$/),
+    currency: currencySchema,
   }),
   datasets: z
     .array(

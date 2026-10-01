@@ -2,6 +2,67 @@ import { expect, test } from "bun:test";
 import { validateUdl, type UdlValue } from "../src/index.js";
 import { reviewDocument } from "./review-fixture.js";
 
+// Mutation: restore the direct self edge in the action dependency graph.
+test("action calculations read their prior stored count and date", () => {
+  const document = reviewDocument();
+  const instrument = document.instruments[0]!;
+  instrument.fields = [
+    { name: "count", type: "integer" },
+    { name: "date", type: "date" },
+  ];
+  instrument.actions.create!.calculate = [
+    { target: "count", op: "sum", values: [{ literal: 0 }] },
+    {
+      target: "date",
+      op: "shift",
+      date: { literal: "2026-10-01T00:00:00Z" },
+      milliseconds: { literal: 0 },
+      direction: "after",
+    },
+  ];
+  instrument.actionOrder.push("advance");
+  instrument.lifecycle.transitions.advance = { from: ["open"], to: "open" };
+  instrument.actions.advance = {
+    ...instrument.actions.create!,
+    event: "record.advanced",
+    calculate: [
+      {
+        target: "count",
+        op: "sum",
+        values: [{ field: "self.count" }, { literal: 1 }],
+      },
+      {
+        target: "date",
+        op: "shift",
+        date: { field: "self.date" },
+        milliseconds: { literal: 86400000 },
+        direction: "after",
+      },
+    ],
+  };
+  expect(validateUdl(document).ok).toBe(true);
+});
+
+// Mutation: discard all action dependencies instead of only direct self reads.
+test("action calculations still reject cross-field cycles", () => {
+  const document = reviewDocument();
+  const instrument = document.instruments[0]!;
+  instrument.fields = [
+    { name: "a", type: "integer" },
+    { name: "b", type: "integer" },
+  ];
+  instrument.actions.create!.calculate = [
+    { target: "a", op: "sum", values: [{ field: "self.b" }] },
+    { target: "b", op: "sum", values: [{ field: "self.a" }] },
+  ];
+  const result = validateUdl(document);
+  expect(result.ok).toBe(false);
+  if (!result.ok)
+    expect(
+      result.issues.some((issue) => issue.message === "calculation cycle at a"),
+    ).toBe(true);
+});
+
 // Mutation: omit selection anchor and where values from calculation dependencies.
 test("selection anchors and filters participate in calculation cycles", () => {
   for (const filter of [false, true]) {

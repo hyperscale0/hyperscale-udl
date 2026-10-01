@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { currencySchema } from "./money.js";
 import { reportDefinitionSchema } from "./reporting.js";
 import { writeJson } from "./json.js";
 
@@ -553,7 +554,7 @@ export const udlDocumentSchema = z.strictObject({
   version: integer.positive(),
   product: name,
   title: text,
-  currency: z.literal("SAR"),
+  currency: currencySchema,
   parties: z.record(name, udlPartySchema),
   objects: z.array(udlObjectKindSchema).max(256),
   instruments: z.array(udlInstrumentSchema).max(256),

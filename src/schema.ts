@@ -5,7 +5,7 @@ import { writeJson } from "./json.js";
 
 export const UDL_FORMAT_VERSION = 1 as const;
 /** Counts the root and every nested invocation, including selected and ranged children. */
-export const MAX_ACTION_EXPANSION = 4096;
+export const MAX_ACTION_EXPANSION = 8192;
 const name = z
   .string()
   .regex(/^[a-z][a-zA-Z0-9_]*$/)
@@ -454,6 +454,7 @@ export const udlActionSchema = z.strictObject({
   summary: text,
   title: text.optional(),
   publicAction: name.optional(),
+  // Retained Builds keep this key; execution uses MAX_ACTION_EXPANSION.
   expansionLimit: z.literal(8192).optional(),
   reminder: z
     .strictObject({

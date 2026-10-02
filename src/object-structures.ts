@@ -3,6 +3,7 @@ import type {
   SemanticAction,
   SemanticInstrument,
 } from "./object-semantics-schema.js";
+import { targetIds } from "./primitives.js";
 
 const hasMoney = (instrument: SemanticInstrument) =>
   instrument.actions.some((action) => action.moneyEffects.length > 0);
@@ -149,10 +150,7 @@ export function projectStructures(
   );
   const funding = contributions.some((selection) => {
     if (selection.anchor !== "self.id") return false;
-    const ids =
-      typeof selection.instrument === "string"
-        ? [selection.instrument]
-        : selection.instrument;
+    const ids = targetIds(selection.instrument);
     const children = instruments.filter(
       (candidate) =>
         ids.includes(candidate.id) &&

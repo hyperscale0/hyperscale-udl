@@ -12,10 +12,10 @@ are closed with a pointer to CONTRIBUTING.md.
 ## Checklist
 
 - [ ] `bun run check` passes.
-- [ ] A format change carries a `conformance/` case (a `valid/` case for
-      something newly admitted, an `invalid/` case naming the issue code and
-      path for something newly refused).
+- [ ] A format change carries a test (a valid document for something newly
+      admitted, an invalid one naming the issue code and path for something
+      newly refused).
 - [ ] A grammar change was followed by `bun run spec` and the regenerated
       `spec/udl.schema.json` is committed.
 - [ ] A change that affects documents with live instances says so here, and
-      says which way `udl diff` now rules.
+      says whether a retained Build still validates.

@@ -4,16 +4,13 @@ import type {
   UdlInstrument,
   UdlValue,
 } from "./schema.js";
+import { targetIds } from "./primitives.js";
+import type { Stranded } from "./diagnostics.js";
 
 export interface FinanceIssue {
   path: string;
   message: string;
-  stranded?: {
-    state: string;
-    accounts: string[];
-    actions: string[];
-    paths: Record<string, string[]>;
-  };
+  stranded?: Stranded;
 }
 type Sum = Map<string, bigint>;
 type Balance = Sum | null;
@@ -59,6 +56,12 @@ export function analyzeInstrumentFinance(
       .filter((f) => f.type === "account" && f.owner === "self")
       .map((f) => `self.${f.name}`),
   );
+  /** The owned account a `.balance` read names; this pass tracks no other account. */
+  const ownedAccount = (field: string): string | undefined => {
+    if (!field.endsWith(".balance")) return undefined;
+    const account = field.slice(0, -".balance".length);
+    return owned.has(account) ? account : undefined;
+  };
   const shared = new Set<string>();
   for (const owner of document?.instruments ?? []) {
     if (owner.id === instrument.id) continue;
@@ -76,10 +79,7 @@ export function analyzeInstrumentFinance(
                   (field) => field.name === key,
                 );
                 if (reference?.type !== "ref") return [];
-                const ids =
-                  typeof reference.target === "string"
-                    ? [reference.target]
-                    : reference.target;
+                const ids = targetIds(reference.target);
                 return (
                   document?.instruments.filter((candidate) =>
                     ids.includes(candidate.id),
@@ -219,19 +219,21 @@ export function analyzeInstrumentFinance(
       ...downstream((field) => declared.has(field)),
     ]);
     let reading = 0;
+    // The pass keeps no reserved total per account, so a reserved read is external even on an owned account.
     const external = (field: string) =>
-      /\.(balance|reserved)$/.test(field) && !owned.has(field.slice(0, -8));
+      field.endsWith(".reserved") ||
+      (field.endsWith(".balance") && ownedAccount(field) === undefined);
     const resolve = (sum: Sum): Balance => {
       let result: Balance = new Map();
       for (const [key, coefficient] of sum) {
-        const account = key.slice(0, -8);
+        const account = ownedAccount(key);
         const scoped =
           balanceBound.has(key) ||
           fresh.has(key) ||
           live.has(key) ||
           external(key);
         const term: Balance =
-          key.endsWith(".balance") && owned.has(account)
+          account !== undefined
             ? (start.get(account) ?? null)
             : new Map([[scoped ? `${scope}:${key}` : key, 1n]]);
         result = add(result, term, coefficient);
@@ -245,11 +247,8 @@ export function analyzeInstrumentFinance(
     const amount = (value: UdlValue, seen = new Set<string>()): Balance => {
       if ("field" in value) {
         if (calculated.has(value.field)) return calculated.get(value.field)!;
-        if (
-          value.field.endsWith(".balance") &&
-          owned.has(value.field.slice(0, -8))
-        )
-          return state.balances.get(value.field.slice(0, -8)) ?? null;
+        const account = ownedAccount(value.field);
+        if (account !== undefined) return state.balances.get(account) ?? null;
         // Another account's balance moves between reads, so each read is its own symbol.
         if (external(value.field))
           return new Map([[`${scope}:${reading++}:${value.field}`, 1n]]);
@@ -277,10 +276,9 @@ export function analyzeInstrumentFinance(
           [requirement.left, requirement.right],
           [requirement.right, requirement.left],
         ] as const) {
-          if ("field" in left && left.field.endsWith(".balance")) {
-            const account = left.field.slice(0, -8);
-            if (owned.has(account)) state.balances.set(account, amount(right));
-          }
+          const account =
+            "field" in left ? ownedAccount(left.field) : undefined;
+          if (account !== undefined) state.balances.set(account, amount(right));
         }
       }
     for (const key of local.keys()) calculated.set(key, amount({ field: key }));

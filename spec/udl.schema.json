@@ -1282,36 +1282,6 @@
               "items": {
                 "$ref": "#/$defs/__schema40"
               }
-            },
-            "lockTimeoutMs": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2000,
-              "$ref": "#/$defs/__schema29"
-            },
-            "captureTimeoutMs": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10000,
-              "$ref": "#/$defs/__schema29"
-            },
-            "maxRows": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100000,
-              "$ref": "#/$defs/__schema29"
-            },
-            "maxJoinRows": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000000,
-              "$ref": "#/$defs/__schema29"
-            },
-            "maxBytes": {
-              "type": "integer",
-              "minimum": 1024,
-              "maximum": 16777216,
-              "$ref": "#/$defs/__schema29"
             }
           },
           "required": [
@@ -1319,12 +1289,7 @@
             "required",
             "rowReconcile",
             "reconcile",
-            "unavailableFacts",
-            "lockTimeoutMs",
-            "captureTimeoutMs",
-            "maxRows",
-            "maxJoinRows",
-            "maxBytes"
+            "unavailableFacts"
           ],
           "additionalProperties": false
         },

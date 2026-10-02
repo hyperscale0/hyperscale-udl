@@ -25,12 +25,13 @@ export interface UdlIssue {
   message: string;
   fix: string;
   category: string;
-  stranded?: {
-    state: string;
-    accounts: string[];
-    actions: string[];
-    paths: Record<string, string[]>;
-  };
+  stranded?: Stranded;
+}
+export interface Stranded {
+  state: string;
+  accounts: string[];
+  actions: string[];
+  paths: Record<string, string[]>;
 }
 const fixes: Record<UdlIssueCode, string> = {
   economic_party_unbound:

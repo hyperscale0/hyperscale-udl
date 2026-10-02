@@ -9,31 +9,32 @@ security-sensitive belongs in an issue, a pull request, a discussion, or a
 commit message.
 
 A report we can act on names the affected version, describes the surface, and
-gives us something to run: a `.udl` file, an input, a snippet. If you can shape
-it as a conformance case, do that; it goes straight into the fix.
+gives us something to run: a UDL document as JSON, an input, a snippet. A
+failing test is the most useful shape; it goes straight into the fix.
 
 ## What counts
 
-This package parses untrusted documents, so the interesting failures are the
-ones a document can cause:
+`validateUdl` admits decoded JSON values from untrusted authors, so the
+interesting failures are the ones a document can cause:
 
 - A document that gets past `validateUdl` but should not, especially one that
   breaks a money-graph law.
-- A document that makes the parser or validator burn unbounded time or memory.
-  Admission budgets (source bytes, nesting depth, node count, string length,
-  regex search space) exist precisely to make this impossible; a way around one
-  is a vulnerability.
-- A document that makes `serializeUdl` produce bytes that reparse into a
+- A document that makes the validator burn unbounded time or memory. The
+  admission bounds in `src/limits.ts` (nesting depth, value count, key length,
+  total key and string bytes) exist to make this impossible, and a text field
+  `pattern` admits only one anchored character class with a fixed repetition.
+  A way around either is a vulnerability.
+- A document that makes `serializeUdl` produce bytes that decode into a
   different document.
-- An evolution diff that reports a breaking change as additive.
 
-Out of scope: the `udl` command reading a file you told it to read, and
-anything that requires already controlling the machine running it.
+Out of scope: decoding JSON text, which the host does before it calls
+`validateUdl`, and anything that requires already controlling the machine
+running it.
 
 ## Supported versions
 
-Alpha releases are supported at the newest published `alpha` version only.
-Fixes land there; there is no backport branch before 1.0.0.
+Fixes land in the newest published `1.0.N` release. Older releases get no
+backports.
 
 ## Disclosure
 

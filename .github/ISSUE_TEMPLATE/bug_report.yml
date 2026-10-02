@@ -1,5 +1,5 @@
 name: Bug report
-description: Something the parser, validator, serializer, diff, or CLI got wrong.
+description: Something the validator or serializer got wrong.
 labels: ["bug"]
 body:
   - type: markdown
@@ -13,7 +13,7 @@ body:
     attributes:
       label: Version
       description: The `@hyperscale0/udl` version, from `npm ls @hyperscale0/udl`.
-      placeholder: 1.0.0-beta.1
+      placeholder: 1.0.265
     validations:
       required: true
 
@@ -22,7 +22,7 @@ body:
     attributes:
       label: The document
       description: >
-        The smallest `.udl` that reproduces it. Trim it until removing one more
+        The smallest UDL document, as JSON, that reproduces it. Trim it until removing one more
         key makes the bug disappear, then paste that.
       render: json
     validations:

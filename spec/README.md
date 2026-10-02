@@ -24,22 +24,21 @@ A Build freezes this contract and its bindings for the executor.
 Business instructions are actions composed from typed requirements and effects.
 The four `internal_transfer` instructions are their money effects. The contract
 expresses valid conditions; execution can still refuse for the current state,
-authority, evidence or balance. Parsing and validation execute nothing.
+authority, evidence or balance. Validation executes nothing.
 
 ## JSON admission and canonical bytes
 
-The parser refuses duplicate JSON member names, including escaped spellings of
-one name. Decoded documents must contain finite JSON data. Accessors, cycles,
-sparse arrays, symbol keys, hidden properties and `__proto__` members refuse
-before schema parsing. Shared values count once per occurrence toward the budget.
-Admission permits at most 100,000 visited values, 32 nesting levels, 240 code units
-per key and 1 MiB of UTF-8 key and string data. Source text has a separate 1 MiB
-byte limit. These bounds live in `src/limits.ts`.
+`validateUdl` takes a decoded JSON value. The host reads and decodes document
+text and owns its byte limit and duplicate member policy. Numbers must be safe
+integers. Accessors, cycles, sparse arrays, symbol keys, hidden properties,
+non-plain prototypes and `__proto__` members refuse before schema parsing. Shared
+values count once per occurrence toward the budget. Admission permits at most
+100,000 visited values, 32 nesting levels, 240 code units per key and 1 MiB of
+UTF-8 key and string data. These bounds live in `src/limits.ts`.
 
 Canonical JSON sorts object keys recursively, preserves array order and ends
 with a newline. Schema defaults are part of the admitted document. Equivalent
-key insertion orders and explicit defaults have the same digest. Object field
-compatibility and evolution comparisons use the same key ordering.
+key insertion orders and explicit defaults have the same digest.
 
 ## Objects and subjects
 
@@ -66,12 +65,10 @@ Attachment parties resolve from authenticated authority, never from party accoun
 IDs supplied in a caller body.
 
 `object-contract.ts` projects `ObjectDiscovery` for
-`GET /v1/products/{productId}/objects`. It exports the discovery, instance, list
-and action response types. Discovery preserves Build identity, authored field
-names, the full optional create schema and each exposed action's requirements.
-Object instances carry `objectId`, `kind`, `revision`, optional `externalId`,
-`fields` and `productBuildId`. Action responses carry the object and either a
-financial instrument outcome or null.
+`GET /v1/products/{productId}/objects` and exports the discovery and action
+state types. Discovery preserves Build identity, authored field names, the full
+optional create schema and each exposed action's requirements. The host defines
+the object instance, list and action response types.
 
 An object may declare `entryActions`, a list of exposed attachment creation
 names. The host admits an active enrolled customer only to an entry action whose
@@ -82,8 +79,7 @@ participation never changes the owner.
 An instrument may declare `scope: "product"`. Object creation can resolve a
 reference to that instrument on another record in the same Product when every
 retained party account matches the current bindings. Otherwise references stay
-on the current record. Create and approve shared limits once per Product or
-borrower; referencing them does not create a new limit.
+on the current record.
 
 ## Object operations
 
@@ -144,7 +140,8 @@ These are ordinary paired moves in HSX, not executor loan rules.
 A value is `{literal: value}` or `{field: path}`. Paths start with `self`, `input`, `subject`
 or `party`. Reference fields allow typed traversal. Account paths expose locked,
 read-only `.balance` and `.reserved` money values. `self.id`, `self.status`,
-`self.createdAt` and `self.now` are sealed executor values. Callers cannot set
+`self.createdAt`, `self.now` and `self.productRevision` are sealed executor
+values. Callers cannot set
 constants, calculated fields, account bindings or capture fields. Create supplies
 declared typed references; later actions cannot replace them. A ref declares `targetKind: "object" | "instrument"` and one target id or
 a list of 1 to 16 distinct target ids in that namespace. Its stored value is an
@@ -161,9 +158,10 @@ Calculations form a finite dependency graph. `sum`, `subtract` and `minimum`
 operate on money or integer fields, with operands of the same type as the target.
 `rate`, `multiply`, `divide` and `shift` retain their typed operands. A shift's
 `milliseconds` operand is a duration field or a non-negative safe integer literal.
-Zero leaves the date unchanged; duration fields still require positive values. Rate and
-division round down. Weighted shares also round down; residual minor units go
-to the declared residual account. Cash and loss use this one rounding rule.
+Zero leaves the date unchanged; duration fields still require positive values. Rate,
+ratio and division round down. UDL has no residual account. A program that
+splits an amount computes its last share with `subtract`, so that share carries
+the remainder. Cash and loss use this one rounding rule.
 There is no largest-remainder allocation. Subtraction refuses a negative result. Integer results must
 be safe integers. No calculation evaluates source text.
 
@@ -232,7 +230,10 @@ balances. An invariant holds before and after every affected transaction.
 
 `hours` converts a date path to its literal IANA timezone and accepts `[start,end)`.
 A start greater than end wraps midnight; equal endpoints admit no time.
-`evidence` declares subject, family, check, result and maxAge. The subject is an
+`evidence` declares subject, family, check, result and maxAge. Optional `instruction`
+is a path to a captured boundary instruction (HSX: `instruction self.receipt`).
+Only instruction-bound requirements consume settlement evidence once; ordinary
+identity evidence remains reusable. The subject is an
 account or text id. The executor selects the newest matching subject binding,
 checks its retained Build, protected input digest and adapter declaration, then
 requires the declared result and age. A newer matching refusal or pending result

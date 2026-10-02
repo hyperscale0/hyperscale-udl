@@ -2,8 +2,8 @@ import {
   udlDocumentSchema,
   subjectPartyRoles,
   sameObjectField,
-  MAX_ACTION_EXPANSION,
   type UdlDocument,
+  type UdlFamily,
   type UdlField,
   type UdlInstrument,
   type UdlValue,
@@ -20,6 +20,7 @@ import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
 import { udlFieldValueSchema } from "./field-value.js";
+import { isMinorUnits, own, targetIds } from "./primitives.js";
 
 export const RESERVED_OBJECT_NAMES = [
   "objectId",
@@ -136,17 +137,13 @@ function bounded(value: unknown): boolean {
   }
 }
 
-function own<T>(
-  record: Record<string, T> | undefined,
-  key: string,
-): T | undefined {
-  return record && Object.hasOwn(record, key) ? record[key] : undefined;
-}
-
-const targetIds = (target: string | string[]): string[] =>
-  typeof target === "string" ? [target] : target;
 const overlap = (a: string | string[], b: string | string[]) =>
   targetIds(a).some((id) => targetIds(b).includes(id));
+const sameFamily = (actual: UdlFamily | undefined, expected: UdlFamily) =>
+  actual !== undefined &&
+  actual.module === expected.module &&
+  actual.exportPath === expected.exportPath &&
+  actual.revision === expected.revision;
 
 /** Union paths retain only fields with compatible types on every member. */
 function commonField(
@@ -615,10 +612,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
               const targetInst = byId.get(id);
               if (
                 targetInst &&
-                (!targetInst.family ||
-                  targetInst.family.module !== f.targetFamily.module ||
-                  targetInst.family.exportPath !== f.targetFamily.exportPath ||
-                  targetInst.family.revision !== f.targetFamily.revision)
+                !sameFamily(targetInst.family, f.targetFamily)
               ) {
                 add(
                   where,
@@ -659,13 +653,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             );
           } else if (f.target) {
             const targetInst = byId.get(f.target);
-            if (
-              targetInst &&
-              (!targetInst.family ||
-                targetInst.family.module !== f.targetFamily.module ||
-                targetInst.family.exportPath !== f.targetFamily.exportPath ||
-                targetInst.family.revision !== f.targetFamily.revision)
-            ) {
+            if (targetInst && !sameFamily(targetInst.family, f.targetFamily)) {
               add(
                 where,
                 `targetFamily does not match target instrument ${f.target} family`,
@@ -775,7 +763,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
     }
   }
 
-  const calls = new Map<string, { targets: string[]; count: number }[]>();
+  const calls = new Map<string, string[]>();
   for (const [index, inst] of document.instruments.entries()) {
     const base = `$.instruments[${index}]`;
     if (inst.subject && !byObjectId.has(inst.subject))
@@ -831,8 +819,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
       }
       const valid =
         type === "money"
-          ? typeof v.literal === "string" &&
-            /^(0|[1-9][0-9]{0,17})$/.test(v.literal)
+          ? typeof v.literal === "string" && isMinorUnits(v.literal)
           : type === "integer" || type === "percent" || type === "duration"
             ? typeof v.literal === "number" &&
               Number.isSafeInteger(v.literal) &&
@@ -885,10 +872,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
       where: string,
       input: readonly UdlField[] = [],
     ) => {
-      const ids =
-        typeof selection.instrument === "string"
-          ? [selection.instrument]
-          : selection.instrument;
+      const ids = targetIds(selection.instrument);
       duplicate(ids, where);
       const targets = ids.flatMap((id) => {
         const target = byId.get(id);
@@ -905,13 +889,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             overlap(a.target, b.target)));
       const anchor = field(selection.anchor, input);
       for (const target of targets) {
-        if (
-          selection.family &&
-          (!target.family ||
-            target.family.module !== selection.family.module ||
-            target.family.exportPath !== selection.family.exportPath ||
-            target.family.revision !== selection.family.revision)
-        )
+        if (selection.family && !sameFamily(target.family, selection.family))
           add(
             where,
             `selection family does not match target instrument ${target.id} family`,
@@ -1077,7 +1055,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
               "literal" in operand &&
               (typeof operand.literal === "number" ||
                 (typeof operand.literal === "string" &&
-                  /^(0|[1-9][0-9]{0,17})$/.test(operand.literal))) &&
+                  isMinorUnits(operand.literal))) &&
               (positive
                 ? BigInt(operand.literal) <= 0n
                 : BigInt(operand.literal) < 0n)
@@ -1651,7 +1629,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
           }
         }
       };
-      const targets: { targets: string[]; count: number }[] = [];
+      const targets: string[] = [];
       for (const call of action.invoke ?? []) {
         if (call.guard)
           checkRequirements([call.guard], where, action.input, action);
@@ -1725,11 +1703,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             }
           }
         }
-        targets.push({
-          targets: ids.map((id) => `${id}.${call.action}`),
-          count:
-            "selection" in call ? call.selection.limit : (range?.maximum ?? 1),
-        });
+        targets.push(...ids.map((id) => `${id}.${call.action}`));
       }
       calls.set(`${inst.id}.${actionName}`, targets);
     }
@@ -1742,34 +1716,17 @@ export function validateUdl(value: unknown): UdlValidationResult {
       );
   }
   const active = new Set<string>();
-  const depths = new Map<string, number>();
-  const visit = (key: string): number => {
+  const visited = new Set<string>();
+  const visit = (key: string): void => {
     if (active.has(key)) {
       add("$.instruments", `invocation cycle at ${key}`, "UDL2010");
-      return MAX_ACTION_EXPANSION + 1;
+      return;
     }
-    const known = depths.get(key);
-    if (known !== undefined) return known;
+    if (visited.has(key)) return;
     active.add(key);
-    const size =
-      1 +
-      (calls.get(key) ?? []).reduce(
-        (n, edge) => n + edge.count * Math.max(0, ...edge.targets.map(visit)),
-        0,
-      );
+    for (const target of calls.get(key) ?? []) visit(target);
     active.delete(key);
-    depths.set(key, size);
-    const [id, action] = key.split(".");
-    const limit =
-      document.instruments.find((item) => item.id === id)?.actions[action!]
-        ?.expansionLimit ?? MAX_ACTION_EXPANSION;
-    if (size > limit)
-      add(
-        "$.instruments",
-        `invocation ${key} exceeds ${limit} actions`,
-        "UDL2010",
-      );
-    return size;
+    visited.add(key);
   };
   for (const key of calls.keys()) visit(key);
   return issues.length ? { ok: false, issues } : { ok: true, value: document };

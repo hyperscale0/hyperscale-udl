@@ -4,6 +4,7 @@ import type {
   ReportExpression,
   ReportType,
 } from "./reporting.js";
+import { isMinorUnits } from "./primitives.js";
 
 type Types = Map<string, ReportType>;
 const sealedFields = new Map([
@@ -49,7 +50,7 @@ export function reportExpressionTypes(
         const value = expression.value;
         requireRule(
           result.kind === "money"
-            ? typeof value === "string" && /^(0|[1-9][0-9]{0,17})$/.test(value)
+            ? typeof value === "string" && isMinorUnits(value)
             : result.kind === "integer"
               ? typeof value === "number" && Number.isSafeInteger(value)
               : result.kind === "boolean"

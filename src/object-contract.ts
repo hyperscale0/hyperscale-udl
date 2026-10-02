@@ -461,10 +461,9 @@ function requirementPossible(
 export function objectActionState(
   action: ObjectActionDiscovery,
   fields: Readonly<Record<string, unknown>>,
-  options?: ObjectActionStateOptions | boolean,
+  options: ObjectActionStateOptions = {},
 ): ObjectActionState {
-  const attached =
-    typeof options === "boolean" ? options : (options?.attached ?? false);
+  const attached = options.attached ?? false;
   const creationFilter = new Set(action.creationOnlyNames ?? []);
   return {
     ...action,
@@ -477,12 +476,7 @@ export function objectActionState(
             : undefined;
         if (
           conditions &&
-          !requirementPossible(
-            conditions,
-            action,
-            fields,
-            typeof options === "object" ? options : {},
-          )
+          !requirementPossible(conditions, action, fields, options)
         )
           return false;
         const value = fields[field.name];
@@ -512,7 +506,7 @@ export function validateObjectActionSubject(
   action: ObjectActionDiscovery,
   storedFields: Readonly<Record<string, unknown>>,
   submittedFields: Readonly<Record<string, unknown>>,
-  options?: ObjectActionStateOptions | boolean,
+  options: ObjectActionStateOptions = {},
 ): readonly SubjectRequirementIssue[] {
   const origin = `${action.instrument}.${action.action}.subject`;
   const issues: SubjectRequirementIssue[] = [];

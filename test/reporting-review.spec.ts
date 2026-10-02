@@ -39,11 +39,6 @@ function report(field: string): ReportDefinition {
       rowReconcile: [],
       reconcile: [],
       unavailableFacts: [],
-      lockTimeoutMs: 1,
-      captureTimeoutMs: 1,
-      maxRows: 1,
-      maxJoinRows: 1,
-      maxBytes: 1024,
     },
     output: {
       profile: "internal.v1",

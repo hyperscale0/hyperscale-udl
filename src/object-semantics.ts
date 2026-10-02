@@ -6,6 +6,7 @@ import {
   type UdlAction,
 } from "./schema.js";
 import { resolveField } from "./validation.js";
+import { own, targetIds } from "./primitives.js";
 import type {
   DocumentSemantics,
   SemanticAccount,
@@ -40,8 +41,6 @@ const labelled = <T extends UdlField>(field: T): T => ({
   ...field,
   label: field.label ?? presentationLabel(field.name),
 });
-const targets = (target: string | string[]) =>
-  typeof target === "string" ? [target] : target;
 
 function owner(
   document: UdlDocument,
@@ -52,11 +51,12 @@ function owner(
     return { kind: "adapter", adapter: value.adapter };
   if (value === "self")
     return { kind: "instrument", instrument: instrument.id };
-  const binding = document.objects
-    .flatMap((object) => object.attachments)
-    .find((attachment) => attachment.instrument === instrument.id)?.parties[
-    value
-  ];
+  const binding = own(
+    document.objects
+      .flatMap((object) => object.attachments)
+      .find((attachment) => attachment.instrument === instrument.id)?.parties,
+    value,
+  );
   if (binding)
     return "role" in binding
       ? { kind: "role", role: binding.role }
@@ -82,7 +82,7 @@ function scopes(
     field.targetKind === "instrument"
   )
     return document.instruments
-      .filter((candidate) => targets(field.target).includes(candidate.id))
+      .filter((candidate) => targetIds(field.target).includes(candidate.id))
       .flatMap((candidate) =>
         scopes(document, candidate, `self.${rest.join(".")}`),
       );
@@ -200,7 +200,7 @@ function relationships(
             via: "field" as const,
             name: field.name,
             targetKind: field.targetKind,
-            targets: targets(field.target),
+            targets: targetIds(field.target),
             cardinality: { min: field.optional ? 0 : 1, max: 1 },
           },
         ];
@@ -252,7 +252,7 @@ function relationships(
       (action) =>
         typeof action.actor === "object" &&
         "parent" in action.actor &&
-        targets(action.actor.parent).includes(instrument.id),
+        targetIds(action.actor.parent).includes(instrument.id),
     );
     if (
       parentActor &&
@@ -260,7 +260,7 @@ function relationships(
         (field) =>
           field.type === "ref" &&
           field.targetKind === "instrument" &&
-          targets(field.target).includes(instrument.id),
+          targetIds(field.target).includes(instrument.id),
       )
     )
       references.push({
@@ -292,7 +292,7 @@ function projectAction(
         ? { kind: actor }
         : "party" in actor
           ? owner(document, instrument, actor.party)
-          : { kind: "parent", instruments: targets(actor.parent) },
+          : { kind: "parent", instruments: targetIds(actor.parent) },
     ],
     from: transition?.from ?? [],
     to:
@@ -360,7 +360,8 @@ export function projectDocumentSemantics(
         initial: instrument.lifecycle.initial,
         states: instrument.lifecycle.states.map((name) => ({
           name,
-          label: instrument.lifecycle.labels?.[name] ?? presentationLabel(name),
+          label:
+            own(instrument.lifecycle.labels, name) ?? presentationLabel(name),
           terminal: isTerminalState(instrument, name),
         })),
         cancellationActions: [],

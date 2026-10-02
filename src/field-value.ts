@@ -1,8 +1,7 @@
 import * as z from "zod";
 import { udlObjectIdSchema, type UdlField } from "./schema.js";
+import { amount, integer, isMinorUnits, text } from "./primitives.js";
 
-const amount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
-const text = z.string().min(1).max(2048);
 // HSX dates are instants; say so when a caller sends a calendar date.
 const dateTime = z.iso.datetime({
   offset: true,
@@ -18,7 +17,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
       schema = amount
         .refine(
           (value) =>
-            /^(0|[1-9][0-9]{0,17})$/.test(value) &&
+            isMinorUnits(value) &&
             (field.minimum === undefined ||
               BigInt(value) >= BigInt(field.minimum)) &&
             (field.maximum === undefined ||
@@ -44,7 +43,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
       schema = dateTime;
       break;
     case "duration":
-      schema = z.number().int().safe().positive();
+      schema = integer.positive();
       break;
     case "text": {
       let value = z
@@ -56,7 +55,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
       break;
     }
     case "integer": {
-      let value = z.number().int().safe();
+      let value = integer;
       if (field.minimum !== undefined) value = value.min(field.minimum);
       if (field.maximum !== undefined) value = value.max(field.maximum);
       schema = value;
@@ -78,7 +77,7 @@ export function udlFieldValueSchema(field: UdlField): z.ZodType {
           : field.item === "date"
             ? dateTime
             : field.item === "integer"
-              ? z.number().int().safe()
+              ? integer
               : field.item === "ref" && field.targetKind === "object"
                 ? udlObjectIdSchema
                 : text;

@@ -288,6 +288,18 @@ test("each read of a party balance is its own amount", () => {
   ).toEqual([["held"]]);
 });
 
+// Mutation: read an owned account's reserved amount as one symbol across actions.
+test("each read of an owned reserved amount is its own amount", () => {
+  expect(
+    stranded(
+      refund(
+        action([move("in", "self.held.reserved", "self.payer", "self.held")]),
+        action([move("out", "self.held.reserved", "self.held", "self.payer")]),
+      ),
+    ),
+  ).toEqual([["held"]]);
+});
+
 // Mutation: read a declared subject field as the agreement's one symbol.
 test("an action that declares a subject field reads the live object", () => {
   const listed = (declare: boolean) => {

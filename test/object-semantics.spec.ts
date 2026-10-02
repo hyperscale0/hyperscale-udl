@@ -257,3 +257,29 @@ test("reference cardinality alone cannot imply a payment calendar", () => {
   ]);
   expect(projected.structures).not.toContain("payment_calendar");
 });
+
+// Mutation: read lifecycle labels or attachment party bindings through the object prototype.
+test("prototype names project as plain state and party names", () => {
+  const document = agreement();
+  document.parties = {
+    ...document.parties,
+    constructor: { kind: "business" as const },
+  };
+  const instrument = document.instruments[0]!;
+  instrument.fields.push({
+    name: "fees",
+    type: "account",
+    owner: "constructor",
+    book: "cash",
+  });
+  instrument.lifecycle.states.push("constructor");
+  const projected = documentSemanticsSchema.parse(
+    projectDocumentSemantics(document),
+  ).instruments[0]!;
+  expect(
+    projected.accounts.find((account) => account.field === "fees")!.owner,
+  ).toEqual({ kind: "party", party: "constructor" });
+  expect(
+    projected.lifecycle.states.find((state) => state.name === "constructor"),
+  ).toEqual({ name: "constructor", label: "Constructor", terminal: true });
+});

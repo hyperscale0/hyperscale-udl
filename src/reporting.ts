@@ -144,11 +144,6 @@ export const reportDefinitionSchema = z.strictObject({
     rowReconcile: z.array(z.strictObject({ left: name, right: name })).max(16),
     reconcile: z.array(z.strictObject({ left: name, right: name })).max(16),
     unavailableFacts: z.array(z.string().min(1).max(240)).max(32),
-    lockTimeoutMs: integer.min(1).max(2000),
-    captureTimeoutMs: integer.min(1).max(10000),
-    maxRows: integer.min(1).max(100000),
-    maxJoinRows: integer.min(1).max(1000000),
-    maxBytes: integer.min(1024).max(16777216),
   }),
   output: z.strictObject({
     profile: z.literal("internal.v1"),

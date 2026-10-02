@@ -5,7 +5,7 @@ Read [how Hyperscale fits](https://hyperscale0.ai/docs/runtime.md#how-hyperscale
 UDL, the Universal Domain Language, describes a company's objects, agreements,
 actions and money rules. HSX compiles to this typed contract. An executor reads
 UDL and enforces its actors, lifecycle transitions, requirements and effects.
-The UDL package parses, validates and serializes contracts; it executes no actions.
+The UDL package validates and serializes contracts; it executes no actions.
 This version supports SAR only.
 
 Read the [specification](spec/README.md) for the contract and its runtime obligations.

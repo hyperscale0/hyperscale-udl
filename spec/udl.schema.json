@@ -740,6 +740,9 @@
         "subject": {
           "$ref": "#/$defs/__schema5"
         },
+        "template": {
+          "$ref": "#/$defs/__schema1"
+        },
         "title": {
           "$ref": "#/$defs/__schema2"
         },

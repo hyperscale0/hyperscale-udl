@@ -537,6 +537,9 @@ export const udlInstrumentSchema = z.strictObject({
   family: udlFamilySchema.optional(),
   id: instrumentId,
   subject: objectKindId.optional(),
+  // The authored instrument an attachment instantiates, when its scoped id
+  // (object_attachment) differs from the name the founder wrote.
+  template: name.optional(),
   title: text,
   summary: text,
   fields: z.array(udlFieldSchema).max(256),

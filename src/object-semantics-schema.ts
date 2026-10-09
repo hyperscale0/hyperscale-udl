@@ -106,6 +106,7 @@ export const semanticInstrumentSchema = z.strictObject({
   id: text,
   title: text,
   subject: text.optional(),
+  template: text.optional(),
   fields: z.array(udlFieldSchema),
   accounts: z.array(semanticAccountSchema),
   relationships: z.array(semanticRelationshipSchema),

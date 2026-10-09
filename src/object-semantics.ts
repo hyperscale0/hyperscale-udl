@@ -346,6 +346,7 @@ export function projectDocumentSemantics(
       id: instrument.id,
       title: instrument.title,
       subject: instrument.subject,
+      ...(instrument.template ? { template: instrument.template } : {}),
       fields: instrument.fields.map(labelled),
       accounts: instrument.fields.flatMap((field) =>
         field.type === "account"

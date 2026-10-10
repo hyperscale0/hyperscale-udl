@@ -117,6 +117,11 @@ export type ObjectActionAvailability =
         code: ObjectActionBlockerCode;
         reason: string;
         recheckAt?: string;
+        /** The party a refused actor needed, and how the attachment binds it. */
+        belongsTo?: {
+          party: string;
+          binding?: "owner" | "actor" | "operator";
+        };
       }[];
     }
   | { status: "unknown"; reason: string };

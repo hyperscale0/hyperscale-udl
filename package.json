@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "1.0.330",
+  "version": "1.0.332",
   "description": "The Universal Domain Language: format spec and validator.",
   "keywords": [
     "udl",

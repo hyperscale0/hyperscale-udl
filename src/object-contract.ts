@@ -98,7 +98,7 @@ export type ObjectActionBlockerCode =
   | "already_used"
   | "evidence_required"
   | "account_unavailable"
-  | "insufficient_money"
+  | "insufficient_balance"
   | "setup_required"
   | "invalid_input"
   | "operation_pending";
@@ -117,6 +117,17 @@ export type ObjectActionAvailability =
         code: ObjectActionBlockerCode;
         reason: string;
         recheckAt?: string;
+        /**
+         * For insufficient_balance: the paying account and the amounts in minor
+         * units, the same details execute's refusal carries.
+         */
+        details?: {
+          accountId: string;
+          currency: string;
+          available: string;
+          required: string;
+          shortfall: string;
+        };
         /** The party a refused actor needed, and how the attachment binds it. */
         belongsTo?: {
           party: string;

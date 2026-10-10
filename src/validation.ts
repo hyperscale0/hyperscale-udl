@@ -1473,6 +1473,21 @@ export function validateUdl(value: unknown): UdlValidationResult {
         add(where, "actor names an undeclared parent");
       if (action.actor === "clock" && !action.due)
         add(where, "clock action needs a due instant");
+      // The engine runs a follow action for whoever changed the field, with no
+      // input, and skips it when it refuses, so it may leave nothing behind:
+      // no money moves and no invoked actions.
+      if (action.follows !== undefined) {
+        if (
+          !action.subject?.requirements.some(
+            (requirement) => requirement.field.name === action.follows,
+          )
+        )
+          add(where, `follows names no subject requirement ${action.follows}`);
+        if (actionName === "create" || action.actor !== "caller")
+          add(where, "a follow action is a caller transition, not create");
+        if (action.input.length || action.moves.length || action.invoke?.length)
+          add(where, "a follow action takes no input, moves and invokes");
+      }
       for (const clock of [action.due, action.deadline])
         if (clock) {
           expect(clock.at, "date", where, action.input, action);

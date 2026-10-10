@@ -260,6 +260,8 @@ const selection = z.strictObject({
   anchor: path,
   states: z.array(name).min(1).max(64),
   limit: integer.min(1).max(366),
+  /** Takes the first limit rows by order and id instead of refusing more. */
+  batch: z.literal(true).optional(),
   order: z.array(path).min(1).max(4).optional(),
   window: z
     .strictObject({ field: name, milliseconds: integer.positive() })
@@ -492,6 +494,10 @@ export const udlActionSchema = z.strictObject({
     }),
   ]),
   subject: udlActionSubjectSchema.optional(),
+  // The subject requirement this action keeps in step with. When another
+  // action on the same object changes the object field it binds, the engine
+  // runs this action on the agreement in the same request.
+  follows: name.optional(),
   input: z.array(udlFieldSchema).max(128),
   requires: z.array(udlRequirementSchema).max(128),
   due: clock.optional(),

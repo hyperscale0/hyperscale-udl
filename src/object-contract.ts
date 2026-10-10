@@ -121,6 +121,8 @@ export type ObjectActionAvailability =
         belongsTo?: {
           party: string;
           binding?: "owner" | "actor" | "operator";
+          /** The customer who owns the record, when the action belongs to the owner. */
+          customerId?: string;
         };
       }[];
     }

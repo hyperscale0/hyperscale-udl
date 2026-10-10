@@ -344,6 +344,17 @@ export const udlCalculationSchema = z.discriminatedUnion("op", [
     milliseconds: value,
     direction: z.enum(["before", "after"]),
   }),
+  /**
+   * The date `times` periods after `date`. Calendar months count from the
+   * anchor, so a 31 January start falls on 28 February, then 31 March.
+   */
+  z.strictObject({
+    target: name,
+    op: z.literal("step"),
+    date: value,
+    period: value,
+    times: value,
+  }),
 ]);
 
 export const udlRequirementSchema = z.discriminatedUnion("kind", [

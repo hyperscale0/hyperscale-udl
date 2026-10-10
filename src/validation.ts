@@ -19,6 +19,7 @@ import { issue, type UdlIssue } from "./diagnostics.js";
 import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
+import { calendarPeriod } from "./duration.js";
 import { udlFieldValueSchema } from "./field-value.js";
 import { isMinorUnits, own, targetIds } from "./primitives.js";
 
@@ -990,7 +991,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
             : (c.op === "aggregate" && c.measure === "count") ||
                 (arithmetic && field(`self.${c.target}`)?.type === "integer")
               ? "integer"
-              : c.op === "shift"
+              : c.op === "shift" || c.op === "step"
                 ? "date"
                 : "money";
         const result = expect(`self.${c.target}`, resultType, where);
@@ -1116,6 +1117,26 @@ export function validateUdl(value: unknown): UdlValidationResult {
           )
             add(where, "shift milliseconds must be nonnegative");
           operands.push(c.date, c.milliseconds);
+        }
+        if (c.op === "step") {
+          checkValue(c.date, "date", where, input, act);
+          if (
+            !("literal" in c.period) ||
+            typeof c.period.literal !== "string" ||
+            !calendarPeriod(c.period.literal)
+          )
+            add(
+              where,
+              "step period must be a literal ISO-8601 period such as P1M",
+            );
+          checkValue(c.times, "integer", where, input, act);
+          if (
+            "literal" in c.times &&
+            typeof c.times.literal === "number" &&
+            c.times.literal < 0
+          )
+            add(where, "step times must be nonnegative");
+          operands.push(c.date, c.times);
         }
         dependencies.set(
           c.target,

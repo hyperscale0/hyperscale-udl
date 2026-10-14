@@ -29,7 +29,10 @@ export interface ObjectKindDiscovery {
     title: string;
     instrument: string;
     parentAttachment: string | null;
-    block: { key: string; recordPath: string; headerDigest: string } | null;
+    block:
+      | { key: string; recordPath: string; digest: string }
+      | { key: string; recordPath: string; headerDigest: string }
+      | null;
   }[];
   productBuildId: string;
   digest: string;

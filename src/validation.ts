@@ -1,9 +1,8 @@
 import {
-  udlDocumentSchema,
+  UDL_FORMAT_VERSION,
   subjectPartyRoles,
   sameObjectField,
   type UdlDocument,
-  type UdlFamily,
   type UdlField,
   type UdlInstrument,
   type UdlValue,
@@ -16,6 +15,7 @@ import {
   type UdlObjectKind,
 } from "./schema.js";
 import { issue, type UdlIssue } from "./diagnostics.js";
+import { readableUdlFormat, sameFamily, udlFormatReaders } from "./formats.js";
 import { validateReportDefinition } from "./reporting-validation.js";
 import { analyzeInstrumentFinance } from "./finance.js";
 import { UDL_LIMITS } from "./limits.js";
@@ -140,11 +140,6 @@ function bounded(value: unknown): boolean {
 
 const overlap = (a: string | string[], b: string | string[]) =>
   targetIds(a).some((id) => targetIds(b).includes(id));
-const sameFamily = (actual: UdlFamily | undefined, expected: UdlFamily) =>
-  actual !== undefined &&
-  actual.module === expected.module &&
-  actual.exportPath === expected.exportPath &&
-  actual.revision === expected.revision;
 
 /** Union paths retain only fields with compatible types on every member. */
 function commonField(
@@ -449,6 +444,44 @@ function resolvePath(
 }
 
 export function validateUdl(value: unknown): UdlValidationResult {
+  const read = readUdl(value);
+  return read.ok ? { ok: true, value: read.document } : read;
+}
+
+/**
+ * Admit a document for a new Build. A new Build is the current format; the
+ * older formats in `udlFormatReaders` are readable only as stored Builds,
+ * through `validateUdl`.
+ */
+export function validateNewBuildUdl(value: unknown): UdlValidationResult {
+  const format =
+    value !== null && typeof value === "object"
+      ? (value as { udl?: unknown }).udl
+      : undefined;
+  if (format !== UDL_FORMAT_VERSION)
+    return {
+      ok: false,
+      issues: [
+        issue(
+          "udl_format_not_current",
+          "$.udl",
+          `a new Build is UDL format ${UDL_FORMAT_VERSION}; this document is format ${String(format)}`,
+        ),
+      ],
+    };
+  return validateUdl(value);
+}
+
+/**
+ * Read a document in the format it declares, then run the upgrade chain to
+ * the current format. `stored` is the parsed document in its own format, the
+ * one its digests cover; `document` is what the engine runs.
+ */
+export function readUdl(
+  value: unknown,
+):
+  | { ok: true; stored: unknown; document: UdlDocument }
+  | { ok: false; issues: UdlIssue[] } {
   if (!bounded(value))
     return {
       ok: false,
@@ -460,7 +493,29 @@ export function validateUdl(value: unknown): UdlValidationResult {
         ),
       ],
     };
-  const parsed = udlDocumentSchema.safeParse(value);
+  let format = readableUdlFormat(value);
+  if (format === undefined)
+    return {
+      ok: false,
+      issues: [
+        issue(
+          "udl_format_unknown",
+          "$.udl",
+          `UDL format ${String((value as { udl?: unknown }).udl)} has no reader in this engine`,
+        ),
+      ],
+    };
+  let reader = udlFormatReaders.get(format)!;
+  let parsed = reader.schema.safeParse(value);
+  const stored = parsed.data;
+  while (parsed.success && reader.upgrade) {
+    const next = reader.upgrade(parsed.data);
+    format = readableUdlFormat(next);
+    if (format === undefined)
+      throw new Error("a UDL upgrade step produced a format with no reader");
+    reader = udlFormatReaders.get(format)!;
+    parsed = reader.schema.safeParse(next);
+  }
   if (!parsed.success)
     return {
       ok: false,
@@ -475,7 +530,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
         ),
       ),
     };
-  const document = parsed.data;
+  const document = parsed.data as UdlDocument;
   const issues: UdlIssue[] = [];
   const add = (
     path: string,
@@ -1765,7 +1820,7 @@ export function validateUdl(value: unknown): UdlValidationResult {
     visited.add(key);
   };
   for (const key of calls.keys()) visit(key);
-  return issues.length ? { ok: false, issues } : { ok: true, value: document };
+  return issues.length ? { ok: false, issues } : { ok: true, stored, document };
 }
 export function assertValidUdl(value: unknown): UdlDocument {
   const result = validateUdl(value);

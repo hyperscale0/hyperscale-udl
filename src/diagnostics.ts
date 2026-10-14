@@ -11,6 +11,8 @@ export type UdlIssueCode =
   | "party_kind_mismatch"
   | "staff_role_unknown"
   | "product_party_invalid"
+  | "udl_format_unknown"
+  | "udl_format_not_current"
   | "UDL1003"
   | "UDL1004"
   | "UDL2001"
@@ -53,6 +55,10 @@ const fixes: Record<UdlIssueCode, string> = {
   staff_role_unknown: "Use a registered staff permission role.",
   product_party_invalid:
     "Bind a business participant in the same tenant and environment.",
+  udl_format_unknown:
+    "Run the document on an engine that ships a reader for its format.",
+  udl_format_not_current:
+    "Recompile the HSX program, which emits the current UDL format.",
 
   UDL1003: "Use the UDL 1 typed grammar.",
   UDL1004: "Reduce the declared structure or expansion.",

@@ -7,7 +7,7 @@ import {
 
 function hold(): UdlDocument {
   return udlDocumentSchema.parse({
-    udl: 1,
+    udl: 2,
     version: 1,
     product: "shop",
     title: "Shop",
@@ -193,7 +193,7 @@ test("union reference paths require a compatible field on every target", () => {
     actionOrder: ["create"],
   });
   const document = udlDocumentSchema.parse({
-    udl: 1,
+    udl: 2,
     version: 1,
     product: "union",
     title: "Union",

@@ -1,9 +1,9 @@
 import * as z from "zod";
 import { currencySchema } from "./money.js";
 import { reportDefinitionSchema } from "./reporting.js";
-import { writeJson } from "./json.js";
+import { canonicalJson } from "./canonical.js";
 
-export const UDL_FORMAT_VERSION = 1 as const;
+export const UDL_FORMAT_VERSION = 2 as const;
 /** Counts the root and every nested invocation, including selected and ranged children. */
 export const MAX_ACTION_EXPANSION = 8192;
 const name = z
@@ -33,11 +33,22 @@ export const udlPartySchema = z.strictObject({
   role: name.optional(),
 });
 
+/** Format 2 names a std declaration by the digest of its normal form. */
 export const udlFamilySchema = z.strictObject({
+  module: name,
+  exportPath: path,
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+/** Format 1 named it by a hand-written revision. Stored Builds keep it. */
+export const udlFormat1FamilySchema = z.strictObject({
   module: name,
   exportPath: path,
   revision: integer.positive(),
 });
+
+// One tree serves both formats; each document schema checks its families.
+const family = z.union([udlFamilySchema, udlFormat1FamilySchema]);
 
 const fieldBase = {
   name,
@@ -51,7 +62,7 @@ const referenceField = z.strictObject({
   ...fieldBase,
   type: z.literal("ref"),
   targetKind: z.enum(["instrument", "object"]),
-  targetFamily: udlFamilySchema.optional(),
+  targetFamily: family.optional(),
   target: z.union([name, z.array(name).min(1).max(16)]),
 });
 
@@ -60,7 +71,7 @@ const listField = z.strictObject({
   type: z.literal("list"),
   item: z.enum(["money", "date", "text", "integer", "ref"]),
   targetKind: z.enum(["instrument", "object"]).optional(),
-  targetFamily: udlFamilySchema.optional(),
+  targetFamily: family.optional(),
   target: name.optional(),
   maxItems: integer.min(1).max(366),
 });
@@ -254,7 +265,7 @@ export const udlObjectKindSchema = z.strictObject({
 const values = z.array(value).min(1).max(256);
 
 const selection = z.strictObject({
-  family: udlFamilySchema.optional(),
+  family: family.optional(),
   instrument: z.union([instrumentId, z.array(instrumentId).min(1).max(16)]),
   reference: name,
   anchor: path,
@@ -551,7 +562,7 @@ export const udlInstrumentSchema = z.strictObject({
   scope: z.literal("product").optional(),
   reports: z.array(reportDefinitionSchema).max(16).optional(),
   revisioned: z.literal(true).optional(),
-  family: udlFamilySchema.optional(),
+  family: family.optional(),
   id: instrumentId,
   subject: objectKindId.optional(),
   // The authored instrument an attachment instantiates, when its scoped id
@@ -570,8 +581,7 @@ export const udlInstrumentSchema = z.strictObject({
     .max(16)
     .optional(),
 });
-export const udlDocumentSchema = z.strictObject({
-  udl: z.literal(UDL_FORMAT_VERSION),
+const documentShape = {
   version: integer.positive(),
   product: name,
   title: text,
@@ -579,10 +589,60 @@ export const udlDocumentSchema = z.strictObject({
   parties: z.record(name, udlPartySchema),
   objects: z.array(udlObjectKindSchema).max(256),
   instruments: z.array(udlInstrumentSchema).max(256),
-});
+};
+
+/** Every family a document names: instruments, reference fields, selections. */
+function families(instruments: unknown[]): [PropertyKey[], object][] {
+  const found: [PropertyKey[], object][] = [];
+  const visit = (value: unknown, path: PropertyKey[]): void => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      // An evidence `family` is a name, not a std family.
+      if (
+        (key === "family" || key === "targetFamily") &&
+        child &&
+        typeof child === "object"
+      )
+        found.push([[...path, key], child]);
+      else if (key !== "examples")
+        visit(child, [...path, Array.isArray(value) ? Number(key) : key]);
+    }
+  };
+  visit(instruments, ["instruments"]);
+  return found;
+}
+
+const familiesIn =
+  (key: "digest" | "revision") =>
+  (document: { instruments: unknown[] }, context: z.RefinementCtx) => {
+    for (const [path, item] of families(document.instruments))
+      if (!(key in item))
+        context.addIssue({
+          code: "custom",
+          path,
+          message: `a format ${key === "digest" ? 2 : 1} family names its ${key}`,
+        });
+  };
+
+export const udlDocumentSchema = z
+  .strictObject({ udl: z.literal(UDL_FORMAT_VERSION), ...documentShape })
+  .superRefine(familiesIn("digest"));
+
+/** The format 1 reader: families carry the revision they were stored with. */
+export const udlFormat1DocumentSchema = z
+  .strictObject({ udl: z.literal(1), ...documentShape })
+  .superRefine(familiesIn("revision"));
+
+/** Any document a stored Build may hold, in the format it compiled to. */
+export const udlStoredDocumentSchema = z.discriminatedUnion("udl", [
+  udlDocumentSchema,
+  udlFormat1DocumentSchema,
+]);
 
 export type UdlFamily = z.infer<typeof udlFamilySchema>;
-export type UdlDocument = z.infer<typeof udlDocumentSchema>;
+export type UdlFormat1Family = z.infer<typeof udlFormat1FamilySchema>;
+export type UdlAnyFamily = UdlFamily | UdlFormat1Family;
+export type UdlDocument = z.infer<typeof udlStoredDocumentSchema>;
 export type UdlInstrument = z.infer<typeof udlInstrumentSchema>;
 export type UdlField = z.infer<typeof udlFieldSchema>;
 export type UdlValue = z.infer<typeof udlValueSchema>;
@@ -606,7 +666,7 @@ export function sameObjectField(
   right: UdlObjectField,
 ): boolean {
   const signature = (field: UdlObjectField) =>
-    writeJson(
+    canonicalJson(
       Object.fromEntries(
         Object.entries(field).filter(
           ([key, value]) =>

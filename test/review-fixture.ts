@@ -2,7 +2,7 @@ import type { UdlDocument } from "../src/index.js";
 
 export function reviewDocument(): UdlDocument {
   return {
-    udl: 1,
+    udl: 2,
     version: 1,
     product: "review",
     title: "Review",

@@ -1,8 +1,16 @@
 export * from "./schema.js";
 export { sarCurrency, sarMinorUnitExponent, currencySchema } from "./money.js";
-export { serializeUdl, canonicalDigest } from "./canonical.js";
+export { serializeUdl, documentDigest } from "./serialize.js";
+export { canonicalJson, digest } from "./canonical.js";
+export {
+  udlFormatReaders,
+  readableUdlFormat,
+  sameFamily,
+  type UdlFormatReader,
+} from "./formats.js";
 export {
   validateUdl,
+  validateNewBuildUdl,
   RESERVED_OBJECT_NAMES,
   assertValidUdl,
   resolveField,

@@ -12,8 +12,9 @@ Read the [specification](spec/README.md) for the contract and its runtime obliga
 The [JSON schema](spec/udl.schema.json) defines every field and default.
 
 Install `@hyperscale0/udl` with Node.js 22 or later. `validateUdl` checks a
-contract, not an account balance or a deployed executor. `canonicalDigest`
-identifies its canonical bytes.
+contract, not an account balance or a deployed executor. `documentDigest`
+identifies its stored bytes, and `digest` hashes any plain value through
+`canonicalJson`.
 
 From the public source checkout, run `bun install`, then `bun run build`.
 `bun run check` checks schema freshness, types and package tests. Edit prose in

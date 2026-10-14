@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  canonicalDigest,
+  documentDigest,
   serializeUdl,
   validateUdl,
   sameObjectField,
@@ -70,7 +70,7 @@ test("cyclic and deeply nested examples refuse before recursive schema parsing",
 });
 
 // Mutation: remove recursive key sorting from writeJson, or sort array members.
-test("canonical bytes ignore key insertion order and preserve array meaning", async () => {
+test("canonical bytes ignore key insertion order and preserve array meaning", () => {
   const first = reviewDocument();
   first.instruments[0]!.examples = [
     { name: "Example", input: { z: [1, 2], a: { z: 1, a: 2 } } },
@@ -79,10 +79,10 @@ test("canonical bytes ignore key insertion order and preserve array meaning", as
   second.instruments[0]!.examples = [
     { name: "Example", input: { a: { a: 2, z: 1 }, z: [1, 2] } },
   ];
-  expect(await canonicalDigest(first)).toBe(await canonicalDigest(second));
+  expect(documentDigest(first)).toBe(documentDigest(second));
   expect(JSON.parse(serializeUdl(first))).toEqual(first);
   second.instruments[0]!.examples![0]!.input = { a: { a: 2, z: 1 }, z: [2, 1] };
-  expect(await canonicalDigest(first)).not.toBe(await canonicalDigest(second));
+  expect(documentDigest(first)).not.toBe(documentDigest(second));
 });
 
 // Mutation: replace writeJson with top-level-sorted JSON.stringify in sameObjectField.
@@ -92,14 +92,22 @@ test("field compatibility ignores nested family key insertion order", () => {
     type: "ref" as const,
     targetKind: "instrument" as const,
     target: "record",
-    targetFamily: { module: "records", exportPath: "entry", revision: 1 },
+    targetFamily: {
+      module: "records",
+      exportPath: "entry",
+      digest: "a".repeat(64),
+    },
   };
   const right = {
     ...left,
-    targetFamily: { revision: 1, exportPath: "entry", module: "records" },
+    targetFamily: {
+      digest: "a".repeat(64),
+      exportPath: "entry",
+      module: "records",
+    },
   };
   expect(sameObjectField(left, right)).toBe(true);
-  right.targetFamily.revision = 2;
+  right.targetFamily.digest = "b".repeat(64);
   expect(sameObjectField(left, right)).toBe(false);
 });
 

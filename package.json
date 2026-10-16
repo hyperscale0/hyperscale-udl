@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "1.0.351",
+  "version": "1.0.352",
   "description": "The Universal Domain Language: format spec and validator.",
   "keywords": [
     "udl",
@@ -64,7 +64,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "bun-types": "1.4.2",
+    "bun-types": "1.4.3",
     "tsc-rs": "0.7.0"
   },
   "contributors": [

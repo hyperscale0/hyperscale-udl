@@ -1,6 +1,6 @@
 {
   "name": "@hyperscale0/udl",
-  "version": "1.0.347",
+  "version": "1.0.350",
   "description": "The Universal Domain Language: format spec and validator.",
   "keywords": [
     "udl",
@@ -50,8 +50,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc-rs -p tsconfig.build.json",
+    "typecheck": "tsc-rs -p tsconfig.json",
     "test": "bun test test",
     "postpack": "bun scripts/pack-exports.ts restore",
     "prepack": "bun run build && bun scripts/pack-exports.ts apply",
@@ -61,11 +61,11 @@
   },
   "dependencies": {
     "fast-sha256": "1.3.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "bun-types": "1.4.2",
-    "typescript": "7.0.2"
+    "tsc-rs": "0.7.0"
   },
   "contributors": [
     "Meshael AlBakaawi",

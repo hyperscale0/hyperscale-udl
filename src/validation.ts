@@ -32,7 +32,7 @@ export const RESERVED_OBJECT_NAMES = [
   "productId",
 ] as const;
 const reservedObjectNamesSet = new Set<string>(RESERVED_OBJECT_NAMES);
-function hasParty(
+export function hasParty(
   document: UdlDocument,
   instrument: UdlInstrument | undefined,
   name: string,
@@ -262,10 +262,16 @@ export function sameAccount(
         (fromPath === `self.${from.name}` && toPath === `self.${to.name}`)) &&
       accountOwner(from, fromPath) === accountOwner(to, toPath) &&
       from.book === to.book &&
-      (from.key ?? (from.owner === "self" ? from.name : "balance")) ===
-        (to.key ?? (to.owner === "self" ? to.name : "balance"))
+      accountKey(from) === accountKey(to)
     )
   );
+}
+
+/** The ledger key of an account field: its own name when self-owned, else "balance". */
+export function accountKey(
+  field: Pick<Extract<UdlField, { type: "account" }>, "key" | "name" | "owner">,
+): string {
+  return field.key ?? (field.owner === "self" ? field.name : "balance");
 }
 
 /** A subject expression names a requirement; objectField names its stored metadata. */

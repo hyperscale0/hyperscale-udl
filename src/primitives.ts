@@ -25,5 +25,12 @@ export function own<T>(
   return record && Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
-export const targetIds = (target: string | string[]): string[] =>
-  typeof target === "string" ? [target] : target;
+export function targetIds(target: string | string[]): string[];
+export function targetIds(
+  target: string | readonly string[],
+): readonly string[];
+export function targetIds(
+  target: string | readonly string[],
+): readonly string[] {
+  return typeof target === "string" ? [target] : target;
+}

@@ -5,7 +5,7 @@ import {
   type UdlField,
   type UdlAction,
 } from "./schema.js";
-import { resolveField } from "./validation.js";
+import { accountKey, resolveField } from "./validation.js";
 import { own, targetIds } from "./primitives.js";
 import type {
   DocumentSemantics,
@@ -111,7 +111,7 @@ function accounts(
         field: field.name,
         owner: owner(document, scope.instrument, field.owner),
         book: field.book,
-        key: field.key ?? (field.owner === "self" ? field.name : "balance"),
+        key: accountKey(field),
         contra: field.contra ?? false,
       },
     ];

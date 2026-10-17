@@ -1,7 +1,8 @@
 export * from "./schema.js";
 export { sarCurrency, sarMinorUnitExponent, currencySchema } from "./money.js";
 export { serializeUdl, documentDigest } from "./serialize.js";
-export { canonicalJson, digest } from "./canonical.js";
+export { canonicalJson, digest, sha256 } from "./canonical.js";
+export { targetIds } from "./primitives.js";
 export {
   udlFormatReaders,
   readableUdlFormat,
@@ -15,6 +16,8 @@ export {
   assertValidUdl,
   resolveField,
   sameAccount,
+  accountKey,
+  hasParty,
   resolveSubjectRequirement,
   UdlError,
   type UdlValidationResult,

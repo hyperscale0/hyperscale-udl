@@ -2,22 +2,12 @@ import * as z from "zod";
 import { currencySchema } from "./money.js";
 import { reportDefinitionSchema } from "./reporting.js";
 import { canonicalJson } from "./canonical.js";
+import { amount, integer, name, path, text } from "./primitives.js";
 
 export const UDL_FORMAT_VERSION = 2 as const;
 /** Counts the root and every nested invocation, including selected and ranged children. */
 export const MAX_ACTION_EXPANSION = 8192;
-const name = z
-  .string()
-  .regex(/^[a-z][a-zA-Z0-9_]*$/)
-  .max(80);
-const text = z.string().min(1).max(2048);
-const amount = z.string().regex(/^(0|[1-9][0-9]{0,17})$/);
-const integer = z.number().int().safe();
 const scalar = z.union([z.string(), integer, z.boolean()]);
-const path = z
-  .string()
-  .regex(/^[a-z][a-zA-Z0-9_]*(?:\.[a-z][a-zA-Z0-9_]*)*$/)
-  .max(240);
 const instrumentId = name.meta({ "x-udl-reference": "instrument" });
 const objectKindId = name.meta({ "x-udl-reference": "object" });
 

@@ -91,20 +91,22 @@ export interface ObjectActionDiscovery extends ObjectActionContext {
   fieldsSchema: JsonSchemaDocument;
   availability: ObjectActionAvailability;
 }
-export type ObjectActionBlockerCode =
-  | "permission_required"
-  | "state_changed"
-  | "not_due"
-  | "deadline_passed"
-  | "clock_pending"
-  | "condition_not_met"
-  | "already_used"
-  | "evidence_required"
-  | "account_unavailable"
-  | "insufficient_balance"
-  | "setup_required"
-  | "invalid_input"
-  | "operation_pending";
+export const objectActionBlockerCodes = [
+  "permission_required",
+  "state_changed",
+  "not_due",
+  "deadline_passed",
+  "clock_pending",
+  "condition_not_met",
+  "already_used",
+  "evidence_required",
+  "account_unavailable",
+  "insufficient_balance",
+  "setup_required",
+  "invalid_input",
+  "operation_pending",
+] as const;
+export type ObjectActionBlockerCode = (typeof objectActionBlockerCodes)[number];
 export type ObjectActionAvailability =
   | { status: "available" }
   | {

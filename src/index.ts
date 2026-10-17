@@ -24,7 +24,12 @@ export {
 } from "./validation.js";
 export { issue, type UdlIssue, type UdlIssueCode } from "./diagnostics.js";
 export { analyzeInstrumentFinance, type FinanceIssue } from "./finance.js";
-export { calendarPeriod, fixedIsoDurationMs, stepDate } from "./duration.js";
+export {
+  calendarPeriod,
+  fixedIsoDurationMs,
+  MAX_FIXED_DURATION_MS,
+  stepDate,
+} from "./duration.js";
 
 export * from "./reporting.js";
 export {

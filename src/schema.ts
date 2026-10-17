@@ -403,15 +403,19 @@ export const udlKernelOperationSchema = z.enum([
   "internal_transfer.post",
   "internal_transfer.void",
 ]);
+/** The economic purposes a money move can declare. */
+export const economicPurposes = [
+  "earning",
+  "principal",
+  "participant_payout",
+  "internal",
+  "prepaid_credit",
+  "pass_through",
+] as const;
+export type EconomicPurpose = (typeof economicPurposes)[number];
+
 const moveEconomics = z.strictObject({
-  purpose: z.enum([
-    "earning",
-    "principal",
-    "participant_payout",
-    "internal",
-    "prepaid_credit",
-    "pass_through",
-  ]),
+  purpose: z.enum(economicPurposes),
   sourceParty: name,
   reversalOf: path.optional(),
 });
@@ -649,6 +653,29 @@ export type UdlSubjectRequirement = z.infer<typeof udlSubjectRequirementSchema>;
 export type UdlAdapterSubjectSnapshot = z.infer<
   typeof adapterSubjectSnapshotSchema
 >;
+
+/**
+ * The adapter declaration a subject snapshot freezes. Its digest is the
+ * snapshot's `declarationDigest`, so the compiler and the engine both build it
+ * here.
+ */
+export function adapterDeclaration(declaration: {
+  readonly onboarding?: readonly ("person" | "organization")[] | undefined;
+  readonly provider: string;
+  readonly capability: string;
+  readonly operation: string;
+  readonly requirements: readonly UdlObjectField[];
+}): Omit<UdlAdapterSubjectSnapshot, "declarationDigest"> {
+  return {
+    ...(declaration.onboarding
+      ? { onboarding: [...declaration.onboarding] }
+      : {}),
+    provider: declaration.provider,
+    capability: declaration.capability,
+    operation: declaration.operation,
+    requirements: [...declaration.requirements],
+  };
+}
 
 /** Names and display text may differ; executable constraints must match. */
 export function sameObjectField(

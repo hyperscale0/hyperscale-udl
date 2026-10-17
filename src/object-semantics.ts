@@ -4,9 +4,10 @@ import {
   type UdlInstrument,
   type UdlField,
   type UdlAction,
+  type UdlValue,
 } from "./schema.js";
 import { accountKey, resolveField } from "./validation.js";
-import { own, targetIds } from "./primitives.js";
+import { isMinorUnits, own, targetIds } from "./primitives.js";
 import type {
   DocumentSemantics,
   SemanticAccount,
@@ -117,6 +118,82 @@ function accounts(
     ];
   });
 }
+type Share = { base: string; bps: number; value: bigint | null };
+/**
+ * Follows the calculation rules back to one base field: a single-value sum, a
+ * floor-rounded rate with a literal bps, or a subtraction of shares of the same
+ * base. Each rate floors its own result, as the executor does, so a value
+ * read here is the value charged.
+ */
+function shareOf(
+  instrument: UdlInstrument,
+  action: UdlAction,
+  path: string,
+  depth = 0,
+): Share | null {
+  if (depth > 12) return null;
+  const rule = path.startsWith("self.")
+    ? [...instrument.calculate, ...(action.calculate ?? [])].find(
+        (rule) => rule.target === path.slice(5),
+      )
+    : undefined;
+  const operand = (value: UdlValue) =>
+    "field" in value
+      ? shareOf(instrument, action, value.field, depth + 1)
+      : null;
+  if (!rule) {
+    const field = instrument.fields.find(
+      (field) => `self.${field.name}` === path,
+    );
+    return {
+      base: path,
+      bps: 10_000,
+      value:
+        field?.type === "money" &&
+        field.value !== undefined &&
+        isMinorUnits(field.value)
+          ? BigInt(field.value)
+          : null,
+    };
+  }
+  if (rule.op === "sum" && rule.values.length === 1)
+    return operand(rule.values[0]!);
+  if (
+    rule.op === "rate" &&
+    "literal" in rule.bps &&
+    typeof rule.bps.literal === "number" &&
+    Number.isSafeInteger(rule.bps.literal) &&
+    rule.bps.literal >= 0
+  ) {
+    const bps = rule.bps.literal;
+    const base = operand(rule.base);
+    return (
+      base && {
+        base: base.base,
+        bps: (base.bps * bps) / 10_000,
+        value:
+          base.value === null ? null : (base.value * BigInt(bps)) / 10_000n,
+      }
+    );
+  }
+  if (rule.op === "subtract") {
+    const base = operand(rule.base);
+    const parts = rule.subtract.map(operand);
+    if (!base || parts.some((part) => part?.base !== base.base)) return null;
+    return parts.reduce<Share>(
+      (left, part) => ({
+        base: left.base,
+        bps: left.bps - part!.bps,
+        value:
+          left.value === null || part!.value === null
+            ? null
+            : left.value - part!.value,
+      }),
+      base,
+    );
+  }
+  return null;
+}
 function moneyEffects(
   document: UdlDocument,
   instrument: UdlInstrument,
@@ -149,16 +226,29 @@ function moneyEffects(
     const to = movements.flatMap((entry) =>
       accounts(document, entry.instrument, entry.move.to, action),
     );
-    const amount =
+    // A post moves its one reservation's amount, priced in the reserving action.
+    const priced =
       "amount" in move
-        ? move.amount
+        ? { instrument, action, move }
         : reservations.length === 1
-          ? reservations[0]!.move.amount
+          ? {
+              ...reservations[0]!,
+              action:
+                reservations[0]!.instrument.actions[reservations[0]!.action]!,
+            }
           : null;
+    const share =
+      priced && "field" in priced.move.amount
+        ? shareOf(priced.instrument, priced.action, priced.move.amount.field)
+        : null;
+    const economics =
+      (move.operation === "internal_transfer.post"
+        ? priced?.move.economics
+        : undefined) ?? move.economics;
     return {
       key: move.key,
       operation: move.operation,
-      amount,
+      amount: priced?.move.amount ?? null,
       from,
       to,
       disposition:
@@ -184,6 +274,18 @@ function moneyEffects(
         action: entry.action,
         key: entry.move.key,
       })),
+      economics: economics
+        ? {
+            purpose: economics.purpose,
+            sourceParty: economics.sourceParty,
+            reversalOf: economics.reversalOf ?? null,
+          }
+        : null,
+      share: share && {
+        base: share.base,
+        bps: share.bps,
+        value: share.value === null ? null : String(share.value),
+      },
     };
   });
 }

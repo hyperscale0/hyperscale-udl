@@ -195,6 +195,68 @@ test("a reservation section requires post and void of the same captured identity
   ).toBe("unresolved");
 });
 
+// Mutation: round a rate to nearest, read the post's own economics first, or report a share for a two-value sum.
+test("a post carries its reservation's economics and floor-rounded share of a constant", () => {
+  const document = agreement();
+  const instrument = document.instruments[0]!;
+  instrument.fields.push({ name: "fee", type: "money", optional: true });
+  instrument.actions.receive!.calculate = [
+    {
+      target: "fee",
+      op: "rate",
+      base: { field: "self.amount" },
+      bps: { literal: 367 },
+      rounding: "floor",
+    },
+  ];
+  instrument.actions.receive!.moves = [
+    {
+      key: "r",
+      operation: "internal_transfer.reserve",
+      capture: "receipt",
+      economics: { purpose: "earning", sourceParty: "shop" },
+      amount: { field: "self.fee" },
+      from: "party.owner",
+      to: "party.shop",
+    },
+  ];
+  instrument.actions.finish!.moves = [
+    {
+      key: "p",
+      operation: "internal_transfer.post",
+      economics: { purpose: "internal", sourceParty: "owner" },
+      transfer: "self.receipt",
+    },
+  ];
+  instrument.actions.back!.calculate = [
+    {
+      target: "fee",
+      op: "sum",
+      values: [{ field: "self.amount" }, { field: "self.amount" }],
+    },
+  ];
+  instrument.actions.back!.moves = [
+    {
+      key: "back",
+      operation: "internal_transfer.create",
+      amount: { field: "self.fee" },
+      from: "self.cash",
+      to: "party.owner",
+    },
+  ];
+  const semantics = projectDocumentSemantics(document);
+  expect(documentSemanticsSchema.parse(semantics)).toEqual(semantics);
+  const effect = (name: string) =>
+    semantics.instruments[0]!.actions.find((action) => action.name === name)!
+      .moneyEffects[0]!;
+  // 100 minor units at 3.67% is 3.67, floored to 3.
+  expect(effect("finish")).toMatchObject({
+    economics: { purpose: "earning", sourceParty: "shop", reversalOf: null },
+    share: { base: "self.amount", bps: 367, value: "3" },
+  });
+  expect(effect("back")).toMatchObject({ economics: null, share: null });
+});
+
 // Mutation: let labels participate in executable field equality or ignore explicit display text.
 test("presentation overrides defaults without changing section selection or field compatibility", () => {
   const document = agreement();

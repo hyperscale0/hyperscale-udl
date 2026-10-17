@@ -10,6 +10,7 @@ import {
   udlRequirementSchema,
   udlValueSchema,
   udlKernelOperationSchema,
+  economicPurposes,
   subjectPartyRoles,
 } from "./schema.js";
 
@@ -54,12 +55,37 @@ export const semanticMoneyEffectSchema = z.strictObject({
   amount: udlValueSchema.nullable(),
   from: z.array(semanticAccountSchema),
   to: z.array(semanticAccountSchema),
-  // Expressions describe declared effects, never a receipt or evaluated quote.
+  // Expressions describe declared effects, never a receipt or a quote evaluated
+  // against an agreement. `share.value` is the one number, and it reads only
+  // document constants, so it is known at compile time.
   disposition: z.enum(["held", "paid", "released", "claim", "unresolved"]),
   transfer: text.nullable(),
   reservations: z.array(
     z.strictObject({ instrument: text, action: text, key: text }),
   ),
+  // The move's declared economics. A post carries the economics of the reservation it posts.
+  economics: z
+    .strictObject({
+      purpose: z.enum(economicPurposes),
+      sourceParty: text,
+      reversalOf: text.nullable(),
+    })
+    .nullable(),
+  /**
+   * The amount as a fixed share of one base field, found by following the
+   * floor-rounded rate, single sum and same-base subtraction rules the compiler
+   * writes for fees and splits. `bps` is the effective basis points of the base,
+   * 10000 for the whole base and fractional only where rates nest. `value` is
+   * the floor-rounded amount in minor units, set only when the base field is a
+   * constant, so every agreement of the Build moves the same value.
+   */
+  share: z
+    .strictObject({
+      base: text,
+      bps: z.number(),
+      value: z.string().nullable(),
+    })
+    .nullable(),
 });
 export const semanticActionSchema = z.strictObject({
   name: text,

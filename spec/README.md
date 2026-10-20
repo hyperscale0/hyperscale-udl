@@ -72,9 +72,12 @@ the object instance, list and action response types.
 
 An object may declare `entryActions`, a list of exposed attachment creation
 names. The host admits an active enrolled customer only to an entry action whose
-actor is the session's `actor` role. Other records remain closed. Retained
-participants can read their record and use the actions granted to their roles;
-participation never changes the owner.
+actor is the session's `actor` role. The HSX compiler lists the create that a
+placed `customer` starts as `actor`. A customer's record reads return the
+records they own, the records where they fill a party, and the records with an
+entry action open to them, and each names its `access`. Other records remain
+closed. Retained participants can read their record and use the actions granted
+to their roles; participation never changes the owner.
 
 An instrument may declare `scope: "product"`. Object creation can resolve a
 reference to that instrument on another record in the same Product when every

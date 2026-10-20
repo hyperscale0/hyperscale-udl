@@ -556,6 +556,14 @@ export const udlInstrumentSchema = z.strictObject({
   scope: z.literal("product").optional(),
   reports: z.array(reportDefinitionSchema).max(16).optional(),
   revisioned: z.literal(true).optional(),
+  /**
+   * One agreement per record: while one is in a state outside `reopenOn`, no
+   * other customer sees the record or starts another. A one-off sale declares
+   * it; a repeatable deal leaves it out.
+   */
+  oncePerRecord: z
+    .strictObject({ reopenOn: z.array(name).min(1).max(64) })
+    .optional(),
   family: family.optional(),
   id: instrumentId,
   subject: objectKindId.optional(),

@@ -771,6 +771,23 @@
           "type": "boolean",
           "const": true
         },
+        "oncePerRecord": {
+          "type": "object",
+          "properties": {
+            "reopenOn": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema3"
+              }
+            }
+          },
+          "required": [
+            "reopenOn"
+          ],
+          "additionalProperties": false
+        },
         "family": {
           "$ref": "#/$defs/__schema20"
         },

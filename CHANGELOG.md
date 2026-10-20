@@ -15,6 +15,9 @@ Added:
   `organization` or both.
 - New exports: `sarCurrency`, `sarMinorUnitExponent`, `currencySchema`,
   `sameAccount` and `isTerminalState`.
+- Instruments accept `oncePerRecord { reopenOn }`: the agreement runs once per
+  record while one sits in a state outside `reopenOn`. Validation refuses with
+  UDL3001 when `reopenOn` names an undeclared state or the initial state.
 
 Changed:
 

@@ -1259,6 +1259,22 @@ export function readUdl(
     for (const state of states)
       if (!reachable.has(state))
         add(base, `unreachable state ${state}`, "UDL3001");
+    if (inst.oncePerRecord) {
+      const reopenOn = inst.oncePerRecord.reopenOn;
+      duplicate(reopenOn, `${base}.oncePerRecord.reopenOn`);
+      if (reopenOn.some((state) => !states.has(state)))
+        add(
+          `${base}.oncePerRecord`,
+          "oncePerRecord reopens on an undeclared state",
+          "UDL3001",
+        );
+      if (reopenOn.includes(inst.lifecycle.initial))
+        add(
+          `${base}.oncePerRecord`,
+          "a started agreement holds its record, so reopenOn excludes the initial state",
+          "UDL3001",
+        );
+    }
     const checkRequirements = (
       requirements: typeof inst.invariants,
       where: string,
